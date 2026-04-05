@@ -1,0 +1,264 @@
+"""Envío de DTEs al SII."""
+import json
+import time
+import requests
+from lxml import etree
+
+from crumbpos.config.settings import get_sii_url, RUT_SII
+
+
+def enviar_dte(
+    xml_bytes: bytes,
+    token: str,
+    rut_emisor: str,
+    rut_envia: str | None = None,
+    es_boleta: bool = False,
+) -> dict:
+    """
+    Envía un EnvioDTE al SII.
+
+    Args:
+        xml_bytes: XML del EnvioDTE serializado como bytes
+        token: Token de autenticación del SII
+        rut_emisor: RUT de la empresa (sin puntos, con guión)
+        rut_envia: RUT de la persona que envía (firmante). Si None, usa rut_emisor.
+        es_boleta: True si es envío de boletas
+
+    Returns:
+        dict con TrackID y estado
+    """
+    if rut_envia is None:
+        rut_envia = rut_emisor
+
+    sender_num, sender_dv = rut_envia.split("-")
+    company_num, company_dv = rut_emisor.split("-")
+    servicio = "upload_boleta" if es_boleta else "upload"
+    url = get_sii_url(servicio)
+
+    headers = {
+        "Cookie": f"TOKEN={token}",
+        "User-Agent": "Mozilla/4.0 (compatible; PROG 1.0; CrumbPOS)",
+    }
+
+    files = {
+        "rutSender": (None, sender_num),
+        "dvSender": (None, sender_dv),
+        "rutCompany": (None, company_num),
+        "dvCompany": (None, company_dv),
+        "archivo": ("envio.xml", xml_bytes, "text/xml"),
+    }
+
+    # Reintentos por conexiones inestables del SII
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, files=files, headers=headers, timeout=90)
+            response.raise_for_status()
+            break
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            if attempt < max_retries - 1:
+                wait = 10 * (attempt + 1)
+                print(f"  Reintento {attempt + 2}/{max_retries} en {wait}s... ({e.__class__.__name__})")
+                time.sleep(wait)
+            else:
+                raise
+
+    text = response.text
+    import re
+
+    track_id = None
+    glosa = ""
+    status_code = None
+
+    # Con User-Agent "PROG", SII responde XML tipo RECEPCIONDTE
+    xml_track = re.search(r'<TRACKID>(\d+)</TRACKID>', text, re.IGNORECASE)
+    xml_status = re.search(r'<STATUS>(\d+)</STATUS>', text, re.IGNORECASE)
+    if xml_track:
+        track_id = xml_track.group(1)
+    if xml_status:
+        status_code = xml_status.group(1)
+
+    # Fallback: respuesta HTML
+    if not track_id:
+        track_match = re.search(r'Trackid\s+(\d+)', text, re.IGNORECASE)
+        if not track_match:
+            track_match = re.search(r'TRACKID\s*[:=]\s*(\d+)', text, re.IGNORECASE)
+        if not track_match:
+            track_match = re.search(r'Identificador de env[^:]*:\s*<strong>(\d+)</strong>', text, re.IGNORECASE)
+        if track_match:
+            track_id = track_match.group(1)
+
+    status = "OK" if (status_code == "0" or track_id) else "ERROR"
+
+    # Buscar glosa en XML o HTML
+    glosa_match = re.search(r'<GLOSA>([^<]+)</GLOSA>', text, re.IGNORECASE)
+    if glosa_match:
+        glosa = glosa_match.group(1).strip()
+    else:
+        # HTML fallback
+        td_matches = re.findall(r'<TD>(.+?)</TD>', text, re.DOTALL)
+        if td_matches:
+            glosa = " | ".join(m.strip() for m in td_matches if m.strip())
+        if not glosa:
+            h3_match = re.search(r'<h3[^>]*><font[^>]*>\s*(.+?)\s*</font></h3>', text, re.DOTALL)
+            if h3_match:
+                glosa = re.sub(r'<[^>]+>', '', h3_match.group(1)).strip()
+
+    return {
+        "status": status,
+        "status_code": status_code,
+        "track_id": track_id,
+        "glosa": glosa,
+        "raw": text,
+    }
+
+
+def consultar_estado_envio(track_id: str, token: str, rut_emisor: str) -> dict:
+    """Consulta el estado de un envío al SII via SOAP."""
+    import xml.sax.saxutils
+    rut_num, rut_dv = rut_emisor.split("-")
+    url = get_sii_url("estado_envio")
+
+    soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<soapenv:Body>
+<getEstUp xmlns="{url}" soapenv:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+<RutCompania xsi:type="xsd:string">{rut_num}</RutCompania>
+<DvCompania xsi:type="xsd:string">{rut_dv}</DvCompania>
+<TrackId xsi:type="xsd:string">{track_id}</TrackId>
+<Token xsi:type="xsd:string">{token}</Token>
+</getEstUp>
+</soapenv:Body>
+</soapenv:Envelope>"""
+
+    headers = {
+        "Content-Type": "text/xml; charset=UTF-8",
+        "SOAPAction": '""',
+    }
+
+    response = requests.post(url, data=soap_body.encode("utf-8"), headers=headers, timeout=30)
+    response.raise_for_status()
+
+    text = response.text
+
+    # Extract the return value from SOAP response
+    import re
+    # The response contains HTML-escaped XML inside getEstUpReturn
+    match = re.search(r'getEstUpReturn[^>]*>([^<]+)</getEstUpReturn', text)
+    if match:
+        import html
+        result_xml = html.unescape(match.group(1))
+        return {"raw": result_xml, "soap_raw": text}
+
+    return {"raw": text, "soap_raw": text}
+
+
+def enviar_boleta(
+    xml_bytes: bytes,
+    token: str,
+    rut_emisor: str,
+    rut_envia: str | None = None,
+) -> dict:
+    """
+    Envía un EnvioBOLETA al SII vía REST API.
+
+    La boleta usa endpoints REST diferentes a los DTEs normales:
+    - Upload: pangal.sii.cl (cert) / rahue.sii.cl (prod)
+    - Respuesta: JSON (no XML)
+
+    Args:
+        xml_bytes: XML del EnvioBOLETA serializado como bytes
+        token: Token de autenticación del SII (obtenido vía boleta.electronica.token)
+        rut_emisor: RUT de la empresa (sin puntos, con guión)
+        rut_envia: RUT de la persona que envía (firmante)
+
+    Returns:
+        dict con TrackID y estado
+    """
+    if rut_envia is None:
+        rut_envia = rut_emisor
+
+    sender_num, sender_dv = rut_envia.split("-")
+    company_num, company_dv = rut_emisor.split("-")
+    url = get_sii_url("boleta_upload")
+
+    headers = {
+        "Cookie": f"TOKEN={token}",
+        "User-Agent": "Mozilla/4.0 (compatible; PROG 1.0; CrumbPOS)",
+        "Accept": "application/json",
+    }
+
+    files = {
+        "rutSender": (None, sender_num),
+        "dvSender": (None, sender_dv),
+        "rutCompany": (None, company_num),
+        "dvCompany": (None, company_dv),
+        "archivo": ("envio_boleta.xml", xml_bytes, "text/xml"),
+    }
+
+    # Reintentos
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, files=files, headers=headers, timeout=90)
+            response.raise_for_status()
+            break
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            if attempt < max_retries - 1:
+                wait = 10 * (attempt + 1)
+                print(f"  Reintento {attempt + 2}/{max_retries} en {wait}s... ({e.__class__.__name__})")
+                time.sleep(wait)
+            else:
+                raise
+
+    text = response.text
+
+    # La REST API de boletas responde JSON
+    try:
+        resp_json = json.loads(text)
+        track_id = resp_json.get("trackid")
+        estado = resp_json.get("estado")
+        estadistica = resp_json.get("estadistica", [])
+
+        status = "OK" if track_id else "ERROR"
+
+        return {
+            "status": status,
+            "track_id": str(track_id) if track_id else None,
+            "estado": estado,
+            "estadistica": estadistica,
+            "raw": text,
+        }
+    except json.JSONDecodeError:
+        # Fallback: puede ser que responda XML o HTML
+        import re
+        track_id = None
+        xml_track = re.search(r'<TRACKID>(\d+)</TRACKID>', text, re.IGNORECASE)
+        if xml_track:
+            track_id = xml_track.group(1)
+
+        return {
+            "status": "OK" if track_id else "ERROR",
+            "track_id": track_id,
+            "estado": None,
+            "raw": text,
+        }
+
+
+def consultar_estado_boleta(track_id: str, token: str, rut_emisor: str) -> dict:
+    """Consulta el estado de un envío de boletas vía REST API."""
+    rut_num, rut_dv = rut_emisor.split("-")
+    url = f"{get_sii_url('boleta_estado')}/{rut_num}-{rut_dv}-{track_id}"
+
+    headers = {
+        "Accept": "application/json",
+        "Cookie": f"TOKEN={token}",
+    }
+
+    response = requests.get(url, headers=headers, timeout=30)
+    response.raise_for_status()
+
+    try:
+        return json.loads(response.text)
+    except json.JSONDecodeError:
+        return {"raw": response.text}

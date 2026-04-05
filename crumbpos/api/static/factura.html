@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>trestresPOS — Emitir Factura</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+
+        .header {
+            background: #000;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header img { height: 56px; }
+        .header .badge {
+            color: #f40d63;
+            font-size: 11px;
+            font-weight: 700;
+            background: rgba(244,13,99,0.15);
+            padding: 3px 10px;
+            border-radius: 12px;
+        }
+        .header .env {
+            color: #ffa500;
+            font-size: 11px;
+            font-weight: 700;
+            background: rgba(255,165,0,0.15);
+            padding: 3px 10px;
+            border-radius: 12px;
+            margin-left: auto;
+        }
+
+        .container { max-width: 900px; margin: 20px auto; padding: 0 16px; }
+
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .card h3 {
+            font-size: 14px;
+            text-transform: uppercase;
+            color: #888;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .form-row { display: flex; gap: 12px; margin-bottom: 10px; }
+        .form-row > * { flex: 1; }
+
+        label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 500; }
+        input, select {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border 0.2s;
+        }
+        input:focus, select:focus { outline: none; border-color: #f40d63; }
+
+        .tipo-dte-selector { display: flex; gap: 8px; margin-bottom: 16px; }
+        .tipo-dte-btn {
+            padding: 10px 20px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .tipo-dte-btn.active { border-color: #f40d63; color: #f40d63; background: rgba(244,13,99,0.05); }
+        .tipo-dte-btn:hover { border-color: #f40d63; }
+
+        /* Items table */
+        .items-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+        .items-table th {
+            text-align: left; font-size: 11px; color: #888; text-transform: uppercase;
+            padding: 6px 8px; border-bottom: 2px solid #eee;
+        }
+        .items-table td { padding: 4px 8px; }
+        .items-table input { border: 1px solid #eee; padding: 6px 8px; font-size: 13px; }
+        .items-table .col-nombre { width: 40%; }
+        .items-table .col-cant { width: 10%; }
+        .items-table .col-precio { width: 20%; }
+        .items-table .col-total { width: 20%; text-align: right; font-weight: 600; }
+        .items-table .col-accion { width: 10%; text-align: center; }
+
+        .btn-add-item {
+            background: none; border: 1px dashed #ccc; color: #888; padding: 8px;
+            width: 100%; border-radius: 6px; cursor: pointer; font-size: 13px;
+        }
+        .btn-add-item:hover { border-color: #f40d63; color: #f40d63; }
+
+        .btn-remove { background: none; border: none; color: #ccc; cursor: pointer; font-size: 18px; }
+        .btn-remove:hover { color: #e74c3c; }
+
+        /* Totales */
+        .totales { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-top: 12px; }
+        .totales .row { display: flex; gap: 20px; font-size: 14px; }
+        .totales .row .label { color: #888; min-width: 100px; text-align: right; }
+        .totales .row .value { min-width: 100px; text-align: right; font-weight: 600; }
+        .totales .row.total { font-size: 18px; color: #f40d63; border-top: 2px solid #eee; padding-top: 8px; }
+
+        /* Botones */
+        .actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
+        .btn-emitir {
+            background: #f40d63;
+            color: #fff;
+            border: none;
+            padding: 12px 32px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-emitir:hover { background: #d10b55; }
+        .btn-emitir:disabled { background: #ccc; cursor: not-allowed; }
+
+        /* Resultado */
+        .result { display: none; }
+        .result.show { display: block; }
+        .result.success { border-left: 4px solid #27ae60; }
+        .result.error { border-left: 4px solid #e74c3c; }
+        .result h3 { color: #27ae60; }
+        .result.error h3 { color: #e74c3c; }
+        .result-detail { font-size: 13px; color: #555; margin-top: 8px; }
+        .result-detail span { font-weight: 600; color: #333; }
+
+        .btn-pdf {
+            display: inline-block; margin-top: 12px; background: #333; color: #fff;
+            padding: 8px 20px; border-radius: 6px; text-decoration: none; font-size: 13px;
+            cursor: pointer; border: none;
+        }
+        .btn-pdf:hover { background: #555; }
+
+        .spinner { display: none; text-align: center; padding: 40px; }
+        .spinner.show { display: block; }
+        .spinner::after {
+            content: ''; display: inline-block; width: 32px; height: 32px;
+            border: 3px solid #eee; border-top-color: #f40d63; border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .info-bar {
+            background: #fff3cd; color: #856404; padding: 10px 16px; border-radius: 6px;
+            font-size: 13px; margin-bottom: 16px; border: 1px solid #ffc107;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="/static/logottpos.svg" alt="trestresPOS">
+        <span class="badge">Facturador</span>
+        <span class="env" id="envBadge">CERTIFICACION</span>
+        <a href="/folios" style="color:#aaa;font-size:12px;text-decoration:none;margin-left:8px;">Folios</a>
+    </div>
+
+    <div class="container">
+        <!-- Empresa emisora -->
+        <div class="card" style="padding:12px 20px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <label style="margin:0; font-weight:600; white-space:nowrap;">Empresa Emisora:</label>
+                <select id="empresaSelect" onchange="cambiarEmpresa()" style="flex:1; max-width:450px;">
+                    <option value="">Cargando...</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="info-bar" id="infoBar">
+            Cargando info del emisor...
+        </div>
+
+        <!-- Tipo DTE -->
+        <div class="card">
+            <h3>Tipo de Documento</h3>
+            <div class="tipo-dte-selector">
+                <button class="tipo-dte-btn active" data-tipo="33" onclick="selectTipo(33, this)">Factura Electr.</button>
+                <button class="tipo-dte-btn" data-tipo="34" onclick="selectTipo(34, this)">Factura Exenta</button>
+                <button class="tipo-dte-btn" data-tipo="61" onclick="selectTipo(61, this)">Nota de Credito</button>
+                <button class="tipo-dte-btn" data-tipo="56" onclick="selectTipo(56, this)">Nota de Debito</button>
+            </div>
+        </div>
+
+        <!-- Receptor -->
+        <div class="card">
+            <h3>Datos del Receptor</h3>
+            <!-- Buscador de clientes -->
+            <div style="position:relative; margin-bottom:12px;">
+                <div class="form-row" style="margin-bottom:0">
+                    <div style="flex:1; position:relative;">
+                        <label>Buscar Cliente</label>
+                        <input type="text" id="clienteBuscar" placeholder="Buscar por RUT o razon social..." oninput="buscarClientes()" autocomplete="off">
+                        <div id="clienteResults" style="display:none; position:absolute; top:100%; left:0; right:0; background:#fff; border:1px solid #ddd; border-top:none; border-radius:0 0 6px 6px; max-height:200px; overflow-y:auto; z-index:50; box-shadow:0 4px 12px rgba(0,0,0,0.15);"></div>
+                    </div>
+                    <div style="flex:0 0 auto; display:flex; align-items:flex-end;">
+                        <button type="button" onclick="guardarCliente()" style="padding:8px 16px; background:#27ae60; color:#fff; border:none; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap;" title="Guardar datos actuales como cliente">Guardar Cliente</button>
+                    </div>
+                </div>
+                <div id="clienteInfo" style="display:none; font-size:12px; color:#27ae60; margin-top:4px; font-weight:500;"></div>
+            </div>
+            <div class="form-row">
+                <div>
+                    <label>RUT</label>
+                    <input type="text" id="recRut" placeholder="12.345.678-9">
+                </div>
+                <div style="flex:2">
+                    <label>Razon Social</label>
+                    <input type="text" id="recRazon" placeholder="EMPRESA S.A.">
+                </div>
+            </div>
+            <div class="form-row">
+                <div>
+                    <label>Giro</label>
+                    <input type="text" id="recGiro" placeholder="VENTA AL POR MENOR">
+                </div>
+            </div>
+            <div class="form-row">
+                <div style="flex:2">
+                    <label>Direccion</label>
+                    <input type="text" id="recDir" placeholder="AV PRINCIPAL 123">
+                </div>
+                <div>
+                    <label>Comuna</label>
+                    <input type="text" id="recComuna" placeholder="SANTIAGO">
+                </div>
+                <div>
+                    <label>Ciudad</label>
+                    <input type="text" id="recCiudad" placeholder="SANTIAGO">
+                </div>
+            </div>
+        </div>
+
+        <!-- Condiciones de Pago -->
+        <div class="card" id="pagoCard">
+            <h3>Condiciones de Pago</h3>
+            <div class="form-row">
+                <div>
+                    <label>Forma de Pago</label>
+                    <select id="fmaPago" onchange="actualizarFmaPago()">
+                        <option value="1">Contado</option>
+                        <option value="2">Credito</option>
+                    </select>
+                </div>
+                <div id="condicionPagoWrap" style="display:none">
+                    <label>Condicion</label>
+                    <select id="condicionPago" onchange="actualizarVencimiento()">
+                        <option value="15">15 dias</option>
+                        <option value="20">20 dias</option>
+                        <option value="30" selected>30 dias</option>
+                        <option value="45">45 dias</option>
+                        <option value="60">60 dias</option>
+                        <option value="custom">Fecha especifica</option>
+                    </select>
+                </div>
+                <div id="fechaVencWrap" style="display:none">
+                    <label>Fecha Vencimiento</label>
+                    <input type="date" id="fechaVencimiento">
+                </div>
+            </div>
+        </div>
+
+        <!-- Orden de Compra (referencia 801) -->
+        <div class="card" id="ocCard">
+            <h3>Orden de Compra (opcional)</h3>
+            <div class="form-row">
+                <div>
+                    <label>N° Orden de Compra</label>
+                    <input type="text" id="ocNumero" placeholder="OC-12345">
+                </div>
+                <div>
+                    <label>Fecha OC</label>
+                    <input type="date" id="ocFecha">
+                </div>
+            </div>
+        </div>
+
+        <!-- Items -->
+        <div class="card">
+            <h3>Detalle de Items</h3>
+            <table class="items-table">
+                <thead>
+                    <tr>
+                        <th class="col-nombre">Descripcion</th>
+                        <th class="col-cant">Cant.</th>
+                        <th class="col-precio">Precio Unit.</th>
+                        <th class="col-total">Total</th>
+                        <th class="col-accion"></th>
+                    </tr>
+                </thead>
+                <tbody id="itemsBody">
+                    <tr>
+                        <td><input type="text" class="item-nombre" placeholder="Descripcion del producto o servicio"></td>
+                        <td><input type="number" class="item-cant" value="1" min="1" step="1" onchange="recalcular()"></td>
+                        <td><input type="number" class="item-precio" placeholder="0" min="0" onchange="recalcular()"></td>
+                        <td class="col-total item-total">$0</td>
+                        <td class="col-accion"><button class="btn-remove" onclick="removeItem(this)">&times;</button></td>
+                    </tr>
+                </tbody>
+            </table>
+            <button class="btn-add-item" onclick="addItem()">+ Agregar item</button>
+
+            <div class="totales" id="totales">
+                <div class="row"><span class="label">Neto:</span><span class="value" id="totalNeto">$0</span></div>
+                <div class="row"><span class="label">IVA (19%):</span><span class="value" id="totalIva">$0</span></div>
+                <div class="row total"><span class="label">TOTAL:</span><span class="value" id="totalTotal">$0</span></div>
+            </div>
+        </div>
+
+        <!-- Referencias (para NC/ND) -->
+        <div class="card" id="refCard" style="display:none">
+            <h3>Referencia</h3>
+            <div class="form-row">
+                <div>
+                    <label>Tipo Doc. Referencia</label>
+                    <select id="refTipoDoc">
+                        <option value="33">33 - Factura</option>
+                        <option value="34">34 - Factura Exenta</option>
+                        <option value="52">52 - Guia Despacho</option>
+                        <option value="801">801 - Orden de Compra</option>
+                    </select>
+                </div>
+                <div>
+                    <label>Folio Referencia</label>
+                    <input type="number" id="refFolio" placeholder="123">
+                </div>
+                <div>
+                    <label>Fecha Referencia</label>
+                    <input type="date" id="refFecha">
+                </div>
+            </div>
+            <div class="form-row">
+                <div>
+                    <label>Razon Referencia</label>
+                    <input type="text" id="refRazon" placeholder="Anula factura / Corrige monto">
+                </div>
+                <div>
+                    <label>Codigo</label>
+                    <select id="refCodigo">
+                        <option value="">Sin codigo</option>
+                        <option value="1">1 - Anula documento</option>
+                        <option value="2">2 - Corrige texto</option>
+                        <option value="3">3 - Corrige monto</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Acciones -->
+        <div class="actions">
+            <button class="btn-emitir" id="btnEmitir" onclick="emitirFactura()">
+                Emitir Factura
+            </button>
+        </div>
+
+        <!-- Spinner -->
+        <div class="spinner" id="spinner">
+            <p style="margin-top:12px; color:#888">Firmando y enviando al SII...</p>
+        </div>
+
+        <!-- Resultado -->
+        <div class="card result" id="resultado">
+            <h3 id="resTitle">Factura Emitida</h3>
+            <div class="result-detail" id="resDetail"></div>
+            <div style="display:flex; gap:8px; margin-top:12px;">
+                <button class="btn-pdf" id="btnPdf" style="display:none" onclick="descargarPdf()">Descargar PDF</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+const API = '';
+let tipodte = 33;
+let ultimoPdfBase64 = null;
+let empresaRut = null;
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', () => {
+    cargarEmpresas();
+    const hoy = new Date().toISOString().split('T')[0];
+    document.getElementById('refFecha').value = hoy;
+    document.getElementById('ocFecha').value = hoy;
+    actualizarFmaPago();
+});
+
+async function cargarEmpresas() {
+    try {
+        const res = await fetch(API + '/api/empresas/');
+        const empresas = await res.json();
+        const sel = document.getElementById('empresaSelect');
+        if (empresas.length === 0) {
+            sel.innerHTML = '<option value="">No hay empresas - registre una primero</option>';
+            return;
+        }
+        sel.innerHTML = empresas.map(e =>
+            `<option value="${e.rut}">${e.razon_social} (${e.rut})${!e.tiene_certificado ? ' - SIN CERT' : ''}</option>`
+        ).join('');
+        empresaRut = empresas[0].rut;
+        cargarInfo();
+    } catch (e) {
+        document.getElementById('infoBar').textContent = 'Error cargando empresas: ' + e.message;
+    }
+}
+
+function cambiarEmpresa() {
+    empresaRut = document.getElementById('empresaSelect').value;
+    cargarInfo();
+}
+
+async function cargarInfo() {
+    if (!empresaRut) return;
+    try {
+        const res = await fetch(API + '/api/facturacion/info?empresa_rut=' + encodeURIComponent(empresaRut));
+        const data = await res.json();
+        if (data.error) {
+            document.getElementById('infoBar').textContent = 'Error: ' + data.error;
+            return;
+        }
+        const env = data.ambiente === 'produccion' ? 'PRODUCCION' : 'CERTIFICACION';
+        document.getElementById('envBadge').textContent = env;
+        if (env === 'PRODUCCION') {
+            document.getElementById('envBadge').style.background = 'rgba(39,174,96,0.15)';
+            document.getElementById('envBadge').style.color = '#27ae60';
+        } else {
+            document.getElementById('envBadge').style.background = 'rgba(255,165,0,0.15)';
+            document.getElementById('envBadge').style.color = '#ffa500';
+        }
+        const fuente = data.fuente_folios === 'base_de_datos' ? 'DB' : 'Archivos';
+        if (env === 'CERTIFICACION') {
+            document.getElementById('infoBar').innerHTML =
+                `<strong>${data.emisor_razon}</strong> (${data.emisor_rut}) &mdash; ` +
+                `Ambiente: ${env} &mdash; Resolucion: ${data.resolucion} &mdash; ` +
+                `Folios [${fuente}]: ${JSON.stringify(data.folios_actuales)}`;
+            document.getElementById('infoBar').style.display = '';
+        } else {
+            document.getElementById('infoBar').style.display = 'none';
+        }
+    } catch (e) {
+        document.getElementById('infoBar').textContent = 'Error conectando con API: ' + e.message;
+    }
+}
+
+function selectTipo(tipo, btn) {
+    tipodte = tipo;
+    document.querySelectorAll('.tipo-dte-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    // Mostrar referencias para NC/ND
+    const refCard = document.getElementById('refCard');
+    refCard.style.display = (tipo === 61 || tipo === 56) ? 'block' : 'none';
+
+    // OC card solo para facturas (33/34)
+    const ocCard = document.getElementById('ocCard');
+    ocCard.style.display = (tipo === 33 || tipo === 34) ? 'block' : 'none';
+
+    // Condiciones de pago solo para facturas
+    const pagoCard = document.getElementById('pagoCard');
+    pagoCard.style.display = (tipo === 33 || tipo === 34) ? 'block' : 'none';
+
+    // Cambiar texto boton
+    const nombres = {33: 'Factura', 34: 'Factura Exenta', 61: 'Nota de Credito', 56: 'Nota de Debito'};
+    document.getElementById('btnEmitir').textContent = 'Emitir ' + (nombres[tipo] || 'DTE');
+
+    recalcular();
+}
+
+function addItem() {
+    const tbody = document.getElementById('itemsBody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td><input type="text" class="item-nombre" placeholder="Descripcion del producto o servicio"></td>
+        <td><input type="number" class="item-cant" value="1" min="1" step="1" onchange="recalcular()"></td>
+        <td><input type="number" class="item-precio" placeholder="0" min="0" onchange="recalcular()"></td>
+        <td class="col-total item-total">$0</td>
+        <td class="col-accion"><button class="btn-remove" onclick="removeItem(this)">&times;</button></td>
+    `;
+    tbody.appendChild(tr);
+}
+
+function removeItem(btn) {
+    const tbody = document.getElementById('itemsBody');
+    if (tbody.rows.length > 1) {
+        btn.closest('tr').remove();
+        recalcular();
+    }
+}
+
+function recalcular() {
+    const rows = document.querySelectorAll('#itemsBody tr');
+    let totalNeto = 0;
+
+    rows.forEach(row => {
+        const cant = parseFloat(row.querySelector('.item-cant')?.value) || 0;
+        const precio = parseInt(row.querySelector('.item-precio')?.value) || 0;
+        const total = Math.round(cant * precio);
+        row.querySelector('.item-total').textContent = '$' + total.toLocaleString('es-CL');
+        totalNeto += total;
+    });
+
+    const esExenta = tipodte === 34;
+    const iva = esExenta ? 0 : Math.round(totalNeto * 0.19);
+    const total = totalNeto + iva;
+
+    document.getElementById('totalNeto').textContent = '$' + totalNeto.toLocaleString('es-CL');
+    document.getElementById('totalIva').textContent = '$' + iva.toLocaleString('es-CL');
+    document.getElementById('totalTotal').textContent = '$' + total.toLocaleString('es-CL');
+}
+
+function actualizarFmaPago() {
+    const fma = document.getElementById('fmaPago').value;
+    const condWrap = document.getElementById('condicionPagoWrap');
+    const fechaWrap = document.getElementById('fechaVencWrap');
+    if (fma === '2') {
+        condWrap.style.display = '';
+        actualizarVencimiento();
+    } else {
+        condWrap.style.display = 'none';
+        fechaWrap.style.display = 'none';
+    }
+}
+
+function actualizarVencimiento() {
+    const sel = document.getElementById('condicionPago').value;
+    const fechaWrap = document.getElementById('fechaVencWrap');
+    const fechaInput = document.getElementById('fechaVencimiento');
+    if (sel === 'custom') {
+        fechaWrap.style.display = '';
+    } else {
+        // Calcular fecha automáticamente
+        const dias = parseInt(sel);
+        const hoy = new Date();
+        hoy.setDate(hoy.getDate() + dias);
+        fechaInput.value = hoy.toISOString().split('T')[0];
+        fechaWrap.style.display = '';
+    }
+}
+
+function formatRut(rut) {
+    return rut.replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+}
+
+async function emitirFactura() {
+    const btn = document.getElementById('btnEmitir');
+    const spinner = document.getElementById('spinner');
+    const resultado = document.getElementById('resultado');
+
+    // Validar
+    const recRut = formatRut(document.getElementById('recRut').value);
+    const recRazon = document.getElementById('recRazon').value.trim();
+    const recGiro = document.getElementById('recGiro').value.trim();
+    const recDir = document.getElementById('recDir').value.trim();
+    const recComuna = document.getElementById('recComuna').value.trim();
+    const recCiudad = document.getElementById('recCiudad').value.trim();
+
+    if (!recRut || !recRazon || !recGiro || !recDir || !recComuna) {
+        alert('Complete todos los datos del receptor');
+        return;
+    }
+
+    // Items
+    const rows = document.querySelectorAll('#itemsBody tr');
+    const items = [];
+    for (const row of rows) {
+        const nombre = row.querySelector('.item-nombre').value.trim();
+        const cant = parseFloat(row.querySelector('.item-cant').value) || 0;
+        const precio = parseInt(row.querySelector('.item-precio').value) || 0;
+        if (!nombre || cant <= 0 || precio <= 0) {
+            alert('Complete todos los items (nombre, cantidad y precio)');
+            return;
+        }
+        items.push({ nombre, cantidad: cant, precio_unitario: precio });
+    }
+
+    // Referencias
+    const referencias = [];
+    if (tipodte === 61 || tipodte === 56) {
+        const refFolio = document.getElementById('refFolio').value;
+        if (!refFolio) {
+            alert('Notas de credito/debito requieren referencia');
+            return;
+        }
+        const ref = {
+            tipo_doc: parseInt(document.getElementById('refTipoDoc').value),
+            folio: parseInt(refFolio),
+            fecha: document.getElementById('refFecha').value || null,
+            razon: document.getElementById('refRazon').value || null,
+        };
+        const codigo = document.getElementById('refCodigo').value;
+        if (codigo) ref.codigo = parseInt(codigo);
+        referencias.push(ref);
+    }
+
+    // Emitir
+    btn.disabled = true;
+    spinner.classList.add('show');
+    resultado.classList.remove('show');
+    ultimoPdfBase64 = null;
+    document.getElementById('btnPdf').style.display = 'none';
+
+    try {
+        // Condiciones de pago
+        const fmaPago = parseInt(document.getElementById('fmaPago').value);
+        let fechaVenc = null;
+        if (fmaPago === 2) {
+            fechaVenc = document.getElementById('fechaVencimiento').value || null;
+        }
+
+        // Orden de Compra
+        const ocNumero = document.getElementById('ocNumero').value.trim() || null;
+        const ocFecha = document.getElementById('ocFecha').value || null;
+
+        const body = {
+            empresa_rut: empresaRut,
+            tipo_dte: tipodte,
+            receptor_rut: recRut,
+            receptor_razon: recRazon,
+            receptor_giro: recGiro,
+            receptor_dir: recDir,
+            receptor_comuna: recComuna,
+            receptor_ciudad: recCiudad || null,
+            items: items,
+            referencias: referencias,
+            fma_pago: (tipodte === 33 || tipodte === 34) ? fmaPago : null,
+            fecha_vencimiento: (tipodte === 33 || tipodte === 34) ? fechaVenc : null,
+            oc_numero: (tipodte === 33 || tipodte === 34) ? ocNumero : null,
+            oc_fecha: (tipodte === 33 || tipodte === 34) ? ocFecha : null,
+        };
+
+        const res = await fetch(API + '/api/facturacion/emitir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        const data = await res.json();
+
+        spinner.classList.remove('show');
+        resultado.classList.add('show');
+
+        if (data.ok) {
+            resultado.className = 'card result show success';
+            document.getElementById('resTitle').textContent = 'Documento Emitido Exitosamente';
+            document.getElementById('resDetail').innerHTML =
+                `<p>Folio: <span>${data.folio}</span></p>` +
+                `<p>Track ID SII: <span>${data.track_id || 'N/A'}</span></p>` +
+                `<p>Neto: <span>$${(data.monto_neto || 0).toLocaleString('es-CL')}</span> | ` +
+                `IVA: <span>$${(data.iva || 0).toLocaleString('es-CL')}</span> | ` +
+                `Total: <span>$${(data.monto_total || 0).toLocaleString('es-CL')}</span></p>`;
+
+            if (data.pdf_base64) {
+                ultimoPdfBase64 = data.pdf_base64;
+                document.getElementById('btnPdf').style.display = 'inline-block';
+            }
+        } else {
+            resultado.className = 'card result show error';
+            document.getElementById('resTitle').textContent = 'Error al Emitir';
+            document.getElementById('resDetail').innerHTML =
+                `<p>${data.error || 'Error desconocido'}</p>` +
+                (data.folio ? `<p>Folio asignado: ${data.folio} (quemado)</p>` : '');
+            document.getElementById('btnPdf').style.display = 'none';
+        }
+    } catch (e) {
+        spinner.classList.remove('show');
+        resultado.className = 'card result show error';
+        document.getElementById('resTitle').textContent = 'Error de Conexion';
+        document.getElementById('resDetail').innerHTML = `<p>${e.message}</p>`;
+    }
+
+    btn.disabled = false;
+}
+
+function descargarPdf() {
+    const b64 = ultimoPdfBase64;
+    if (!b64) return;
+    const bytes = atob(b64);
+    const arr = new Uint8Array(bytes.length);
+    for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+    const blob = new Blob([arr], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+}
+
+// ── Clientes ──
+let clienteSeleccionado = null;
+let buscarTimeout = null;
+
+async function buscarClientes() {
+    const q = document.getElementById('clienteBuscar').value.trim();
+    const resultsDiv = document.getElementById('clienteResults');
+    if (!q || q.length < 2 || !empresaRut) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+    clearTimeout(buscarTimeout);
+    buscarTimeout = setTimeout(async () => {
+        try {
+            const res = await fetch(API + '/api/clientes/?empresa_rut=' + encodeURIComponent(empresaRut) + '&q=' + encodeURIComponent(q));
+            const clientes = await res.json();
+            if (!clientes || clientes.length === 0) {
+                resultsDiv.innerHTML = '<div style="padding:10px;color:#888;font-size:13px;">Sin resultados — puede ingresar datos manualmente</div>';
+                resultsDiv.style.display = 'block';
+                return;
+            }
+            resultsDiv.innerHTML = clientes.map(c => `
+                <div onclick='seleccionarCliente(${JSON.stringify(c).replace(/'/g,"&#39;")})' style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;" onmouseover="this.style.background='#f5f5f5'" onmouseout="this.style.background='#fff'">
+                    <strong>${c.rut}</strong> — ${c.razon_social}
+                    <span style="color:#888;font-size:11px;">${c.giro}</span>
+                    ${c.condicion_pago != null ? '<span style="color:#f40d63;font-size:11px;margin-left:8px;">' + (c.condicion_pago === 0 ? 'Contado' : c.condicion_pago + ' dias') + '</span>' : ''}
+                </div>
+            `).join('');
+            resultsDiv.style.display = 'block';
+        } catch (e) {
+            resultsDiv.style.display = 'none';
+        }
+    }, 300);
+}
+
+function seleccionarCliente(cliente) {
+    clienteSeleccionado = cliente;
+    document.getElementById('recRut').value = cliente.rut;
+    document.getElementById('recRazon').value = cliente.razon_social;
+    document.getElementById('recGiro').value = cliente.giro;
+    document.getElementById('recDir').value = cliente.direccion;
+    document.getElementById('recComuna').value = cliente.comuna;
+    document.getElementById('recCiudad').value = cliente.ciudad || '';
+    document.getElementById('clienteBuscar').value = '';
+    document.getElementById('clienteResults').style.display = 'none';
+    document.getElementById('clienteInfo').style.display = 'block';
+    document.getElementById('clienteInfo').textContent = 'Cliente cargado: ' + cliente.razon_social;
+
+    // Aplicar condición de pago del cliente
+    if (cliente.condicion_pago != null) {
+        if (cliente.condicion_pago === 0) {
+            document.getElementById('fmaPago').value = '1';
+            actualizarFmaPago();
+        } else {
+            document.getElementById('fmaPago').value = '2';
+            actualizarFmaPago();
+            // Buscar la opción de días más cercana
+            const dias = cliente.condicion_pago;
+            const condSel = document.getElementById('condicionPago');
+            const opciones = ['15','20','30','45','60'];
+            if (opciones.includes(String(dias))) {
+                condSel.value = String(dias);
+            } else {
+                condSel.value = 'custom';
+            }
+            actualizarVencimiento();
+        }
+    }
+}
+
+async function guardarCliente() {
+    const rut = formatRut(document.getElementById('recRut').value);
+    const razon = document.getElementById('recRazon').value.trim();
+    const giro = document.getElementById('recGiro').value.trim();
+    const dir = document.getElementById('recDir').value.trim();
+    const comuna = document.getElementById('recComuna').value.trim();
+    const ciudad = document.getElementById('recCiudad').value.trim();
+
+    if (!rut || !razon || !giro || !dir || !comuna) {
+        alert('Complete al menos RUT, razon social, giro, direccion y comuna para guardar el cliente');
+        return;
+    }
+
+    // Determinar condición de pago
+    let condPago = null;
+    const fma = document.getElementById('fmaPago').value;
+    if (fma === '1') {
+        condPago = 0;
+    } else if (fma === '2') {
+        const condSel = document.getElementById('condicionPago').value;
+        if (condSel !== 'custom') {
+            condPago = parseInt(condSel);
+        }
+    }
+
+    try {
+        // Intentar crear, si ya existe (400) intentar buscar y actualizar
+        const body = {
+            empresa_rut: empresaRut,
+            rut: rut,
+            razon_social: razon,
+            giro: giro,
+            direccion: dir,
+            comuna: comuna,
+            ciudad: ciudad || null,
+            condicion_pago: condPago,
+        };
+
+        let res = await fetch(API + '/api/clientes/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+
+        if (res.status === 400) {
+            // Ya existe — buscar por RUT y actualizar
+            const buscarRes = await fetch(API + '/api/clientes/buscar/rut/' + encodeURIComponent(rut) + '?empresa_rut=' + encodeURIComponent(empresaRut));
+            const existente = await buscarRes.json();
+            if (existente && existente.id) {
+                const updateBody = { razon_social: razon, giro: giro, direccion: dir, comuna: comuna, ciudad: ciudad || null, condicion_pago: condPago };
+                res = await fetch(API + '/api/clientes/' + existente.id, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(updateBody),
+                });
+                if (res.ok) {
+                    document.getElementById('clienteInfo').style.display = 'block';
+                    document.getElementById('clienteInfo').textContent = 'Cliente actualizado: ' + razon;
+                    return;
+                }
+            }
+        }
+
+        if (res.ok) {
+            document.getElementById('clienteInfo').style.display = 'block';
+            document.getElementById('clienteInfo').textContent = 'Cliente guardado: ' + razon;
+        } else {
+            const err = await res.json();
+            alert('Error guardando cliente: ' + (err.detail || JSON.stringify(err)));
+        }
+    } catch (e) {
+        alert('Error de conexion: ' + e.message);
+    }
+}
+
+// Cerrar resultados al hacer click fuera
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#clienteBuscar') && !e.target.closest('#clienteResults')) {
+        document.getElementById('clienteResults').style.display = 'none';
+    }
+});
+</script>
+</body>
+</html>

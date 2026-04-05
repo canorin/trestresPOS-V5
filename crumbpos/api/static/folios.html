@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>trestresPOS — Gestion de Folios</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+
+        .header {
+            background: #000;
+            padding: 0 24px;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header img { height: 56px; }
+        .header .badge {
+            color: #4a90d9;
+            font-size: 11px;
+            font-weight: 700;
+            background: rgba(74,144,217,0.15);
+            padding: 3px 10px;
+            border-radius: 12px;
+        }
+        .header nav { margin-left: auto; display: flex; gap: 12px; }
+        .header nav a {
+            color: #aaa; font-size: 13px; text-decoration: none; padding: 6px 12px;
+            border-radius: 6px; transition: all 0.2s;
+        }
+        .header nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+        .container { max-width: 1000px; margin: 20px auto; padding: 0 16px; }
+
+        /* Alertas resumen */
+        .alert-bar {
+            display: flex; gap: 12px; margin-bottom: 20px;
+        }
+        .alert-card {
+            flex: 1; padding: 16px 20px; border-radius: 8px;
+            background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .alert-card .num { font-size: 28px; font-weight: 700; }
+        .alert-card .lbl { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .alert-card.ok .num { color: #27ae60; }
+        .alert-card.warn .num { color: #f39c12; }
+        .alert-card.crit .num { color: #e74c3c; }
+
+        /* Tabla folios */
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .card h3 {
+            font-size: 14px; text-transform: uppercase; color: #888;
+            letter-spacing: 0.5px; margin-bottom: 12px; padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .folio-table { width: 100%; border-collapse: collapse; }
+        .folio-table th {
+            text-align: left; font-size: 11px; color: #888; text-transform: uppercase;
+            padding: 8px 12px; border-bottom: 2px solid #eee;
+        }
+        .folio-table td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; font-size: 14px; }
+        .folio-table tr:hover { background: #fafafa; }
+
+        .badge-alerta {
+            display: inline-block; padding: 3px 10px; border-radius: 12px;
+            font-size: 11px; font-weight: 700; text-transform: uppercase;
+        }
+        .badge-alerta.ok { background: rgba(39,174,96,0.1); color: #27ae60; }
+        .badge-alerta.advertencia { background: rgba(243,156,18,0.1); color: #f39c12; }
+        .badge-alerta.bajo { background: rgba(243,156,18,0.15); color: #e67e22; }
+        .badge-alerta.critico { background: rgba(231,76,60,0.15); color: #e74c3c; }
+        .badge-alerta.agotado { background: rgba(231,76,60,0.2); color: #c0392b; }
+
+        /* Barra progreso */
+        .progress-bar {
+            width: 100%; height: 8px; background: #eee; border-radius: 4px; overflow: hidden;
+        }
+        .progress-bar .fill {
+            height: 100%; border-radius: 4px; transition: width 0.3s;
+        }
+        .progress-bar .fill.ok { background: #27ae60; }
+        .progress-bar .fill.advertencia { background: #f39c12; }
+        .progress-bar .fill.bajo { background: #e67e22; }
+        .progress-bar .fill.critico { background: #e74c3c; }
+        .progress-bar .fill.agotado { background: #c0392b; }
+        .progress-info { font-size: 11px; color: #888; margin-top: 3px; }
+
+        /* Acciones */
+        .btn {
+            padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
+            cursor: pointer; border: 1px solid #ddd; background: #fff; transition: all 0.2s;
+        }
+        .btn:hover { border-color: #4a90d9; color: #4a90d9; }
+        .btn-primary {
+            background: #4a90d9; color: #fff; border-color: #4a90d9;
+        }
+        .btn-primary:hover { background: #357abd; }
+        .btn-danger { color: #e74c3c; border-color: #e74c3c; }
+        .btn-danger:hover { background: #e74c3c; color: #fff; }
+
+        .actions-row { display: flex; gap: 8px; align-items: center; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: #fff; border-radius: 12px; padding: 24px; width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .modal h3 { font-size: 16px; margin-bottom: 16px; }
+        .modal label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 500; }
+        .modal input, .modal select {
+            width: 100%; padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 14px; margin-bottom: 12px;
+        }
+        .modal input:focus, .modal select:focus { outline: none; border-color: #4a90d9; }
+        .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+
+        /* Upload */
+        .upload-zone {
+            border: 2px dashed #ddd; border-radius: 8px; padding: 20px;
+            text-align: center; color: #888; cursor: pointer; transition: all 0.2s;
+            margin-bottom: 16px;
+        }
+        .upload-zone:hover { border-color: #4a90d9; color: #4a90d9; }
+        .upload-zone.dragover { border-color: #4a90d9; background: rgba(74,144,217,0.05); }
+        .upload-zone input { display: none; }
+
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; padding: 12px 20px;
+            border-radius: 8px; color: #fff; font-size: 14px; font-weight: 500;
+            z-index: 300; transform: translateY(100px); opacity: 0;
+            transition: all 0.3s;
+        }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast.success { background: #27ae60; }
+        .toast.error { background: #e74c3c; }
+
+        /* Detalle expandible */
+        .rangos-detail { display: none; padding: 8px 12px; background: #fafafa; border-radius: 6px; margin-top: 6px; }
+        .rangos-detail.show { display: block; }
+        .rangos-detail table { width: 100%; font-size: 12px; }
+        .rangos-detail th { color: #888; text-align: left; padding: 4px 8px; }
+        .rangos-detail td { padding: 4px 8px; }
+        .btn-expand { background: none; border: none; cursor: pointer; color: #888; font-size: 16px; }
+        .btn-expand:hover { color: #4a90d9; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <img src="/static/logottpos.svg" alt="trestresPOS">
+        <span class="badge">Gestion Folios</span>
+        <nav>
+            <a href="/factura">Facturador</a>
+            <a href="/docs">API Docs</a>
+        </nav>
+    </div>
+
+    <div class="container">
+        <!-- Empresa selector -->
+        <div class="card" style="padding:12px 20px;">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <label style="margin:0; font-weight:600;">Empresa:</label>
+                <select id="empresaSelect" onchange="cargarEstado()" style="flex:1; max-width:400px;">
+                    <option value="">Cargando...</option>
+                </select>
+                <span id="empresaInfo" style="font-size:12px; color:#888;"></span>
+            </div>
+        </div>
+
+        <!-- Resumen -->
+        <div class="alert-bar" id="alertBar">
+            <div class="alert-card ok">
+                <div class="num" id="numTipos">-</div>
+                <div class="lbl">Tipos DTE</div>
+            </div>
+            <div class="alert-card ok" id="cardDisponibles">
+                <div class="num" id="numDisponibles">-</div>
+                <div class="lbl">Total Disponibles</div>
+            </div>
+            <div class="alert-card warn" id="cardAlertas">
+                <div class="num" id="numAlertas">-</div>
+                <div class="lbl">Alertas</div>
+            </div>
+            <div class="alert-card crit" id="cardCriticos">
+                <div class="num" id="numCriticos">-</div>
+                <div class="lbl">Criticos / Agotados</div>
+            </div>
+        </div>
+
+        <!-- Tabla principal -->
+        <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="margin:0; border:none; padding:0;">Estado de Folios</h3>
+                <div class="actions-row">
+                    <button class="btn" onclick="openUploadModal()">Subir CAF</button>
+                    <button class="btn" onclick="recargar()">Recargar</button>
+                </div>
+            </div>
+            <table class="folio-table">
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>Documento</th>
+                        <th>Proximo Folio</th>
+                        <th>Rango</th>
+                        <th>Uso</th>
+                        <th>Disponibles</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="foliosBody">
+                    <tr><td colspan="8" style="text-align:center;color:#888;padding:40px;">Cargando...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Upload CAF -->
+        <div class="card" id="uploadCard" style="display:none;">
+            <h3>Subir Archivo CAF</h3>
+            <div class="upload-zone" id="uploadZone" onclick="document.getElementById('cafFile').click()">
+                <input type="file" id="cafFile" accept=".xml" onchange="handleFileSelect(event)">
+                <p style="font-size:14px; margin-bottom:4px;">Arrastra un archivo CAF XML aqui</p>
+                <p style="font-size:12px;">o haz click para seleccionar</p>
+            </div>
+            <div id="uploadStatus"></div>
+        </div>
+    </div>
+
+    <!-- Modal Set Folio -->
+    <div class="modal-overlay" id="modalSetFolio">
+        <div class="modal">
+            <h3>Ajustar Folio</h3>
+            <p style="font-size:13px; color:#888; margin-bottom:16px;">
+                Solo se permite avanzar el folio (nunca retroceder) para evitar reutilizacion de folios ya enviados al SII.
+            </p>
+            <label>Tipo DTE</label>
+            <input type="text" id="modalTipo" readonly style="background:#f5f5f5;">
+            <label>Folio Actual</label>
+            <input type="text" id="modalActual" readonly style="background:#f5f5f5;">
+            <label>Nuevo Proximo Folio</label>
+            <input type="number" id="modalNuevo" min="1">
+            <div class="modal-actions">
+                <button class="btn" onclick="closeModal()">Cancelar</button>
+                <button class="btn btn-primary" onclick="confirmarSetFolio()">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+<script>
+const API = '';
+
+document.addEventListener('DOMContentLoaded', () => {
+    cargarEmpresas();
+    setupDragDrop();
+});
+
+async function cargarEmpresas() {
+    try {
+        const res = await fetch(API + '/api/folios/empresas');
+        const empresas = await res.json();
+        const sel = document.getElementById('empresaSelect');
+        if (empresas.length === 0) {
+            sel.innerHTML = '<option value="">No hay empresas registradas</option>';
+            return;
+        }
+        sel.innerHTML = empresas.map(e =>
+            `<option value="${e.rut}">${e.razon_social} (${e.rut})</option>`
+        ).join('');
+        cargarEstado();
+    } catch (e) {
+        showToast('Error cargando empresas: ' + e.message, 'error');
+    }
+}
+
+function getEmpresaRut() {
+    return document.getElementById('empresaSelect').value;
+}
+
+async function cargarEstado() {
+    const rut = getEmpresaRut();
+    if (!rut) return;
+    try {
+        const res = await fetch(API + '/api/folios/estado?empresa_rut=' + encodeURIComponent(rut));
+        const data = await res.json();
+        document.getElementById('empresaInfo').textContent = data.empresa_razon || '';
+        renderResumen(data);
+        renderTabla(data.folios);
+    } catch (e) {
+        showToast('Error cargando estado: ' + e.message, 'error');
+    }
+}
+
+function renderResumen(data) {
+    document.getElementById('numTipos').textContent = data.total_tipos;
+
+    const totalDisp = data.folios.reduce((s, f) => s + f.disponibles, 0);
+    document.getElementById('numDisponibles').textContent = totalDisp;
+
+    const alertas = data.folios.filter(f => f.alerta === 'bajo' || f.alerta === 'advertencia').length;
+    document.getElementById('numAlertas').textContent = alertas;
+
+    document.getElementById('numCriticos').textContent = data.alertas_criticas;
+}
+
+function renderTabla(folios) {
+    const tbody = document.getElementById('foliosBody');
+    if (folios.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#888;padding:40px;">No hay CAFs cargados</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = folios.map((f, idx) => {
+        const pct = Math.min(f.pct_usado, 100);
+        return `
+        <tr>
+            <td><strong>${f.tipo_dte}</strong></td>
+            <td style="font-size:12px;">${f.nombre}</td>
+            <td><strong style="font-size:16px;">${f.folio_actual}</strong></td>
+            <td style="font-size:12px;">
+                ${f.folio_min} - ${f.folio_max}
+                <button class="btn-expand" onclick="toggleRangos(${idx})">&#9660;</button>
+                <div class="rangos-detail" id="rangos-${idx}">
+                    <table>
+                        <thead><tr><th>Desde</th><th>Hasta</th><th>Total</th><th>Usados</th><th>Archivo</th></tr></thead>
+                        <tbody>
+                            ${f.rangos.map(r => `
+                                <tr>
+                                    <td>${r.desde}</td>
+                                    <td>${r.hasta}</td>
+                                    <td>${r.total}</td>
+                                    <td>${r.usados}</td>
+                                    <td style="font-size:10px;word-break:break-all;">${r.archivo}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </td>
+            <td style="min-width:120px;">
+                <div class="progress-bar">
+                    <div class="fill ${f.alerta}" style="width:${pct}%"></div>
+                </div>
+                <div class="progress-info">${f.consumidos} / ${f.total_autorizados} (${f.pct_usado}%)</div>
+            </td>
+            <td><strong>${f.disponibles}</strong></td>
+            <td><span class="badge-alerta ${f.alerta}">${f.alerta}</span></td>
+            <td>
+                <div class="actions-row">
+                    <button class="btn" onclick="openSetFolio(${f.tipo_dte}, '${f.nombre}', ${f.folio_actual})">Ajustar</button>
+                </div>
+            </td>
+        </tr>`;
+    }).join('');
+}
+
+function toggleRangos(idx) {
+    const el = document.getElementById('rangos-' + idx);
+    el.classList.toggle('show');
+}
+
+// ── Set Folio Modal ──
+
+let setFolioTipo = null;
+
+function openSetFolio(tipo, nombre, actual) {
+    setFolioTipo = tipo;
+    document.getElementById('modalTipo').value = tipo + ' - ' + nombre;
+    document.getElementById('modalActual').value = actual;
+    document.getElementById('modalNuevo').value = actual;
+    document.getElementById('modalNuevo').min = actual;
+    document.getElementById('modalSetFolio').classList.add('show');
+}
+
+function closeModal() {
+    document.getElementById('modalSetFolio').classList.remove('show');
+}
+
+async function confirmarSetFolio() {
+    const nuevo = parseInt(document.getElementById('modalNuevo').value);
+    if (!nuevo || nuevo < 1) {
+        alert('Ingrese un folio valido');
+        return;
+    }
+
+    try {
+        const res = await fetch(API + '/api/folios/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tipo_dte: setFolioTipo, folio: nuevo, empresa_rut: getEmpresaRut() }),
+        });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            showToast(data.mensaje, 'success');
+            closeModal();
+            cargarEstado();
+        } else {
+            showToast(data.detail || 'Error al ajustar folio', 'error');
+        }
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// ── Upload CAF ──
+
+function openUploadModal() {
+    const card = document.getElementById('uploadCard');
+    card.style.display = card.style.display === 'none' ? 'block' : 'none';
+}
+
+function setupDragDrop() {
+    const zone = document.getElementById('uploadZone');
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) uploadCAF(e.dataTransfer.files[0]);
+    });
+}
+
+function handleFileSelect(e) {
+    if (e.target.files.length) uploadCAF(e.target.files[0]);
+}
+
+async function uploadCAF(file) {
+    if (!file.name.endsWith('.xml')) {
+        showToast('Solo archivos XML de CAF', 'error');
+        return;
+    }
+
+    const status = document.getElementById('uploadStatus');
+    status.innerHTML = '<p style="color:#888;">Subiendo ' + file.name + '...</p>';
+
+    const form = new FormData();
+    form.append('archivo', file);
+
+    try {
+        const rut = getEmpresaRut();
+        const url = API + '/api/folios/upload' + (rut ? '?empresa_rut=' + encodeURIComponent(rut) : '');
+        const res = await fetch(url, { method: 'POST', body: form });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+            status.innerHTML = `<p style="color:#27ae60;">CAF registrado: Tipo ${data.tipo_dte}, folios ${data.folio_desde}-${data.folio_hasta}</p>`;
+            showToast(data.mensaje, 'success');
+            cargarEstado();
+        } else {
+            status.innerHTML = `<p style="color:#e74c3c;">${data.detail || 'Error al subir CAF'}</p>`;
+            showToast(data.detail || 'Error', 'error');
+        }
+    } catch (e) {
+        status.innerHTML = `<p style="color:#e74c3c;">Error: ${e.message}</p>`;
+    }
+}
+
+// ── Recargar ──
+
+async function recargar() {
+    try {
+        await fetch(API + '/api/folios/reload', { method: 'POST' });
+        showToast('CAFs recargados', 'success');
+        cargarEstado();
+    } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+    }
+}
+
+// ── Toast ──
+
+function showToast(msg, type) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast ' + type + ' show';
+    setTimeout(() => t.classList.remove('show'), 4000);
+}
+</script>
+</body>
+</html>

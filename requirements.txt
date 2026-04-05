@@ -1,0 +1,17 @@
+lxml
+cryptography
+pyOpenSSL
+requests
+pdf417gen
+reportlab
+Pillow
+num2words
+fpdf2
+# API
+fastapi
+uvicorn[standard]
+sqlalchemy
+python-jose[cryptography]
+passlib[bcrypt]
+pydantic[email]
+python-multipart
