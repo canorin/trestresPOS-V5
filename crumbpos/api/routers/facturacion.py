@@ -181,7 +181,7 @@ class ItemIn(BaseModel):
     nombre: str
     cantidad: float | None = None
     precio_unitario: int = 0
-    unidad_medida: str | None = "UN"
+    unidad_medida: str | None = None
     exento: bool = False
     descuento_pct: float | None = None
     monto_item: int | None = None
@@ -221,6 +221,9 @@ class EmitirFacturaIn(BaseModel):
     descuentos_globales: list[DescuentoGlobalIn] = []
     ind_traslado: int | None = None
     tipo_despacho: int | None = None
+    # Certificación: identificador del caso del set de pruebas (ej: "CASO 4768464-1")
+    # Cuando se indica, se agrega automáticamente una Referencia SET al DTE
+    caso_set: str | None = None
     # Validación: False = genera XML firmado sin enviar al SII (para revisión)
     enviar_sii: bool = True
 
@@ -296,9 +299,19 @@ def emitir_factura(body: EmitirFacturaIn, tenant: TenantContext = Depends(get_te
             descuentos_globales=[dg.model_dump() for dg in body.descuentos_globales] if body.descuentos_globales else None,
             ind_traslado=body.ind_traslado,
             tipo_despacho=body.tipo_despacho,
+            caso_set=body.caso_set,
         )
 
-        resultado = servicio.emitir_factura(req, enviar_sii=body.enviar_sii)
+        # session+empresa_id habilitan enriquecimiento CodRef=3 en el core:
+        # NC/ND que modifican monto leen los ítems originales desde el
+        # DteEmitido referenciado. Un solo core procesa documentos tanto en
+        # producción como en certificación — mismo fix sirve a ambos.
+        resultado = servicio.emitir_factura(
+            req,
+            enviar_sii=body.enviar_sii,
+            session=tenant.db,
+            empresa_id=empresa.id,
+        )
 
         # Persist DteEmitido
         try:
@@ -373,7 +386,13 @@ def emitir_factura_pdf(body: EmitirFacturaIn, tenant: TenantContext = Depends(ge
             tipo_despacho=body.tipo_despacho,
         )
 
-        resultado = servicio.emitir_factura(req)
+        # Igual que /emitir: session+empresa_id habilitan enriquecimiento
+        # CodRef=3 en el core para NC/ND que modifican monto.
+        resultado = servicio.emitir_factura(
+            req,
+            session=tenant.db,
+            empresa_id=empresa.id,
+        )
 
         try:
             _persist_dte_emitido(tenant.db, empresa, body, resultado, sucursal_id=sucursal_id)
@@ -569,6 +588,17 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
         dtes = query.order_by(DteEmitido.tipo_dte, DteEmitido.folio).all()
         if not dtes:
             return {"ok": True, "mensaje": "No hay DTEs pendientes", "enviados": 0}
+
+        # ── Protección DTE-3-100: no re-enviar folios ya enviados al SII ──
+        ya_enviados = [d for d in dtes if d.track_id is not None]
+        if ya_enviados:
+            detalle = [f"T{d.tipo_dte} F{d.folio} (track {d.track_id})" for d in ya_enviados]
+            raise HTTPException(
+                400,
+                f"Los siguientes DTEs ya fueron enviados al SII y serían rechazados "
+                f"con DTE-3-100 (Repetido): {', '.join(detalle)}. "
+                f"Para re-enviar un set, emita folios nuevos."
+            )
 
         # ── Ordenamiento topológico por dependencias reales ──
         # Si un DTE referencia a otro del mismo sobre, el referenciado va primero.
@@ -842,9 +872,17 @@ def _ordenar_por_dependencias(dtes: list) -> list:
             pass
 
     # Kahn's algorithm — ordenamiento topológico
+    # Prioridad: Facturas (T33,T34) → NC (T61) → ND (T56) → Guías (T52)
+    # Esto asegura que NC va antes que ND cuando ambos modifican el mismo
+    # documento original (requerido por validación CodRef=3 del SII).
+    _DTE_PRIORITY = {33: 0, 34: 1, 61: 2, 56: 3, 52: 4, 39: 5, 41: 6}
+
+    def _sort_key(k):
+        return (_DTE_PRIORITY.get(k[0], 99), k[1])
+
     in_degree = defaultdict(int)
     graph = defaultdict(list)  # dependencia → [dependientes]
-    all_keys = list(dte_map.keys())
+    all_keys = sorted(dte_map.keys(), key=_sort_key)
 
     for key in all_keys:
         in_degree.setdefault(key, 0)
@@ -852,17 +890,25 @@ def _ordenar_por_dependencias(dtes: list) -> list:
             graph[dep].append(key)
             in_degree[key] += 1
 
-    # Cola con los que no dependen de nadie (in_degree=0)
-    queue = deque(k for k in all_keys if in_degree[k] == 0)
+    # Cola ordenada: cuando varios DTEs quedan libres simultáneamente,
+    # se procesan en orden de prioridad (NC antes que ND).
+    queue = deque(sorted(
+        (k for k in all_keys if in_degree[k] == 0),
+        key=_sort_key,
+    ))
     ordered = []
 
     while queue:
         node = queue.popleft()
         ordered.append(node)
+        # Ordenar dependientes por prioridad antes de agregar a la cola
+        released = []
         for dependent in graph[node]:
             in_degree[dependent] -= 1
             if in_degree[dependent] == 0:
-                queue.append(dependent)
+                released.append(dependent)
+        for r in sorted(released, key=_sort_key):
+            queue.append(r)
 
     # Si hay ciclos (no debería), agregar los que falten al final
     remaining = [k for k in all_keys if k not in set(ordered)]

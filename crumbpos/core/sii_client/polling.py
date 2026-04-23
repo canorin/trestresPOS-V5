@@ -2,6 +2,9 @@
 
 Consulta automatizada del estado de envios pendientes,
 actualizando los registros en la base de datos.
+
+Boletas (T39/T41) usan la REST API del SII con token de boleta,
+mientras DTEs tradicionales usan SOAP.
 """
 import logging
 import re
@@ -11,23 +14,43 @@ from lxml import etree
 from sqlalchemy.orm import Session
 
 from crumbpos.db.models import DteEmitido, LibroGenerado, Empresa
-from crumbpos.core.sii_client.envio import consultar_estado_envio
+from crumbpos.core.sii_client.envio import consultar_estado_envio, consultar_estado_boleta
 from crumbpos.core.sii_client.consulta import consultar_estado_dte
 
 logger = logging.getLogger(__name__)
 
-# ── Mapeo de estados SII para DTEs ──
+# ── Mapeo de estados SII para DTEs / Envios (SOAP QueryEstUp) ──
+# Tabla oficial: estado_envio.pdf (OI2004_CEUPDTE_MDE_1.10) seccion 3.3
+# RSC / SOK / CRT / RFR / FOK / PDR / RCT / EPR
+# CRT = "Caratula OK" (estado intermedio positivo, NO rechazo)
+# PDR = "Envio en Proceso" (NO "PRD" — ese codigo no existe en el SII)
+# Rechazos definitivos: RSC (Schema), RFR (Firma), RCT (Caratula)
 
 ESTADO_DTE_MAP = {
-    "EPR": "aceptado",      # Envio Procesado OK
-    "RPR": "reparo",        # Aceptado con Reparos
-    "RCT": "rechazado",     # Rechazado
-    "SOK": "pendiente",     # Schema OK, pendiente de proceso
-    "CRT": "rechazado",     # Error de certificado
-    "FOK": "pendiente",     # Firma OK, pendiente
-    "PRD": "pendiente",     # En proceso
+    "EPR": "aceptado",      # Envio Procesado
+    "RSC": "rechazado",     # Rechazado por Error en Schema
+    "SOK": "pendiente",     # Schema Validado (intermedio)
+    "CRT": "pendiente",     # Caratula OK (intermedio positivo)
+    "RFR": "rechazado",     # Rechazado por Error en Firma
+    "FOK": "pendiente",     # Firma de Envio Validada (intermedio)
+    "PDR": "pendiente",     # Envio en Proceso
+    "RCT": "rechazado",     # Rechazado por Error en Caratula
+    "RPR": "reparo",        # Aceptado con Reparos (compatibilidad, no en tabla oficial)
+    "DNK": "pendiente",     # Aun no verificado (pertenece a QueryEstDte)
     "-11": "pendiente",     # Reintentando
-    "DNK": "pendiente",     # Aun no  verificado
+}
+
+# ── Mapeo de estados SII para Boletas (REST API) ──
+# Documentado en https://www4c.sii.cl/bolcoreinternetui/api/ openapi.yaml
+
+ESTADO_BOLETA_MAP = {
+    "EPR": "aceptado",      # Envío Procesado OK
+    "RCH": "rechazado",     # Rechazado
+    "RCO": "rechazado",     # Rechazado por consistencia
+    "RPR": "reparo",        # Aceptado con Reparos
+    "SOK": "pendiente",     # Schema OK, pendiente
+    "REC": "pendiente",     # Recibido, en proceso
+    "PRD": "pendiente",     # En proceso
 }
 
 # ── Mapeo de estados SII para Libros ──
@@ -109,17 +132,73 @@ def _parse_estado_envio(raw_xml: str) -> tuple[str | None, str | None]:
         )
 
 
+def _parse_estado_boleta(resp_json: dict) -> tuple[str | None, str | None]:
+    """Parsea la respuesta JSON de consultar_estado_boleta.
+
+    La REST API devuelve JSON con:
+    - estado: REC, EPR, RCH, RCO, RPR, SOK
+    - estadistica: lista de documentos por tipo y estado
+    - detalle_rep_rech: detalles de rechazos/reparos
+
+    Returns:
+        (estado_sii, glosa) o (None, None) si no se puede parsear.
+    """
+    try:
+        estado = resp_json.get("estado")
+        if not estado:
+            return None, None
+
+        # Construir glosa descriptiva
+        glosa_parts = [estado]
+
+        # Agregar estadísticas si existen
+        estadistica = resp_json.get("estadistica")
+        if estadistica:
+            for stat in estadistica:
+                tipo = stat.get("tipo", "?")
+                informados = stat.get("informados", 0)
+                aceptados = stat.get("aceptados", 0)
+                rechazados = stat.get("rechazados", 0)
+                reparos = stat.get("reparos", 0)
+                glosa_parts.append(
+                    f"T{tipo}: {informados} informados, "
+                    f"{aceptados} aceptados, {rechazados} rechazados, "
+                    f"{reparos} reparos"
+                )
+
+        # Agregar detalles de rechazo si existen
+        detalle = resp_json.get("detalle_rep_rech")
+        if detalle:
+            for d in detalle[:5]:  # Máximo 5 detalles
+                desc = d.get("descripcion", "")
+                if desc:
+                    glosa_parts.append(desc)
+
+        glosa = " | ".join(glosa_parts)
+        return estado, glosa
+
+    except Exception as e:
+        logger.warning("Error parseando respuesta boleta: %s", e)
+        return None, None
+
+
 def poll_dtes(
     db: Session,
     empresa: Empresa,
     token: str,
+    token_boleta: str | None = None,
 ) -> dict:
     """Consulta el estado de todos los DTEs pendientes de una empresa.
+
+    Soporta tanto DTEs tradicionales (SOAP) como boletas (REST API).
+    Las boletas (T39/T41) requieren un token_boleta obtenido via
+    la REST API de boletas del SII.
 
     Args:
         db: Sesion SQLAlchemy
         empresa: Empresa a consultar
-        token: Token SII vigente
+        token: Token SII vigente (SOAP, para DTEs tradicionales)
+        token_boleta: Token REST API para boletas (opcional)
 
     Returns:
         Resumen con conteo de actualizaciones por estado.
@@ -135,6 +214,10 @@ def poll_dtes(
         .all()
     )
 
+    # Separar DTEs tradicionales de boletas
+    dtes_regular = [d for d in pendientes if d.tipo_dte not in (39, 41)]
+    dtes_boleta = [d for d in pendientes if d.tipo_dte in (39, 41)]
+
     resumen = {
         "total_consultados": 0,
         "aceptados": 0,
@@ -145,7 +228,8 @@ def poll_dtes(
         "detalle": [],
     }
 
-    for dte in pendientes:
+    # ── DTEs tradicionales (SOAP) ──
+    for dte in dtes_regular:
         resumen["total_consultados"] += 1
         try:
             resp = consultar_estado_envio(
@@ -170,12 +254,10 @@ def poll_dtes(
             nuevo_estado = ESTADO_DTE_MAP.get(estado_sii, "pendiente")
             estado_anterior = dte.estado_sii
 
-            # Actualizar registro
             dte.estado_sii = nuevo_estado
             dte.glosa_sii = glosa or estado_sii
             dte.fecha_consulta_sii = datetime.utcnow()
 
-            # Contabilizar
             if nuevo_estado == estado_anterior:
                 resumen["sin_cambio"] += 1
             elif nuevo_estado == "aceptado":
@@ -216,6 +298,98 @@ def poll_dtes(
                 dte.tipo_dte, dte.folio, dte.track_id, e,
                 exc_info=True,
             )
+
+    # ── Boletas (REST API) ──
+    if dtes_boleta and not token_boleta:
+        logger.warning(
+            "%d boletas pendientes pero sin token_boleta — omitiendo consulta REST",
+            len(dtes_boleta),
+        )
+        for dte in dtes_boleta:
+            resumen["total_consultados"] += 1
+            resumen["errores"] += 1
+            resumen["detalle"].append({
+                "tipo_dte": dte.tipo_dte,
+                "folio": dte.folio,
+                "track_id": dte.track_id,
+                "error": "Sin token_boleta para consulta REST API",
+            })
+
+    elif dtes_boleta and token_boleta:
+        # Agrupar por track_id para no consultar el mismo track múltiples veces
+        tracks_consultados = {}
+        for dte in dtes_boleta:
+            resumen["total_consultados"] += 1
+            try:
+                track = dte.track_id
+                if track not in tracks_consultados:
+                    resp_json = consultar_estado_boleta(
+                        track_id=track,
+                        token=token_boleta,
+                        rut_emisor=empresa.rut,
+                    )
+                    tracks_consultados[track] = resp_json
+
+                resp_json = tracks_consultados[track]
+                estado_sii, glosa = _parse_estado_boleta(resp_json)
+
+                if estado_sii is None:
+                    resumen["errores"] += 1
+                    resumen["detalle"].append({
+                        "tipo_dte": dte.tipo_dte,
+                        "folio": dte.folio,
+                        "track_id": track,
+                        "error": f"No se pudo parsear respuesta boleta: {resp_json}",
+                    })
+                    continue
+
+                nuevo_estado = ESTADO_BOLETA_MAP.get(estado_sii, "pendiente")
+                estado_anterior = dte.estado_sii
+
+                dte.estado_sii = nuevo_estado
+                dte.glosa_sii = glosa or estado_sii
+                dte.fecha_consulta_sii = datetime.utcnow()
+
+                if nuevo_estado == estado_anterior:
+                    resumen["sin_cambio"] += 1
+                elif nuevo_estado == "aceptado":
+                    resumen["aceptados"] += 1
+                elif nuevo_estado == "rechazado":
+                    resumen["rechazados"] += 1
+                elif nuevo_estado == "reparo":
+                    resumen["reparos"] += 1
+                else:
+                    resumen["sin_cambio"] += 1
+
+                resumen["detalle"].append({
+                    "tipo_dte": dte.tipo_dte,
+                    "folio": dte.folio,
+                    "track_id": track,
+                    "estado_anterior": estado_anterior,
+                    "estado_nuevo": nuevo_estado,
+                    "estado_sii_raw": estado_sii,
+                    "glosa": glosa,
+                })
+
+                logger.info(
+                    "Boleta T%d F%d track=%s: %s -> %s (%s)",
+                    dte.tipo_dte, dte.folio, track,
+                    estado_anterior, nuevo_estado, estado_sii,
+                )
+
+            except Exception as e:
+                resumen["errores"] += 1
+                resumen["detalle"].append({
+                    "tipo_dte": dte.tipo_dte,
+                    "folio": dte.folio,
+                    "track_id": dte.track_id,
+                    "error": str(e),
+                })
+                logger.error(
+                    "Error consultando Boleta T%d F%d track=%s: %s",
+                    dte.tipo_dte, dte.folio, dte.track_id, e,
+                    exc_info=True,
+                )
 
     return resumen
 
@@ -330,18 +504,21 @@ def poll_all(
     db: Session,
     empresa: Empresa,
     token: str,
+    token_boleta: str | None = None,
 ) -> dict:
-    """Ejecuta polling completo de DTEs y Libros pendientes.
+    """Ejecuta polling completo de DTEs, Boletas y Libros pendientes.
 
     Args:
         db: Sesion SQLAlchemy
         empresa: Empresa a consultar
-        token: Token SII vigente
+        token: Token SII vigente (SOAP)
+        token_boleta: Token REST API para boletas (opcional).
+            Si no se proporciona, las boletas pendientes no se consultaran.
 
     Returns:
-        Resumen combinado de DTEs y Libros.
+        Resumen combinado de DTEs, Boletas y Libros.
     """
-    resumen_dtes = poll_dtes(db, empresa, token)
+    resumen_dtes = poll_dtes(db, empresa, token, token_boleta=token_boleta)
     resumen_libros = poll_libros(db, empresa, token)
 
     return {

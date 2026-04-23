@@ -23,11 +23,46 @@ from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import (
-    create_engine, String, Integer, Boolean, DateTime, Text, event,
+    create_engine, String, Integer, Boolean, DateTime, Text, event, text,
 )
 from sqlalchemy.orm import (
     sessionmaker, DeclarativeBase, Mapped, mapped_column, Session,
 )
+
+# ══════════════════════════════════════════════════════════════════
+# CONSTANTES DE NEGOCIO
+# ══════════════════════════════════════════════════════════════════
+
+ETAPAS_VALIDAS = (
+    "pendiente_certificacion",  # recién creada, aún no inicia el wizard
+    "proceso_certificacion",    # certificación en curso
+    "produccion",               # aprobada por SII, operando en producción
+)
+
+PLANES_DISPONIBLES = (
+    "full_free",  # plan de cortesía — todas las features gratis
+)
+
+# Estados del ciclo de vida de una empresa en master.db.
+#
+# activa           → operando normalmente, visible en el listado principal
+# eliminada_soft   → baja solicitada, datos movidos a data/.trash/, visible
+#                    solo en "Papelera". El super admin puede restaurarla o
+#                    (tras `puede_eliminarse_desde`) eliminarla definitivamente.
+# eliminada_hard   → datos borrados del disco. El registro en master queda
+#                    como tombstone inmutable para auditoría. Nunca vuelve
+#                    a aparecer en ninguna UI operativa.
+EMPRESA_ESTADOS = (
+    "activa",
+    "eliminada_soft",
+    "eliminada_hard",
+)
+
+# Ventana de gracia entre baja soft y eliminación definitiva.
+# La eliminación NO es automática — pasada esta ventana, el super admin
+# ve el botón "Eliminar definitivamente" en la Papelera. Nada se borra
+# solo: siempre hay un humano apretando el botón final.
+ELIMINACION_GRACIA_DIAS = 30
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +95,87 @@ class EmpresaRegistro(BaseMaster):
     ambiente_activo: Mapped[str] = mapped_column(
         String(15), default="certificacion",
     )  # "certificacion" | "produccion"
+    etapa: Mapped[str] = mapped_column(
+        String(30), default="pendiente_certificacion",
+    )  # "pendiente_certificacion" | "proceso_certificacion" | "produccion"
+    plan: Mapped[str] = mapped_column(
+        String(30), default="full_free",
+    )  # plan comercial — hoy solo "full_free" (plan de cortesía)
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow,
     )
+
+    # ── Ciclo de vida: baja / papelera / eliminación definitiva ──
+    #
+    # El campo `activa` arriba es un flag legado (pausar / reactivar una
+    # empresa sin darla de baja). `estado` es el nuevo campo que modela el
+    # flujo completo de eliminación (ver EMPRESA_ESTADOS arriba). Ambos
+    # conviven porque `activa` es barato de consultar y se usa en varias
+    # partes del core; `estado` manda cuando hay un conflicto.
+    estado: Mapped[str] = mapped_column(String(20), default="activa")
+    # Momento en que el super admin confirmó la baja. Hasta que llega
+    # `puede_eliminarse_desde`, la empresa vive en `data/.trash/{rut}_*`
+    # y puede restaurarse sin perder nada.
+    fecha_eliminacion_soft: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+    puede_eliminarse_desde: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+    # Momento en que se borró del disco. Inmutable — una vez seteado
+    # ya no hay vuelta atrás. El registro queda como tombstone.
+    fecha_eliminacion_hard: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+    eliminado_por_user_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True,
+    )
+    # sha256 del último ZIP exportado para esta empresa. Sirve como
+    # garantía auditable de que el cliente recibió su info antes de
+    # que tocáramos sus archivos. Si está vacío, `confirmar_baja`
+    # rechaza la operación.
+    zip_descargado_sha256: Mapped[str | None] = mapped_column(
+        String(64), nullable=True,
+    )
+    # Momento en que se archivó la certificación (cleanup.py). Los datos
+    # de la run/casos/libros se borraron de certificacion.db pero Empresa,
+    # Sucursal y Usuario se preservan. No afecta produccion.db en absoluto.
+    cert_archivada_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
+
+
+class EmpresaEliminacionLog(BaseMaster):
+    """Log append-only de eventos del ciclo de baja/restauración/eliminación.
+
+    Este log es la fuente de verdad para auditoría del super admin. Cada
+    transición (exportar ZIP, soft-delete, restaurar, hard-delete) agrega
+    una fila con quién la ejecutó y un JSON con contexto. Nunca se actualiza
+    ni se borra — las empresas eliminadas mantienen su historial acá aunque
+    `empresa_registro` las haya movido a estado='eliminada_hard'.
+    """
+    __tablename__ = "empresa_eliminacion_log"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    empresa_rut: Mapped[str] = mapped_column(
+        String(12), nullable=False, index=True,
+    )
+    evento: Mapped[str] = mapped_column(String(30), nullable=False)
+    # Eventos posibles:
+    #   zip_exportado   → super admin descargó el ZIP de la empresa
+    #   baja_soft       → empresa movida a papelera
+    #   restaurada      → empresa restaurada desde papelera
+    #   baja_hard       → datos borrados del disco
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    user_email: Mapped[str | None] = mapped_column(String(120))
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow,
+    )
+    detalle_json: Mapped[str | None] = mapped_column(Text)
+    # detalle_json: contexto libre. Ej:
+    #   {"sha256": "...", "bytes": 1234567, "path_trash": "data/.trash/..."}
+    #   {"dtes_exportados": 220, "libros_exportados": 12, "rcofs": 45}
 
 
 class UsuarioAuth(BaseMaster):
@@ -111,10 +223,120 @@ def _ensure_master():
         db_url, connect_args={"check_same_thread": False}, echo=False,
     )
     BaseMaster.metadata.create_all(bind=_master_engine)
+    _migrate_master_schema(_master_engine)
     _MasterSessionFactory = sessionmaker(
         bind=_master_engine, autocommit=False, autoflush=False,
     )
     logger.info("Master DB initialized: %s", DATA_DIR / "master.db")
+
+
+def _migrate_master_schema(engine):
+    """Agrega columnas nuevas a empresa_registro si no existen (idempotente).
+
+    SQLite no soporta ALTER TABLE ... IF NOT EXISTS, por eso consultamos
+    PRAGMA table_info y agregamos solo lo que falte.
+    """
+    with engine.begin() as conn:
+        cols = {
+            row[1] for row in conn.execute(
+                text("PRAGMA table_info(empresa_registro)"),
+            )
+        }
+        if "etapa" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro ADD COLUMN etapa "
+                "VARCHAR(30) NOT NULL DEFAULT 'pendiente_certificacion'"
+            ))
+            # Empresas preexistentes: derivar etapa desde ambiente_activo
+            conn.execute(text(
+                "UPDATE empresa_registro SET etapa = 'produccion' "
+                "WHERE ambiente_activo = 'produccion'"
+            ))
+            conn.execute(text(
+                "UPDATE empresa_registro SET etapa = 'proceso_certificacion' "
+                "WHERE ambiente_activo = 'certificacion' "
+                "AND etapa = 'pendiente_certificacion'"
+            ))
+            logger.info("Master migrate: columna 'etapa' agregada a empresa_registro")
+        if "plan" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro ADD COLUMN plan "
+                "VARCHAR(30) NOT NULL DEFAULT 'full_free'"
+            ))
+            logger.info("Master migrate: columna 'plan' agregada a empresa_registro")
+
+        # ── Ciclo de baja/papelera/hard-delete ──
+        #
+        # Cada columna se agrega por separado con su DEFAULT, así las
+        # empresas preexistentes arrancan automáticamente con estado='activa'
+        # y fechas en NULL. Ninguna modificación es destructiva.
+        if "estado" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro ADD COLUMN estado "
+                "VARCHAR(20) NOT NULL DEFAULT 'activa'"
+            ))
+            logger.info("Master migrate: columna 'estado' agregada a empresa_registro")
+        if "fecha_eliminacion_soft" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN fecha_eliminacion_soft DATETIME"
+            ))
+            logger.info(
+                "Master migrate: columna 'fecha_eliminacion_soft' agregada",
+            )
+        if "puede_eliminarse_desde" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN puede_eliminarse_desde DATETIME"
+            ))
+            logger.info(
+                "Master migrate: columna 'puede_eliminarse_desde' agregada",
+            )
+        if "fecha_eliminacion_hard" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN fecha_eliminacion_hard DATETIME"
+            ))
+            logger.info(
+                "Master migrate: columna 'fecha_eliminacion_hard' agregada",
+            )
+        if "eliminado_por_user_id" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN eliminado_por_user_id VARCHAR(36)"
+            ))
+            logger.info(
+                "Master migrate: columna 'eliminado_por_user_id' agregada",
+            )
+        if "zip_descargado_sha256" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN zip_descargado_sha256 VARCHAR(64)"
+            ))
+            logger.info(
+                "Master migrate: columna 'zip_descargado_sha256' agregada",
+            )
+
+        # empresa_eliminacion_log: la creación se hace vía
+        # BaseMaster.metadata.create_all() que ya corre antes de esta
+        # función en `_ensure_master`, pero para ser explícitos y
+        # sobrevivir a un rollback parcial, la creamos también acá
+        # con IF NOT EXISTS.
+        conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS empresa_eliminacion_log ("
+            "id VARCHAR(36) PRIMARY KEY, "
+            "empresa_rut VARCHAR(12) NOT NULL, "
+            "evento VARCHAR(30) NOT NULL, "
+            "user_id VARCHAR(36) NOT NULL, "
+            "user_email VARCHAR(120), "
+            "timestamp DATETIME, "
+            "detalle_json TEXT"
+            ")"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_elim_log_rut "
+            "ON empresa_eliminacion_log (empresa_rut)"
+        ))
 
 
 def get_master_session() -> Session:
@@ -149,19 +371,245 @@ def _empresa_db_path(rut: str, ambiente: str) -> Path:
     return DATA_DIR / rut_clean / f"{ambiente}.db"
 
 
+def _migrate_empresa_schema(engine):
+    """Agrega columnas nuevas a tablas de empresa si no existen (idempotente).
+
+    `Base.metadata.create_all` solo crea tablas faltantes — NO agrega
+    columnas a tablas preexistentes. Esta función cubre ese gap usando
+    PRAGMA table_info + ALTER TABLE para SQLite.
+
+    Cualquier columna nueva que se sume a un modelo de empresa debe
+    registrarse acá para que las DBs viejas la reciban al primer acceso.
+    """
+    with engine.begin() as conn:
+        # ── caf_folio: sucursal_id (asignación CAF→sucursal) ──
+        caf_cols = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(caf_folio)"))
+        }
+        if caf_cols and "sucursal_id" not in caf_cols:
+            conn.execute(text(
+                "ALTER TABLE caf_folio ADD COLUMN sucursal_id VARCHAR(36)"
+            ))
+            # Recrear el índice viejo si existe, cambiando por uno que incluya sucursal_id.
+            conn.execute(text("DROP INDEX IF EXISTS ix_caf_empresa_tipo"))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_caf_empresa_tipo_sucursal "
+                "ON caf_folio (empresa_id, tipo_dte, sucursal_id, estado)"
+            ))
+            logger.info("Empresa migrate: caf_folio.sucursal_id agregada")
+
+        # ── certificacion_caso: substates EPR / declarar avance / aprobado ──
+        caso_cols = {
+            row[1] for row in conn.execute(
+                text("PRAGMA table_info(certificacion_caso)"),
+            )
+        }
+        if caso_cols:
+            if "avance_declarado_at" not in caso_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_caso "
+                    "ADD COLUMN avance_declarado_at DATETIME"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_caso.avance_declarado_at agregada"
+                )
+            if "aprobado_at" not in caso_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_caso ADD COLUMN aprobado_at DATETIME"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_caso.aprobado_at agregada"
+                )
+            if "observaciones" not in caso_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_caso ADD COLUMN observaciones TEXT"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_caso.observaciones agregada"
+                )
+
+        # ── certificacion_libro: xml + substates EPR / declarar avance / aprobado ──
+        libro_cols = {
+            row[1] for row in conn.execute(
+                text("PRAGMA table_info(certificacion_libro)"),
+            )
+        }
+        if libro_cols:
+            if "xml_libro" not in libro_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_libro ADD COLUMN xml_libro TEXT"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_libro.xml_libro agregada"
+                )
+            if "avance_declarado_at" not in libro_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_libro "
+                    "ADD COLUMN avance_declarado_at DATETIME"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_libro.avance_declarado_at agregada"
+                )
+            if "aprobado_at" not in libro_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_libro ADD COLUMN aprobado_at DATETIME"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_libro.aprobado_at agregada"
+                )
+            if "observaciones" not in libro_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_libro ADD COLUMN observaciones TEXT"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_libro.observaciones agregada"
+                )
+            # ``primer_envio_sii_at`` marca la primera vez que el SII
+            # aceptó el upload de este libro (trackid válido). Sobrevive
+            # a ``reiniciar_envio_libro`` — si tiene valor, los re-envíos
+            # posteriores se generan con ``TipoEnvio=AJUSTE`` en vez de
+            # ``TOTAL`` para evitar el rechazo LNC ("Tipo de Envío No
+            # Corresponde") que devuelve el SII cuando ya tiene registrado
+            # un TOTAL para el mismo N°Atención+Periodo+TipoLibro.
+            if "primer_envio_sii_at" not in libro_cols:
+                conn.execute(text(
+                    "ALTER TABLE certificacion_libro "
+                    "ADD COLUMN primer_envio_sii_at DATETIME"
+                ))
+                logger.info(
+                    "Empresa migrate: certificacion_libro.primer_envio_sii_at agregada"
+                )
+                # Backfill one-shot: libros que ya fueron enviados antes
+                # del fix TipoEnvio=AJUSTE tienen ``enviado_at`` poblado
+                # pero la columna nueva nace NULL. Sin este backfill, el
+                # próximo re-envío sale como TOTAL y el SII rechaza con
+                # LNC. Copiamos ``enviado_at → primer_envio_sii_at`` para
+                # que los re-envíos salgan como AJUSTE.
+                # Corre SOLO cuando se agrega la columna (dentro del if)
+                # — es idempotente por construcción: la segunda vez que
+                # corra el migrate, la columna ya existe y no entramos
+                # acá, así que nunca pisamos valores existentes.
+                result = conn.execute(text(
+                    "UPDATE certificacion_libro "
+                    "SET primer_envio_sii_at = enviado_at "
+                    "WHERE enviado_at IS NOT NULL "
+                    "AND primer_envio_sii_at IS NULL"
+                ))
+                if result.rowcount:
+                    logger.info(
+                        "Empresa migrate: backfill primer_envio_sii_at en %d libros "
+                        "ya enviados (para que los re-envíos usen TipoEnvio=AJUSTE)",
+                        result.rowcount,
+                    )
+
+
 def get_empresa_engine(rut: str, ambiente: str):
-    """Get or create SQLAlchemy engine for empresa/ambiente."""
+    """Get or create SQLAlchemy engine for empresa/ambiente.
+
+    Al crear el engine por primera vez, asegura que todas las tablas
+    del modelo existan (create_all es idempotente — solo crea las que
+    falten). Esto permite agregar tablas nuevas sin escribir migraciones
+    manuales: las DBs ya existentes reciben las tablas nuevas al
+    primer acceso.
+
+    Para columnas nuevas en tablas preexistentes (que create_all NO
+    agrega), `_migrate_empresa_schema` corre justo después con ALTER
+    TABLE idempotente.
+    """
     key = (rut, ambiente)
     if key not in _empresa_engines:
         db_path = _empresa_db_path(rut, ambiente)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         engine = create_engine(
             f"sqlite:///{db_path}",
-            connect_args={"check_same_thread": False},
+            connect_args={
+                "check_same_thread": False,
+                # Busy timeout: si otro proceso/hilo tiene el write lock,
+                # SQLite reintenta durante 10 segundos antes de fallar.
+                # Necesario con WAL + BEGIN IMMEDIATE para que las
+                # transacciones concurrentes esperen en vez de fallar.
+                "timeout": 10,
+            },
             echo=False,
         )
+
+        # Activar WAL mode y synchronous=NORMAL en cada conexión nueva.
+        # WAL permite lecturas concurrentes mientras hay escrituras activas
+        # y es el modo recomendado para aplicaciones web con SQLite.
+        @event.listens_for(engine, "connect")
+        def _set_sqlite_pragmas(dbapi_conn, _connection_record):
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
+
+        # Import local para evitar ciclo con crumbpos.db.models
+        from crumbpos.db.models import Base
+        Base.metadata.create_all(bind=engine)
+        _migrate_empresa_schema(engine)
+        _ensure_empresa_row_seeded(engine, rut, ambiente)
         _empresa_engines[key] = engine
     return _empresa_engines[key]
+
+
+def _ensure_empresa_row_seeded(engine, rut: str, ambiente: str) -> None:
+    """Defensa en profundidad: garantiza que la fila Empresa exista.
+
+    Si el ``EmpresaRegistro`` existe en master.db pero la fila ``Empresa``
+    está ausente de la BD de la empresa, inserta un stub mínimo con RUT
+    + razón social del registro + campos fiscales vacíos. Los campos
+    vacíos se llenan más adelante cuando el wizard envía ``datos_setup``
+    vía ``PATCH /api/certificacion/runs/...`` (el handler del router
+    upsertea la fila con los valores reales del formulario).
+
+    Esta función se encarga del caso en que ``data/{rut}/`` fue eliminada
+    a mano o por un flujo que dejó el estado inconsistente (p. ej. restore
+    parcial desde papelera, o ``rmtree`` seguido de un re-registro en
+    master sin pasar por ``provision_empresa``). Sin este seed, cualquier
+    endpoint que pase por ``get_tenant`` tira 500 "Empresa ... no
+    inicializada en BD ..." — que es exactamente el síntoma que observamos
+    con 77829149-5 en 2026-04-21.
+    """
+    # Import local para evitar ciclos.
+    from crumbpos.db.models import Empresa
+    import uuid as _uuid
+
+    # Leer registro del master (si no existe, no hacemos nada — la empresa
+    # aún no fue creada y este path no debería correr).
+    try:
+        registro = get_empresa_registro(rut)
+    except Exception:
+        return
+    if registro is None:
+        return
+
+    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    session = SessionLocal()
+    try:
+        existing = session.query(Empresa).filter(Empresa.rut == rut).first()
+        if existing is not None:
+            return  # ya está, nada que hacer
+
+        # Stub mínimo: los campos NOT NULL se llenan con "" y se
+        # sobreescriben cuando el wizard manda datos_setup.
+        session.add(Empresa(
+            id=str(_uuid.uuid4()),
+            rut=rut,
+            razon_social=registro.razon_social or "",
+            giro="",
+            direccion="",
+            comuna="",
+            ciudad="",
+            ambiente_sii=ambiente,
+        ))
+        session.commit()
+    except Exception:
+        session.rollback()
+        # Silenciamos el error — el self-heal es best-effort; si falla,
+        # el caller verá el 500 original y al menos sabemos que este path
+        # se intentó. Logs de SQLAlchemy quedan capturados igual.
+    finally:
+        session.close()
 
 
 def get_empresa_session_factory(rut: str, ambiente: str):
@@ -207,6 +655,7 @@ def provision_empresa(
     admin_nombre: str,
     acteco: int | None = None,
     sucursales: list[dict] | None = None,
+    plan: str = "full_free",
 ) -> tuple[str, str]:
     """Provisiona una nueva empresa completa.
 
@@ -239,10 +688,15 @@ def provision_empresa(
         if existing:
             raise ValueError(f"Empresa {rut} ya está registrada")
 
+        if plan not in PLANES_DISPONIBLES:
+            raise ValueError(f"Plan inválido: {plan}")
+
         master.add(EmpresaRegistro(
             rut=rut,
             razon_social=razon_social,
             ambiente_activo="certificacion",
+            etapa="pendiente_certificacion",
+            plan=plan,
         ))
         master.add(UsuarioAuth(
             id=user_id,
@@ -361,6 +815,40 @@ def ensure_super_admin(email: str, password_hash: str, nombre: str) -> str:
         master.close()
 
 
+def cambiar_etapa(rut: str, nueva_etapa: str) -> str:
+    """Actualiza la etapa de una empresa.
+
+    Transiciones válidas:
+      pendiente_certificacion → proceso_certificacion → produccion
+
+    Returns la etapa resultante.
+    """
+    if nueva_etapa not in ETAPAS_VALIDAS:
+        raise ValueError(f"Etapa inválida: {nueva_etapa}")
+
+    _ensure_master()
+    master = _MasterSessionFactory()
+    try:
+        registro = master.query(EmpresaRegistro).filter(
+            EmpresaRegistro.rut == rut,
+        ).first()
+        if not registro:
+            raise ValueError(f"Empresa {rut} no encontrada")
+
+        registro.etapa = nueva_etapa
+        # Cuando pasa a producción, el ambiente activo también se mueve
+        if nueva_etapa == "produccion":
+            registro.ambiente_activo = "produccion"
+        master.commit()
+        logger.info("Empresa %s → etapa: %s", rut, nueva_etapa)
+        return nueva_etapa
+    except Exception:
+        master.rollback()
+        raise
+    finally:
+        master.close()
+
+
 def cambiar_ambiente(rut: str, nuevo_ambiente: str) -> str:
     """Cambia el ambiente activo de una empresa (certificacion ↔ produccion).
 
@@ -401,13 +889,42 @@ def get_empresa_registro(rut: str) -> EmpresaRegistro | None:
         master.close()
 
 
-def listar_empresas() -> list[EmpresaRegistro]:
-    """List all registered empresas from master DB."""
+def listar_empresas(
+    incluir_eliminadas: bool = False,
+) -> list[EmpresaRegistro]:
+    """List registered empresas from master DB.
+
+    Por defecto excluye las que están en papelera o eliminadas definitivamente
+    — esas solo deben verse en el listado de la Papelera del super admin.
+    Pasar `incluir_eliminadas=True` solo cuando el caller necesita el
+    listado crudo (ej: auditoría, tooling interno).
+    """
     _ensure_master()
     master = _MasterSessionFactory()
     try:
-        return master.query(EmpresaRegistro).order_by(
-            EmpresaRegistro.razon_social,
+        q = master.query(EmpresaRegistro)
+        if not incluir_eliminadas:
+            q = q.filter(EmpresaRegistro.estado == "activa")
+        return q.order_by(EmpresaRegistro.razon_social).all()
+    finally:
+        master.close()
+
+
+def listar_papelera() -> list[EmpresaRegistro]:
+    """Lista las empresas en soft-delete (papelera).
+
+    Solo incluye estado='eliminada_soft'. Las que ya fueron eliminadas
+    definitivamente (estado='eliminada_hard') NO aparecen acá — ya no
+    existen operativamente, solo quedan en empresa_eliminacion_log como
+    tombstone de auditoría.
+    """
+    _ensure_master()
+    master = _MasterSessionFactory()
+    try:
+        return master.query(EmpresaRegistro).filter(
+            EmpresaRegistro.estado == "eliminada_soft",
+        ).order_by(
+            EmpresaRegistro.fecha_eliminacion_soft.desc(),
         ).all()
     finally:
         master.close()

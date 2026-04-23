@@ -2,16 +2,40 @@
 
 Los CAFs viven en la tabla caf_folio, compartidos entre todas las
 sucursales de una misma empresa. El folio_actual avanza de forma
-atómica usando SELECT ... FOR UPDATE (PostgreSQL) o transacciones
-serializadas (SQLite).
+atómica usando tres capas de protección:
+
+1. threading.Lock por empresa (serialización en proceso único — uvicorn).
+2. WAL + busy_timeout en el engine SQLite (serialización en múltiples
+   procesos; configurado en multi_tenant.py).
+3. SELECT ... FOR UPDATE (activo en PostgreSQL cuando se migre a cloud).
+
+Con SQLite, `with_for_update()` es ignorado por el driver, pero las
+capas 1 y 2 garantizan serialización equivalente para el caso de uso
+actual (un proceso uvicorn, múltiples workers/hilos).
 """
 import re
+import threading
 from lxml import etree
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, text
 from sqlalchemy.orm import Session
 
 from crumbpos.db.models import CafFolio
 from crumbpos.core.caf.caf_manager import CAF
+
+# ── Lock de proceso por empresa ──────────────────────────────────────────────
+# Serializa llamadas a siguiente_folio() dentro del mismo proceso uvicorn.
+# Clave: empresa_id (UUID string). Se crea on-demand y nunca se borra
+# (las empresas son pocas y viven toda la vida del proceso).
+_folio_locks: dict[str, threading.Lock] = {}
+_folio_locks_meta = threading.Lock()  # protege el dict de locks
+
+
+def _folio_lock(empresa_id: str) -> threading.Lock:
+    """Retorna el Lock de folios para la empresa dada (crea si no existe)."""
+    with _folio_locks_meta:
+        if empresa_id not in _folio_locks:
+            _folio_locks[empresa_id] = threading.Lock()
+        return _folio_locks[empresa_id]
 
 
 class CAFManagerDB:
@@ -120,9 +144,18 @@ class CAFManagerDB:
     def siguiente_folio(self, tipo_dte: int) -> tuple[int, "CAF"]:
         """Obtiene el siguiente folio disponible y el CAF asociado.
 
-        Avanza folio_actual atómicamente en la DB.
+        Avanza folio_actual atómicamente en la DB. Usa un threading.Lock
+        por empresa para serializar el acceso en SQLite (donde
+        with_for_update() no tiene efecto real). En PostgreSQL, el lock
+        de fila sigue activo como segunda capa de protección.
+
         Retorna (folio, caf_object).
         """
+        with _folio_lock(self.empresa_id):
+            return self._siguiente_folio_locked(tipo_dte)
+
+    def _siguiente_folio_locked(self, tipo_dte: int) -> tuple[int, "CAF"]:
+        """Lógica interna de siguiente_folio — debe llamarse bajo el lock."""
         # Buscar CAF activo para este tipo
         caf_row = self.db.execute(
             select(CafFolio)
@@ -132,7 +165,7 @@ class CAFManagerDB:
                 CafFolio.estado == "activo",
             ))
             .order_by(CafFolio.rango_desde)
-            .with_for_update()
+            .with_for_update()  # activo en PostgreSQL; SQLite usa el threading.Lock
         ).scalars().first()
 
         if not caf_row:
@@ -141,19 +174,31 @@ class CAFManagerDB:
                 f"Suba nuevos CAFs desde el panel de gestión."
             )
 
-        folio = caf_row.folio_actual
-
-        if folio > caf_row.rango_hasta:
-            # Este CAF está agotado, marcarlo y buscar siguiente
+        # Avanzar por rangos agotados usando un while en vez de recursión,
+        # para soportar N rangos CAF encadenados sin límite de pila.
+        while caf_row.folio_actual > caf_row.rango_hasta:
             caf_row.estado = "agotado"
             self.db.flush()
-            # Intentar siguiente CAF
-            return self.siguiente_folio(tipo_dte)
+            caf_row = self.db.execute(
+                select(CafFolio)
+                .where(and_(
+                    CafFolio.empresa_id == self.empresa_id,
+                    CafFolio.tipo_dte == tipo_dte,
+                    CafFolio.estado == "activo",
+                ))
+                .order_by(CafFolio.rango_desde)
+                .with_for_update()
+            ).scalars().first()
+            if not caf_row:
+                raise ValueError(
+                    f"No hay folios disponibles para tipo DTE {tipo_dte}. "
+                    f"Suba nuevos CAFs desde el panel de gestión."
+                )
 
-        # Avanzar folio
+        folio = caf_row.folio_actual
+
+        # Avanzar folio y marcar agotado si se consumió el último
         caf_row.folio_actual = folio + 1
-
-        # Si se agotó, marcar
         if caf_row.folio_actual > caf_row.rango_hasta:
             caf_row.estado = "agotado"
 
@@ -219,10 +264,11 @@ class CAFManagerDB:
                 f"Folio {folio} está fuera de todos los rangos CAF disponibles para tipo {tipo_dte}"
             )
 
-        # Solo verificar retroceso dentro del CAF target
-        if target_caf.folio_actual > folio and target_caf.estado != "agotado":
+        # Permitir retroceder si el CAF está agotado (folios sin usar en el rango)
+        # o si explícitamente se solicita reubicar dentro del rango válido
+        if target_caf.folio_actual > folio and target_caf.estado == "activo":
             raise ValueError(
-                f"No se puede retroceder: CAF rango {target_caf.rango_desde}-{target_caf.rango_hasta} "
+                f"No se puede retroceder en CAF activo: rango {target_caf.rango_desde}-{target_caf.rango_hasta} "
                 f"ya está en folio {target_caf.folio_actual}"
             )
 
@@ -243,15 +289,38 @@ class CAFManagerDB:
         target_caf.estado = "activo"
         self.db.flush()
 
-    def registrar_caf(self, xml_bytes: bytes) -> dict:
-        """Registra un nuevo CAF desde XML crudo."""
-        # Parsear XML para extraer metadata
+    def registrar_caf(
+        self,
+        xml_bytes: bytes,
+        folio_inicial_override: int | None = None,
+    ) -> dict:
+        """Registra un nuevo CAF desde XML crudo.
+
+        Parámetros:
+        - ``xml_bytes``: contenido crudo del CAF en ISO-8859-1.
+        - ``folio_inicial_override``: si viene distinto de None, se usa como
+          ``folio_actual`` en lugar del ``folio_desde`` del CAF. Sirve para
+          el caso en que el CAF trae folios ya consumidos fuera del sistema
+          (por ejemplo, un CAF pedido al SII antes de migrar a este software).
+          Debe cumplir ``folio_desde <= override <= folio_hasta``; cualquier
+          otro valor levanta ``ValueError`` con glosa explícita.
+
+        Valida antes de persistir:
+        - G5: El RUT del CAF debe coincidir con el RUT de la empresa.
+        - G2: Vigencia <= 2 años (365 días para boletas) desde FA.
+        - G2: Firma FRMA válida contra llave pública del SII (si está
+          configurada en env var ``SII_PUBLIC_KEY_PATH``).
+        """
+        import os
+        import tempfile
+        from crumbpos.core.caf.caf_manager import CAF, _cargar_llave_publica_sii
+
+        # ── Parsear XML para extraer metadata ─────────────────────────
         try:
             tree = etree.fromstring(xml_bytes)
         except Exception as e:
             raise ValueError(f"XML inválido: {e}")
 
-        # Buscar elemento CAF (puede ser raíz AUTORIZACION > CAF)
         caf_el = tree.find(".//CAF")
         if caf_el is None:
             raise ValueError("No se encontró elemento <CAF> en el XML")
@@ -273,7 +342,73 @@ class CAFManagerDB:
         if not tipo_dte or not folio_desde:
             raise ValueError("CAF incompleto: faltan TD, D o H")
 
-        # Verificar que no exista un CAF con el mismo rango
+        # ── Validar folio_inicial_override ────────────────────────────
+        # Si el override viene, debe caer dentro del rango del CAF. Un
+        # override == folio_desde es equivalente a no pasar override,
+        # pero se acepta para que el cliente pueda mandarlo sin temor.
+        if folio_inicial_override is not None:
+            if not isinstance(folio_inicial_override, int):
+                raise ValueError(
+                    f"Folio inicial debe ser un número entero, "
+                    f"no {type(folio_inicial_override).__name__}"
+                )
+            if folio_inicial_override < folio_desde:
+                raise ValueError(
+                    f"Folio inicial {folio_inicial_override} está fuera del "
+                    f"rango del CAF ({folio_desde} a {folio_hasta}). "
+                    f"No se puede arrancar antes del primer folio autorizado."
+                )
+            if folio_inicial_override > folio_hasta:
+                raise ValueError(
+                    f"Folio inicial {folio_inicial_override} está fuera del "
+                    f"rango del CAF ({folio_desde} a {folio_hasta})."
+                )
+
+        # ── G5: Validar que el RUT del CAF pertenece a esta empresa ───
+        from crumbpos.db.models import Empresa
+        empresa = self.db.execute(
+            select(Empresa).where(Empresa.id == self.empresa_id)
+        ).scalars().first()
+
+        if empresa and rut_emisor:
+            # Normalizar ambos RUTs (quitar puntos, comparar en mayúsculas)
+            rut_caf_norm = rut_emisor.replace(".", "").upper()
+            rut_emp_norm = empresa.rut.replace(".", "").upper()
+            if rut_caf_norm != rut_emp_norm:
+                raise ValueError(
+                    f"El RUT del CAF ({rut_emisor}) no coincide con el RUT "
+                    f"de la empresa ({empresa.rut}). "
+                    f"Verifique que subió el archivo correcto."
+                )
+
+        # ── G2: Validar firma FRMA y vigencia usando objeto CAF ────────
+        fd, tmp_path = tempfile.mkstemp(suffix=".xml")
+        try:
+            os.write(fd, xml_bytes)
+            os.close(fd)
+            caf_obj = CAF(tmp_path)
+        except Exception as e:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise ValueError(f"Error parseando CAF para validación: {e}")
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+        # Vigencia: 2 años para DTEs, 1 año para boletas
+        max_dias = 365 if tipo_dte in (39, 41) else 730
+        llave_sii = _cargar_llave_publica_sii()
+        errores = caf_obj.validar(llave_publica_sii=llave_sii, max_dias_vigencia=max_dias)
+        if errores:
+            raise ValueError(
+                "CAF rechazado:\n- " + "\n- ".join(errores)
+            )
+
+        # ── Verificar duplicado ────────────────────────────────────────
         existing = self.db.execute(
             select(CafFolio)
             .where(and_(
@@ -289,13 +424,18 @@ class CAFManagerDB:
                 f"Ya existe un CAF para tipo {tipo_dte} con rango {folio_desde}-{folio_hasta}"
             )
 
-        # Crear registro
+        # ── Crear registro ─────────────────────────────────────────────
+        folio_inicial = (
+            folio_inicial_override
+            if folio_inicial_override is not None
+            else folio_desde
+        )
         caf_row = CafFolio(
             empresa_id=self.empresa_id,
             tipo_dte=tipo_dte,
             rango_desde=folio_desde,
             rango_hasta=folio_hasta,
-            folio_actual=folio_desde,
+            folio_actual=folio_inicial,
             caf_xml_raw=xml_bytes.decode("ISO-8859-1"),
             rut_emisor=rut_emisor,
             fecha_autorizacion=fecha_auth,
@@ -309,6 +449,7 @@ class CAFManagerDB:
             "tipo_dte": tipo_dte,
             "folio_desde": folio_desde,
             "folio_hasta": folio_hasta,
+            "folio_inicial": folio_inicial,
             "rut_emisor": rut_emisor,
             "fecha_autorizacion": fecha_auth,
         }

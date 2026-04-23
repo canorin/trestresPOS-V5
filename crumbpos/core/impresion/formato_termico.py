@@ -44,8 +44,10 @@ class PDFTermico(FPDF):
         n_desc = len(data.descuentos_globales)
 
         if self.es_boleta:
-            # Boleta: encabezado + logo + emisor + detalle + totales + timbre texto
-            estimated_h = 110 + (n_items * 12) + (n_desc * 5) + 20
+            # Boleta: encabezado + logo + emisor + detalle + totales + timbre PDF417
+            # Igual que DTE normal — las boletas también requieren PDF417
+            # impreso (manual_muestras_impresas.pdf §3, Boletas Electrónicas).
+            estimated_h = 140 + (n_items * 12) + (n_desc * 5) + 20
         else:
             # DTE normal: recuadro + logo + emisor + receptor + items + timbre barcode
             estimated_h = 160 + (n_items * 12) + (n_refs * 5) + (n_desc * 5)
@@ -79,14 +81,13 @@ class PDFTermico(FPDF):
         y = self._totales(y)
         y = self._separador(y)
 
-        if not self.es_boleta:
-            if self.data.referencias:
-                y = self._referencias(y)
-                y = self._separador(y)
-            y = self._timbre(y)
-        else:
-            # Boleta: sin timbre barcode, solo texto
-            y = self._timbre_texto(y)
+        if not self.es_boleta and self.data.referencias:
+            y = self._referencias(y)
+            y = self._separador(y)
+
+        # Timbre PDF417 — obligatorio para TODOS los DTE incluyendo
+        # boletas electrónicas (manual_muestras_impresas.pdf §3).
+        y = self._timbre(y)
 
         y = self._pie(y)
 
@@ -142,22 +143,6 @@ class PDFTermico(FPDF):
                 self.set_xy(self.MARGIN + 14, y)
                 self.cell(self.USABLE_W - 14, self.LINE_H, valor)
                 y += self.LINE_H
-        return y
-
-    # ---------- TIMBRE TEXTO (boletas, sin barcode) ----------
-    def _timbre_texto(self, y: float) -> float:
-        """Solo texto del timbre, sin PDF417 barcode."""
-        self.set_font("Helvetica", "", 5)
-        self.set_text_color(0, 0, 0)
-        self.set_xy(self.MARGIN, y)
-        self.cell(self.USABLE_W, 2.5, "Timbre Electr\u00f3nico SII", align="C")
-        y += 2.5
-        self.set_xy(self.MARGIN, y)
-        self.cell(self.USABLE_W, 2.5,
-                  f"Res. {self.data.numero_resolucion} del {self.data.fecha_resolucion}"
-                  f" - Verifique: www.sii.cl",
-                  align="C")
-        y += 3
         return y
 
     # ---------- ENCABEZADO ----------

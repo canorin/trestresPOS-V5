@@ -10,6 +10,7 @@ from pathlib import Path
 from dataclasses import dataclass
 from lxml import etree
 
+from crumbpos.db.models import DteEmitido
 from crumbpos.models.dte_models import DTE, ItemDetalle, Referencia, DescuentoGlobal
 from crumbpos.core.caf.caf_manager import CAFManager
 from crumbpos.core.dte.generador_xml import (
@@ -77,6 +78,8 @@ class FacturaRequest:
     # Guía de despacho
     ind_traslado: int | None = None  # 1=op.const.venta, 2=ventas, 5=traslado interno, 6=otros
     tipo_despacho: int | None = None  # 1=por cuenta receptor, 2=emisor a instalaciones del cliente, 3=emisor a otras instalaciones
+    # Certificación: caso del set de pruebas (ej: "CASO 4768464-1")
+    caso_set: str | None = None
 
 
 @dataclass
@@ -232,6 +235,247 @@ class ServicioEmisionDTE:
         61: "Nota de Crédito Electrónica",
     }
 
+    # ══════════════════════════════════════════════════════════════
+    # Enriquecimiento CodRef=3 (MODIFICA MONTO)
+    # ══════════════════════════════════════════════════════════════
+    #
+    # Una NC/ND con CodRef=3 "modifica monto" del DTE referenciado. Si el
+    # caller construye el request con items {nombre, cantidad} pero sin
+    # precio (flujo típico: POS copiando los items del DTE original pero
+    # aún no llenó los ajustes, o parser del SET SII que declara items así),
+    # el XML sale con MontoItem=0 y el SII rechaza con REF-2-768.
+    #
+    # Este método enriquece in-place los items leyendo el ``DteEmitido``
+    # referenciado desde la misma BD. Vive en el CORE — no en la capa cert
+    # o producción — porque es procesamiento de documentos, y hay UN solo
+    # lugar que procesa documentos. Cambia el destino del envío SII según
+    # ambiente, no la lógica de construcción del DTE.
+    #
+    # Fuente canonical: tabla ``dte_emitido`` (misma en cert y prod,
+    # distinta DB por tenant). El XML firmado persistido como base64 tiene
+    # todos los items con precios.
+
+    def _enriquecer_items_codref3(
+        self,
+        req: FacturaRequest,
+        session,
+        empresa_id: str,
+    ) -> None:
+        """Si ``req`` es NC/ND CodRef=3 con items incompletos, los enriquece
+        desde el ``DteEmitido`` referenciado. Modifica ``req.items`` in-place.
+
+        El SET SII tiene dos patrones duales para MODIFICA MONTO:
+
+        - **Patrón A**: SET declara CANTIDAD → NC hereda PRECIO del original.
+        - **Patrón B**: SET declara VALOR UNITARIO → NC hereda CANTIDAD del
+          original.
+
+        En ambos casos, lo que no viene en el request se hereda del DTE
+        referenciado matcheando por ``nombre``. Aplica también al
+        ``descuento_pct`` cuando el NC no lo trae.
+
+        No hace nada si:
+          - ``req.tipo_dte`` no es 56 ni 61.
+          - No hay referencia con ``codigo=3``.
+          - Todos los items ya tienen ``precio_unitario > 0`` y
+            ``cantidad`` definida (no hay nada que enriquecer).
+
+        Levanta ``ValueError`` si:
+          - El DTE referenciado no existe en la BD.
+          - El DTE referenciado no tiene ``xml_firmado``.
+          - Algún item del NC/ND no matchea por nombre con el original.
+        """
+        # Gate 1: solo NC (61) y ND (56) pueden tener CodRef=3
+        if req.tipo_dte not in (56, 61):
+            return
+        # Gate 2: requiere al menos una referencia con codigo=3
+        if not req.referencias:
+            return
+        refs_codref3 = [
+            r for r in req.referencias
+            if r.get("codigo") == 3
+            and r.get("folio")
+            and r.get("tipo_doc") is not None
+        ]
+        if not refs_codref3:
+            return
+        # Gate 3: requiere al menos un item con precio faltante O con cantidad
+        # no declarada (None). Si los items traen precio>0 Y cantidad definida,
+        # el caller es autoridad — no sobrescribimos, y evitamos trip a BD.
+        items = req.items or []
+
+        def _necesita_enrich(it: dict) -> bool:
+            precio_falta = (it.get("precio_unitario") or 0) <= 0
+            cantidad_falta = it.get("cantidad") is None
+            return precio_falta or cantidad_falta
+
+        if not any(_necesita_enrich(it) for it in items):
+            return
+
+        # En NC/ND la referencia CodRef=3 apunta a UN solo DTE original.
+        ref = refs_codref3[0]
+        try:
+            tipo_ref = int(str(ref["tipo_doc"]))
+            folio_ref = int(str(ref["folio"]))
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"NC/ND CodRef=3: referencia con tipo_doc/folio no numérico "
+                f"(tipo_doc={ref.get('tipo_doc')}, folio={ref.get('folio')}): {e}"
+            )
+
+        # Buscar DteEmitido del tenant (empresa_id + tipo + folio es único)
+        dte_ref = session.query(DteEmitido).filter(
+            DteEmitido.empresa_id == empresa_id,
+            DteEmitido.tipo_dte == tipo_ref,
+            DteEmitido.folio == folio_ref,
+        ).first()
+        if dte_ref is None:
+            raise ValueError(
+                f"NC/ND CodRef=3: no existe DteEmitido con tipo {tipo_ref} "
+                f"folio {folio_ref} para esta empresa. El DTE referenciado "
+                f"debe estar emitido antes de emitir la NC/ND que modifica "
+                f"su monto."
+            )
+        if not dte_ref.xml_firmado:
+            raise ValueError(
+                f"NC/ND CodRef=3: DteEmitido tipo {tipo_ref} folio "
+                f"{folio_ref} no tiene xml_firmado guardado; imposible "
+                f"extraer items originales para enriquecer."
+            )
+
+        # Decodificar XML firmado (persistido como base64)
+        try:
+            xml_bytes = base64.b64decode(dte_ref.xml_firmado)
+        except Exception as e:
+            raise ValueError(
+                f"NC/ND CodRef=3: xml_firmado de tipo {tipo_ref} folio "
+                f"{folio_ref} no es base64 válido: {e}"
+            )
+        items_ref = self._extraer_items_del_xml_firmado(xml_bytes)
+
+        # Matcheo por nombre (trim). Case-sensitive: los nombres del SII
+        # deben venir idénticos al original — si no, es un bug del caller.
+        ref_por_nombre = {
+            (it.get("nombre") or "").strip(): it for it in items_ref
+        }
+        for it in items:
+            if not _necesita_enrich(it):
+                continue  # caller ya provisionó precio y cantidad, no pisar
+            nombre = (it.get("nombre") or "").strip()
+            it_ref = ref_por_nombre.get(nombre)
+            if it_ref is None:
+                raise ValueError(
+                    f"NC/ND CodRef=3: item '{nombre}' no existe en el DTE "
+                    f"referenciado (tipo {tipo_ref} folio {folio_ref}). "
+                    f"Los items deben matchear por nombre con los del "
+                    f"documento original."
+                )
+            # Heredar precio solo si el caller no lo trajo.
+            if (it.get("precio_unitario") or 0) <= 0:
+                it["precio_unitario"] = it_ref.get("precio_unitario") or 0
+            # Heredar cantidad solo si el caller no la trajo.
+            if it.get("cantidad") is None:
+                it["cantidad"] = it_ref.get("cantidad") or 1
+            # Si el NC no trajo descuento_pct y el original sí lo tenía,
+            # lo heredamos — mantiene la relación proporcional del original.
+            if (
+                it.get("descuento_pct") is None
+                and it_ref.get("descuento_pct") is not None
+            ):
+                it["descuento_pct"] = it_ref["descuento_pct"]
+
+    def _enriquecer_items_referencia_a_exenta(
+        self,
+        req: FacturaRequest,
+    ) -> None:
+        """Si ``req`` es NC/ND que referencia un T34 (Factura Exenta),
+        marca todos los items como ``exento=True`` in-place.
+
+        Contexto: un DTE que corrige/modifica una Factura Exenta debe tener
+        todos sus ítems exentos (``IndExe=1``). El validador del core ya lo
+        exige (``_validar_request``), pero el SET del SII declara los ítems
+        sin la marca ``exento`` y el mapper del wizard tampoco la propaga.
+
+        No hace nada si:
+          - ``req.tipo_dte`` no es 56 ni 61.
+          - No hay referencia con ``tipo_doc=34``.
+          - La referencia es CodRef=2 (CORRIGE TEXTO) — usa placeholder con
+            ``cantidad=0, precio=0`` que no necesita marca exento.
+
+        Es idempotente: si el item ya viene con ``exento=True``, queda igual.
+        Patrón gemelo de ``_enriquecer_items_codref3`` — único core procesa
+        documentos tanto en certificación como en producción.
+        """
+        # Gate 1: solo NC (61) y ND (56) referencian otros DTEs
+        if req.tipo_dte not in (56, 61):
+            return
+        # Gate 2: requiere al menos una referencia a T34
+        if not req.referencias:
+            return
+        refs_a_exenta = [
+            r for r in req.referencias
+            if str(r.get("tipo_doc", "")).isdigit()
+            and int(str(r.get("tipo_doc"))) == 34
+        ]
+        if not refs_a_exenta:
+            return
+        # Gate 3: excluir CodRef=2 (CORRIGE TEXTO) — usa placeholder.
+        # El validador también lo excluye; mantener simetría.
+        if all(r.get("codigo") == 2 for r in refs_a_exenta):
+            return
+
+        # Enriquecer in-place: marcar todos los items como exento.
+        for it in req.items or []:
+            it["exento"] = True
+
+    @staticmethod
+    def _extraer_items_del_xml_firmado(xml_bytes: bytes) -> list[dict]:
+        """Parsea un sobre EnvioDTE firmado y devuelve la lista de items
+        del primer (y único, por convención) Documento.
+
+        Estructura esperada:
+            EnvioDTE > SetDTE > DTE > Documento > Detalle×N
+            Detalle: NroLinDet, NmbItem, QtyItem, PrcItem, DescuentoPct,
+                     MontoItem, ...
+
+        Namespace SII: ``http://www.sii.cl/SiiDte``.
+
+        Retorna: ``[{nombre, cantidad, precio_unitario, descuento_pct,
+        monto_item}]``. Los valores numéricos se preservan como ``int`` si
+        son enteros exactos (típico del CLP sin decimales), si no ``float``.
+        """
+        ns = {"sii": "http://www.sii.cl/SiiDte"}
+        root = etree.fromstring(xml_bytes)
+        detalles = root.findall(".//sii:Documento/sii:Detalle", namespaces=ns)
+
+        def _txt(detalle, tag: str) -> str | None:
+            el = detalle.find(f"sii:{tag}", namespaces=ns)
+            return el.text if el is not None else None
+
+        def _num(detalle, tag: str):
+            v = _txt(detalle, tag)
+            if v is None:
+                return None
+            try:
+                f = float(v)
+            except (ValueError, TypeError):
+                return None
+            # CLP son enteros — preservar como int si no hay decimales reales
+            if f == int(f):
+                return int(f)
+            return f
+
+        items = []
+        for d in detalles:
+            items.append({
+                "nombre": _txt(d, "NmbItem"),
+                "cantidad": _num(d, "QtyItem"),
+                "precio_unitario": _num(d, "PrcItem"),
+                "descuento_pct": _num(d, "DescuentoPct"),
+                "monto_item": _num(d, "MontoItem"),
+            })
+        return items
+
     def _validar_request(self, req: FacturaRequest) -> str | None:
         """Validación completa de reglas de negocio SII antes de emitir.
 
@@ -245,6 +489,13 @@ class ServicioEmisionDTE:
         # --- Items obligatorios ---
         if not req.items:
             return f"El DTE debe tener al menos 1 ítem de detalle"
+
+        # --- Validar caracteres compatibles con ISO-8859-1 ---
+        # El XML SII usa encoding ISO-8859-1. Caracteres fuera de Latin-1
+        # (emojis, caracteres CJK, etc.) rompen el XML silenciosamente.
+        error_charset = self._validar_charset_iso8859(req)
+        if error_charset:
+            return error_charset
 
         # --- Validar RUT formato básico (NN.NNN.NNN-X o NNNNNNNN-X) ---
         error_rut = self._validar_rut(req.receptor_rut, "receptor")
@@ -288,6 +539,87 @@ class ServicioEmisionDTE:
             if not tiene_ref_dte:
                 return f"{nombre_tipo} requiere al menos 1 referencia a un DTE (tipo 33, 34, 52, 56 o 61)"
 
+            # CodRef=2 (corrige texto) — SII error REF-2-781 si lleva montos
+            # Spec SII: el documento debe llevar exactamente 1 ítem placeholder
+            # con cantidad=0 y precio_unitario=0 (MontoItem=0). MntTotal debe ser 0.
+            refs_dte = [r for r in req.referencias
+                        if str(r.get("tipo_doc", "")).isdigit() and int(str(r.get("tipo_doc"))) in (33, 34, 52, 56, 61)]
+            es_corrige_texto = refs_dte and all(r.get("codigo") == 2 for r in refs_dte)
+            if es_corrige_texto:
+                items = req.items or []
+                if len(items) != 1:
+                    return (
+                        f"{nombre_tipo} con CodRef=2 (corrige texto) debe tener exactamente 1 ítem "
+                        f"placeholder. Recibidos: {len(items)}. SII rechaza con REF-2-781."
+                    )
+                item = items[0]
+                cant = item.get("cantidad")
+                precio = item.get("precio_unitario")
+                monto_item = item.get("monto_item")
+                if (cant not in (None, 0)) or (precio not in (None, 0)) or (monto_item not in (None, 0)):
+                    return (
+                        f"{nombre_tipo} con CodRef=2 (corrige texto) no debe tener cantidad ni montos. "
+                        f"Item recibido: cantidad={cant}, precio_unitario={precio}, monto_item={monto_item}. "
+                        f"SII rechaza con REF-2-781."
+                    )
+
+            # CodRef=1 (anula doc completo): debe replicar los ítems del original
+            es_anula = refs_dte and all(r.get("codigo") == 1 for r in refs_dte)
+            if es_anula and not req.items:
+                return (
+                    f"{nombre_tipo} con CodRef=1 (anula doc) debe incluir los ítems del documento "
+                    f"original — el SII compara montos. Enviar la misma lista de ítems del DTE referenciado."
+                )
+
+            # CodRef=3 (modifica monto) — SII error REF-2-768 si MontoTotal=0.
+            # Una NC/ND con CodRef=3 expresa un ajuste de monto; si todos los
+            # ítems traen precio_unitario en 0/None, el MontoTotal sale en 0 y
+            # el SII rebota con "Modificacion de montos debe tener monto mayor
+            # a cero". Se valida pre-envío para no quemar folio.
+            #
+            # NOTA: si al menos un ítem tiene precio > 0, el MontoTotal será > 0
+            # (los precios son no-negativos por definición), así que basta con
+            # chequear que exista al menos uno con precio > 0. No se valida
+            # que cada ítem individual tenga precio > 0: un caso legítimo es
+            # un ajuste parcial donde algunos ítems quedan con precio=0 y otros
+            # con precio > 0, el total es > 0 y el SII lo acepta.
+            #
+            # Este guard es universal — aplica por igual a producción y
+            # certificación. En cert, además, ``_caso_a_factura_request``
+            # enriquece precios desde el caso referenciado porque el SET del
+            # SII declara ítems sin precio; este guard es la red final.
+            es_modifica_monto = refs_dte and all(r.get("codigo") == 3 for r in refs_dte)
+            if es_modifica_monto:
+                items = req.items or []
+                tiene_precio_positivo = any(
+                    (it.get("precio_unitario") or 0) > 0 for it in items
+                )
+                if not tiene_precio_positivo:
+                    nombres = ", ".join(
+                        str(it.get("nombre", "?")) for it in items
+                    ) or "(sin items)"
+                    return (
+                        f"{nombre_tipo} con CodRef=3 (modifica monto) debe tener "
+                        f"al menos un ítem con precio_unitario > 0. Items "
+                        f"recibidos: [{nombres}] todos con precio en 0/None. "
+                        f"El SII rechaza con REF-2-768 'Modificacion de montos "
+                        f"debe tener monto mayor a cero'."
+                    )
+
+            # Si la referencia es a un T34 (factura exenta), todos los ítems deben ser exentos.
+            ref_a_t34 = any(
+                int(str(r.get("tipo_doc", "0"))) == 34
+                for r in refs_dte
+                if str(r.get("tipo_doc", "")).isdigit()
+            )
+            if ref_a_t34 and not es_corrige_texto:
+                for item in (req.items or []):
+                    if not item.get("exento"):
+                        return (
+                            f"{nombre_tipo} referencia a Factura Exenta (T34) — todos los ítems deben "
+                            f"marcarse como exentos. Item '{item.get('nombre', '?')}' no tiene exento=True."
+                        )
+
         # --- Forma de pago ---
         if req.fma_pago is not None:
             if req.fma_pago not in (1, 2, 3):
@@ -307,6 +639,41 @@ class ServicioEmisionDTE:
             if req.tipo_despacho is not None:
                 return f"TipoDespacho solo aplica para Guía de Despacho (T52), no para {self.TIPOS_NOMBRES[req.tipo_dte]}"
 
+        return None
+
+    def _validar_charset_iso8859(self, req: FacturaRequest) -> str | None:
+        """Valida que todos los textos sean compatibles con ISO-8859-1.
+
+        El XML SII usa encoding ISO-8859-1 (Latin-1). Caracteres fuera de
+        este charset (emojis, CJK, etc.) causan error al serializar el XML,
+        pero DESPUÉS de consumir folio. Esta validación lo detecta ANTES.
+        """
+        campos_texto = [
+            ("receptor_razon", req.receptor_razon),
+            ("receptor_giro", req.receptor_giro),
+            ("receptor_dir", req.receptor_dir),
+            ("receptor_comuna", req.receptor_comuna),
+            ("receptor_ciudad", req.receptor_ciudad),
+        ]
+        for item in (req.items or []):
+            campos_texto.append((f"item '{item.get('nombre', '?')}'", item.get("nombre", "")))
+            if item.get("unidad_medida"):
+                campos_texto.append((f"unidad_medida item", item["unidad_medida"]))
+        for ref in (req.referencias or []):
+            if ref.get("razon"):
+                campos_texto.append(("razon_ref", ref["razon"]))
+
+        for campo, valor in campos_texto:
+            if not valor:
+                continue
+            try:
+                valor.encode("iso-8859-1")
+            except (UnicodeEncodeError, AttributeError):
+                return (
+                    f"El campo {campo} contiene caracteres no compatibles con ISO-8859-1: "
+                    f"'{valor}'. El XML SII requiere encoding Latin-1. "
+                    f"Caracteres válidos: letras acentuadas (á,é,ñ,ü), símbolos comunes."
+                )
         return None
 
     def _validar_rut(self, rut: str, contexto: str) -> str | None:
@@ -366,9 +733,59 @@ class ServicioEmisionDTE:
 
         return None
 
-    def emitir_factura(self, req: FacturaRequest, enviar_sii: bool = True) -> EmisionResult:
-        """Emite un DTE completo usando el flujo aprobado por el SII."""
+    def emitir_factura(
+        self,
+        req: FacturaRequest,
+        enviar_sii: bool = True,
+        *,
+        folio_override: int | None = None,
+        session=None,
+        empresa_id: str | None = None,
+    ) -> EmisionResult:
+        """Emite un DTE completo usando el flujo aprobado por el SII.
+
+        Args:
+            req: FacturaRequest con los datos del documento.
+            enviar_sii: si False, sólo se firma y persiste — no se envía
+                al SII. Permite revisar XML antes de enviar.
+            folio_override: si se indica, reutiliza ese folio sin avanzar
+                el contador del CAF. Pensado para **regeneración** de un
+                DTE cuyo sobre fue rechazado por el SII (STATUS=7 esquema
+                inválido, firma rechazada, etc.): el SII nunca recepcionó
+                el DTE viejo, el folio formalmente no está quemado, y
+                reasignarlo sería desperdiciar un folio útil.
+                Falla si el folio no pertenece a ningún CAF cargado.
+            session: sesión de BD del tenant para habilitar enriquecimiento
+                de items CodRef=3 (NC/ND MODIFICA MONTO) leyendo el
+                ``DteEmitido`` referenciado. Si no se pasa, se asume que
+                el caller ya enriqueció los items. Callers modernos
+                (routers cert/producción) deberían pasar siempre ``session``
+                + ``empresa_id``; queda opcional por compatibilidad con
+                scripts legacy.
+            empresa_id: id del tenant (requerido para filtrar el
+                ``DteEmitido`` por empresa al enriquecer). Debe pasarse
+                junto con ``session``.
+        """
         try:
+            # Enriquecer items CodRef=3 (MODIFICA MONTO) ANTES de validar.
+            # Es el único "preprocesamiento" que hace el core: si el caller
+            # manda items con precio=0/None referenciando un DTE existente,
+            # el core hereda los precios del original. El guard de
+            # ``_validar_request`` sigue siendo la red final por si el
+            # enriquecimiento no pudo completar.
+            if session is not None and empresa_id is not None:
+                try:
+                    self._enriquecer_items_codref3(req, session, empresa_id)
+                except ValueError as e:
+                    return EmisionResult(ok=False, error=str(e))
+
+            # Enriquecer items cuando la NC/ND referencia una Factura Exenta
+            # (T34): marcar todos los items como ``exento=True``. El SET del
+            # SII y el mapper del wizard no lo propagan, y el validador del
+            # core lo exige más abajo. Independiente de session/empresa_id —
+            # sólo lee req.referencias.
+            self._enriquecer_items_referencia_a_exenta(req)
+
             # Validar TODAS las reglas de negocio antes de consumir folio
             error_validacion = self._validar_request(req)
             if error_validacion:
@@ -377,7 +794,15 @@ class ServicioEmisionDTE:
             self._cargar_firma()
 
             # 1. Obtener folio — DB tiene prioridad sobre archivos
-            if self._caf_manager_db:
+            if folio_override is not None:
+                # Regeneración: NO avanzar el contador, sólo obtener el CAF
+                folio = folio_override
+                if self._caf_manager_db:
+                    caf = self._caf_manager_db.obtener_caf(req.tipo_dte, folio)
+                else:
+                    self._cargar_cafs()
+                    caf = self._caf_manager.obtener_caf(req.tipo_dte, folio)
+            elif self._caf_manager_db:
                 folio, caf = self._caf_manager_db.siguiente_folio(req.tipo_dte)
             else:
                 self._cargar_cafs()
@@ -452,6 +877,17 @@ class ServicioEmisionDTE:
 
             referencias_dte = []
             ref_counter = 1
+            # Referencia SET para certificación (caso del set de pruebas)
+            if req.caso_set:
+                referencias_dte.append(Referencia(
+                    nro_linea=ref_counter,
+                    tipo_doc_ref="SET",
+                    folio_ref="0",
+                    fecha_ref=fecha_hoy,
+                    razon_ref=req.caso_set,
+                    codigo_ref=None,
+                ))
+                ref_counter += 1
             # OC como referencia tipo 801 (si se proporcionó)
             if req.oc_numero:
                 referencias_dte.append(Referencia(

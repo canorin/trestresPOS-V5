@@ -74,6 +74,8 @@ class GenerarLibroGuiasIn(BaseModel):
     folio_notificacion: int = 0
     enviar: bool = True
     guias_anuladas: list[int] = []
+    # Filtro opcional: solo incluir estos folios T52 (para certificación)
+    folios: list[int] | None = None
 
 
 class GenerarLibroGuiasOut(BaseModel):
@@ -90,6 +92,9 @@ class GenerarLibroVentasIn(BaseModel):
     periodo: str  # "YYYY-MM"
     folio_notificacion: int = 0
     enviar: bool = True
+    # Filtro opcional: solo incluir estos DTEs específicos (para certificación)
+    # Formato: {"33": [123,124], "61": [97,98,99]}
+    folios: dict[str, list[int]] | None = None
 
 
 class GenerarLibroVentasOut(BaseModel):
@@ -131,6 +136,7 @@ def generar_libro_ventas(
             periodo=body.periodo,
             folio_notificacion=body.folio_notificacion,
             enviar=body.enviar,
+            folios_filter=body.folios,
         )
 
         return GenerarLibroVentasOut(
@@ -322,6 +328,7 @@ def generar_libro_guias(
             folio_notificacion=body.folio_notificacion,
             enviar=body.enviar,
             guias_anuladas=body.guias_anuladas or None,
+            folios_filter=body.folios,
         )
 
         return GenerarLibroGuiasOut(

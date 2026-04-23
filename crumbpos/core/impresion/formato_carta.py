@@ -24,6 +24,22 @@ class PDFCarta(FPDF):
         self.LM = 10
         self.PW = 195.4  # letter=215.9 - 2*10.25
 
+    def _lleva_cedible(self) -> bool:
+        """Determina si este DTE debe incluir página cedible.
+
+        Regla SII (manual_muestras_impresas.pdf pág 8):
+        - Tipos 33, 34, 43, 46, 52 llevan cedible.
+        - Excepción: guías de despacho (52) con IndTraslado 5 (traslado
+          interno) o 6 (otros traslados no venta) NO llevan cedible.
+          Solo las guías que constituyen venta o venta por efectuar
+          requieren cedible para el acuse de recibo.
+        """
+        if self.data.tipo_dte not in TIPOS_CEDIBLES:
+            return False
+        if self.data.tipo_dte == 52 and self.data.ind_traslado in ("5", "6"):
+            return False
+        return True
+
     def _render_page(self, es_cedible: bool = False):
         """Renderiza una página completa del DTE."""
         self.add_page()
@@ -39,7 +55,7 @@ class PDFCarta(FPDF):
         y = self._totales(y)
         self._timbre()
 
-        if es_cedible and self.data.tipo_dte in TIPOS_CEDIBLES:
+        if es_cedible and self._lleva_cedible():
             self._acuse_recibo()
             self._leyenda_cedible()
 
@@ -47,8 +63,9 @@ class PDFCarta(FPDF):
         # Página 1: Original
         self._render_page(es_cedible=False)
 
-        # Página 2: Cedible (solo para tipos 33, 34, 52)
-        if self.data.tipo_dte in TIPOS_CEDIBLES:
+        # Página 2: Cedible (solo para tipos con cedible, excluyendo
+        # guías de traslado interno/no-venta)
+        if self._lleva_cedible():
             self._render_page(es_cedible=True)
 
         return self.output()

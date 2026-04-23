@@ -24,6 +24,34 @@ TIPOS_AFECTOS = {33, 56, 61, 52, 46, 30, 60}
 # Tipos que pueden tener referencias a documentos originales
 TIPOS_CON_REFERENCIA = {56, 61}  # ND y NC electrónicas
 
+# Valores permitidos para <TipoEnvio> según los XSDs oficiales del SII
+# (LibroCV_v10.xsd línea ~85, LibroGuia_v10.xsd línea ~65).
+#
+# Semántica:
+#   - TOTAL  : único envío que compone el libro (primer envío).
+#   - PARCIAL: envío parcial, faltan otros.
+#   - FINAL  : último envío parcial, completa el libro.
+#   - AJUSTE : envío para corregir o complementar un libro previamente
+#              enviado. **Es el valor obligatorio para re-envíos** cuando
+#              el SII ya aceptó el libro original — enviar TOTAL de nuevo
+#              produce rechazo LNC ("Tipo de Envío de Libro No Corresponde").
+TIPOS_ENVIO_VALIDOS = frozenset({"TOTAL", "PARCIAL", "FINAL", "AJUSTE"})
+
+
+def _validar_tipo_envio(tipo_envio: str) -> None:
+    """Valida que ``tipo_envio`` esté en el conjunto permitido por el XSD SII.
+
+    Fail fast: lanzamos ValueError antes de armar el XML para que el
+    error explote en el generador (donde el contexto es claro) y no
+    durante la validación XSD posterior o en la respuesta del SII.
+    """
+    if tipo_envio not in TIPOS_ENVIO_VALIDOS:
+        permitidos = ", ".join(sorted(TIPOS_ENVIO_VALIDOS))
+        raise ValueError(
+            f"TipoEnvio inválido: {tipo_envio!r}. "
+            f"Valores permitidos por el SII: {permitidos}."
+        )
+
 
 def _extraer_referencia_desde_xml(xml_firmado_b64: str | None) -> tuple[int | None, int | None]:
     """Extrae TpoDocRef y FolioRef del XML firmado del DTE.
@@ -48,8 +76,14 @@ def _extraer_referencia_desde_xml(xml_firmado_b64: str | None) -> tuple[int | No
             if not refs:
                 refs = root.findall(".//Referencia")
             for ref in refs:
-                tdr_el = ref.find(f"{{{ns}}}TpoDocRef") or ref.find("TpoDocRef")
-                fdr_el = ref.find(f"{{{ns}}}FolioRef") or ref.find("FolioRef")
+                # Use 'is not None' — lxml elements with no children are falsy,
+                # so 'element or fallback' fails silently (FutureWarning).
+                tdr_el = ref.find(f"{{{ns}}}TpoDocRef")
+                if tdr_el is None:
+                    tdr_el = ref.find("TpoDocRef")
+                fdr_el = ref.find(f"{{{ns}}}FolioRef")
+                if fdr_el is None:
+                    fdr_el = ref.find("FolioRef")
                 if tdr_el is not None and tdr_el.text and tdr_el.text.strip().isdigit():
                     tpo = int(tdr_el.text.strip())
                     folio = int(fdr_el.text.strip()) if fdr_el is not None and fdr_el.text else None
@@ -57,13 +91,16 @@ def _extraer_referencia_desde_xml(xml_firmado_b64: str | None) -> tuple[int | No
         except etree.XMLSyntaxError:
             pass
 
-        # Fallback: regex
-        tdr_match = re.search(r'<TpoDocRef>(\d+)</TpoDocRef>', xml_str)
-        fdr_match = re.search(r'<FolioRef>(\d+)</FolioRef>', xml_str)
-        if tdr_match:
-            tpo = int(tdr_match.group(1))
-            folio = int(fdr_match.group(1)) if fdr_match else None
-            return tpo, folio
+        # Fallback: regex — search within each <Referencia> block to avoid
+        # matching TpoDocRef and FolioRef from different references.
+        for ref_block in re.finditer(r'<Referencia>(.*?)</Referencia>', xml_str, re.DOTALL):
+            block = ref_block.group(1)
+            tdr_match = re.search(r'<TpoDocRef>(\d+)</TpoDocRef>', block)
+            if tdr_match:
+                tpo = int(tdr_match.group(1))
+                fdr_match = re.search(r'<FolioRef>(\d+)</FolioRef>', block)
+                folio = int(fdr_match.group(1)) if fdr_match else None
+                return tpo, folio
 
     except Exception:
         pass
@@ -77,6 +114,7 @@ def generar_libro_ventas(
     periodo: str,
     rut_envia: str,
     folio_notificacion: int = 0,
+    tipo_envio: str = "TOTAL",
 ) -> tuple[str, str]:
     """Genera el XML del Libro de Ventas.
 
@@ -86,10 +124,14 @@ def generar_libro_ventas(
         periodo: "YYYY-MM"
         rut_envia: RUT of person sending (from cert)
         folio_notificacion: 0 for production (MENSUAL), >0 for certification (ESPECIAL)
+        tipo_envio: ``TOTAL`` (primer envío, default), ``PARCIAL``, ``FINAL``
+            o ``AJUSTE`` (re-envío correctivo sobre un libro ya recibido
+            por el SII). Ver ``TIPOS_ENVIO_VALIDOS``.
 
     Returns:
         (xml_string, libro_id) — xml_string is unsigned, caller must sign it.
     """
+    _validar_tipo_envio(tipo_envio)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     # Sort DTEs by tipo_dte, then folio
@@ -124,7 +166,7 @@ def generar_libro_ventas(
             tpo_ref, folio_ref = _extraer_referencia_desde_xml(dte.xml_firmado)
             if tpo_ref is not None:
                 entry["TpoDocRef"] = tpo_ref
-            if folio_ref is not None:
+            if folio_ref is not None and folio_ref > 0:
                 entry["FolioDocRef"] = folio_ref
 
         entries.append(entry)
@@ -195,7 +237,7 @@ def generar_libro_ventas(
     caratula += f"<NroResol>{empresa.numero_resolucion}</NroResol>\n"
     caratula += "<TipoOperacion>VENTA</TipoOperacion>\n"
     caratula += f"<TipoLibro>{tipo_libro}</TipoLibro>\n"
-    caratula += "<TipoEnvio>TOTAL</TipoEnvio>\n"
+    caratula += f"<TipoEnvio>{tipo_envio}</TipoEnvio>\n"
     if tipo_libro == "ESPECIAL":
         caratula += f"<FolioNotificacion>{folio_notificacion}</FolioNotificacion>\n"
     caratula += "</Caratula>"
@@ -323,6 +365,8 @@ def generar_libro_guias(
     periodo: str,
     rut_envia: str,
     folio_notificacion: int = 0,
+    folios_anulados: set[int] | None = None,
+    tipo_envio: str = "TOTAL",
 ) -> tuple[str, str]:
     """Genera el XML del Libro de Guías de Despacho.
 
@@ -337,11 +381,23 @@ def generar_libro_guias(
         periodo: "YYYY-MM"
         rut_envia: RUT of person sending (from cert)
         folio_notificacion: 0 for production (MENSUAL), >0 for certification (ESPECIAL)
+        folios_anulados: set opcional de folios que deben marcarse con
+            ``<Anulado>2</Anulado>`` y contarse en ``TotGuiaAnulada``
+            en vez de los totales de venta. Útil cuando el set de
+            pruebas SII instruye "EL CASO N CORRESPONDE A UNA GUIA
+            ANULADA". Override directo sobre el flag ``anulado`` del
+            modelo — se tiene en cuenta cuando el DTE en sí está
+            aprobado (no tenemos anulación real en BD).
+        tipo_envio: ``TOTAL`` (primer envío, default), ``PARCIAL``, ``FINAL``
+            o ``AJUSTE`` (re-envío correctivo sobre un libro ya recibido
+            por el SII). Ver ``TIPOS_ENVIO_VALIDOS``.
 
     Returns:
         (xml_string, libro_id) -- xml_string is unsigned, caller must sign it.
     """
+    _validar_tipo_envio(tipo_envio)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    folios_anulados = folios_anulados or set()
 
     # Sort by folio
     dtes_sorted = sorted(dtes, key=lambda d: d.folio)
@@ -350,6 +406,17 @@ def generar_libro_guias(
     tipo_libro = "ESPECIAL" if folio_notificacion > 0 else "MENSUAL"
 
     # Build Caratula (LibroGuia has different fields than LibroCompraVenta)
+    # IMPORTANTE — ``TipoOperacion`` NO va en la carátula del LibroGuia.
+    # El XSD oficial ``LibroGuia_v10.xsd`` define la sequence:
+    #     RutEmisorLibro → RutEnvia → PeriodoTributario → FchResol →
+    #     NroResol → TipoLibro → TipoEnvio? → NroSegmento? →
+    #     FolioNotificacion
+    # No incluye ``TipoOperacion`` (sí está en ``LibroCV_v10.xsd`` con
+    # enum COMPRA/VENTA, pero los libros son schemas distintos).
+    # Emitirlo en LibroGuia produce rechazo schema-level del SII
+    # (``cvc-complex-type.2.4.a``) sin devolver trackid — el N° de
+    # Atención queda comprometido. Protegido por
+    # ``tests/test_caratula_orden_xsd.py::TestOrdenCaratulaLibroGuia``.
     caratula = "<Caratula>\n"
     caratula += f"<RutEmisorLibro>{empresa.rut}</RutEmisorLibro>\n"
     caratula += f"<RutEnvia>{rut_envia}</RutEnvia>\n"
@@ -357,7 +424,7 @@ def generar_libro_guias(
     caratula += f"<FchResol>{empresa.fecha_resolucion}</FchResol>\n"
     caratula += f"<NroResol>{empresa.numero_resolucion}</NroResol>\n"
     caratula += f"<TipoLibro>{tipo_libro}</TipoLibro>\n"
-    caratula += "<TipoEnvio>TOTAL</TipoEnvio>\n"
+    caratula += f"<TipoEnvio>{tipo_envio}</TipoEnvio>\n"
     if tipo_libro == "ESPECIAL":
         caratula += f"<FolioNotificacion>{folio_notificacion}</FolioNotificacion>\n"
     caratula += "</Caratula>"
@@ -383,8 +450,16 @@ def generar_libro_guias(
         ind_traslado = _extraer_ind_traslado_desde_xml(dte.xml_firmado)
         tpo_oper = _IND_TRASLADO_TO_TPO_OPER.get(ind_traslado, 1)  # default: 1 (venta)
 
-        # Check if voided — distinguish between anulada (1) and folio no usado (2)
-        anulado = getattr(dte, 'anulado', False) or getattr(dte, 'estado', '') == 'anulado'
+        # Check if voided — distinguish between anulada (2) and folio no usado (1).
+        # Prioridad:
+        # 1. Override desde el set SII (folios_anulados) — instrucción literal
+        #    "EL CASO N CORRESPONDE A UNA GUIA ANULADA" del libro de guías.
+        # 2. Flags del modelo DteEmitido (en producción).
+        anulado = (
+            dte.folio in folios_anulados
+            or getattr(dte, 'anulado', False)
+            or getattr(dte, 'estado', '') == 'anulado'
+        )
         folio_no_usado = getattr(dte, 'folio_no_usado', False) or getattr(dte, 'estado', '') == 'folio_no_usado'
 
         det = "<Detalle>\n"
@@ -495,6 +570,7 @@ def generar_libro_compras(
     periodo: str,
     rut_envia: str,
     folio_notificacion: int = 0,
+    tipo_envio: str = "TOTAL",
 ) -> tuple[str, str]:
     """Genera el XML del Libro de Compras.
 
@@ -506,10 +582,14 @@ def generar_libro_compras(
         periodo: "YYYY-MM"
         rut_envia: RUT of person sending (from cert)
         folio_notificacion: 0 for production (MENSUAL), >0 for certification (ESPECIAL)
+        tipo_envio: ``TOTAL`` (primer envío, default), ``PARCIAL``, ``FINAL``
+            o ``AJUSTE`` (re-envío correctivo sobre un libro ya recibido
+            por el SII). Ver ``TIPOS_ENVIO_VALIDOS``.
 
     Returns:
         (xml_string, libro_id) — xml_string is unsigned, caller must sign it.
     """
+    _validar_tipo_envio(tipo_envio)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     # Build Detalle entries
@@ -518,23 +598,28 @@ def generar_libro_compras(
         det = "<Detalle>"
         det += f"<TpoDoc>{e['TpoDoc']}</TpoDoc>"
         det += f"<NroDoc>{e['NroDoc']}</NroDoc>"
-        if e.get("TpoImp"):
-            det += f"<TpoImp>{e['TpoImp']}</TpoImp>"
-        if e.get("TasaImp"):
-            det += f"<TasaImp>{e['TasaImp']}</TasaImp>"
+        # TpoImp: always 1 (IVA) for libro de compras
+        det += f"<TpoImp>{e.get('TpoImp') or 1}</TpoImp>"
+        tasa_imp = e.get("TasaImp") or 19
+        det += f"<TasaImp>{tasa_imp}</TasaImp>"
         det += f"<FchDoc>{e['FchDoc']}</FchDoc>"
         det += f"<RUTDoc>{e['RUTDoc']}</RUTDoc>"
         det += f"<RznSoc>{e['RznSoc']}</RznSoc>"
-        # Usar 'is not None' para no omitir cuando el valor es 0
-        if e.get("MntExe") is not None and e["MntExe"] != "":
+        # MntExe: only emit when non-zero (per SII reference)
+        if e.get("MntExe"):
             det += f"<MntExe>{e['MntExe']}</MntExe>"
         if e.get("MntNeto") is not None and e["MntNeto"] != "":
             det += f"<MntNeto>{e['MntNeto']}</MntNeto>"
-        # MntIVA: include when present, or calculate for IVARetTotal
+        # MntIVA: emit only when non-zero.
+        # IVANoRec/IVAUsoComun: su IVA NO va en <MntIVA> del detalle,
+        # se reporta exclusivamente en <IVANoRec>/<IVAUsoComun>.
+        # For IVARetTotal entries, calculate IVA if not explicit.
         mnt_iva = e.get("MntIVA", 0)
-        if not mnt_iva and e.get("IVARetTotal") and e.get("MntNeto") and e.get("TasaImp"):
+        if e.get("IVANoRec") or e.get("IVAUsoComun"):
+            mnt_iva = 0
+        elif not mnt_iva and e.get("IVARetTotal") and e.get("MntNeto") and e.get("TasaImp"):
             mnt_iva = (e["MntNeto"] * e["TasaImp"] + 50) // 100
-        if mnt_iva and not e.get("IVAUsoComun") and not e.get("IVANoRec"):
+        if mnt_iva:
             det += f"<MntIVA>{mnt_iva}</MntIVA>"
         if e.get("IVANoRec"):
             det += "<IVANoRec>"
@@ -573,11 +658,14 @@ def generar_libro_compras(
         r["TotDoc"] += 1
         r["TotMntExe"] += e.get("MntExe", 0)
         r["TotMntNeto"] += e.get("MntNeto", 0)
-        # Calculate MntIVA for entries with IVARetTotal when MntIVA not explicit
+        # TotMntIVA: IVANoRec/IVAUsoComun se reportan en sus propios totales,
+        # NO deben sumarse a TotMntIVA (solo IVA con derecho a crédito normal).
         entry_iva = e.get("MntIVA", 0)
-        if not entry_iva and e.get("IVARetTotal") and e.get("MntNeto") and e.get("TasaImp"):
+        if e.get("IVANoRec") or e.get("IVAUsoComun"):
+            entry_iva = 0
+        elif not entry_iva and e.get("IVARetTotal") and e.get("MntNeto") and e.get("TasaImp"):
             entry_iva = (e["MntNeto"] * e["TasaImp"] + 50) // 100
-        if entry_iva and not e.get("IVAUsoComun") and not e.get("IVANoRec"):
+        if entry_iva:
             r["TotMntIVA"] += entry_iva
         if e.get("IVANoRec"):
             if "TotIVANoRec" not in r:
@@ -670,7 +758,7 @@ def generar_libro_compras(
     caratula += f"<NroResol>{empresa.numero_resolucion}</NroResol>\n"
     caratula += "<TipoOperacion>COMPRA</TipoOperacion>\n"
     caratula += f"<TipoLibro>{tipo_libro}</TipoLibro>\n"
-    caratula += "<TipoEnvio>TOTAL</TipoEnvio>\n"
+    caratula += f"<TipoEnvio>{tipo_envio}</TipoEnvio>\n"
     if tipo_libro == "ESPECIAL":
         caratula += f"<FolioNotificacion>{folio_notificacion}</FolioNotificacion>\n"
     caratula += "</Caratula>"

@@ -407,6 +407,11 @@ class CafFolio(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     empresa_id: Mapped[str] = mapped_column(ForeignKey("empresa.id"), nullable=False)
+    sucursal_id: Mapped[str | None] = mapped_column(
+        ForeignKey("sucursal.id"), nullable=True,
+    )
+    # NULL = pool del servidor (emisiones desde admin web).
+    # NOT NULL = asignado a esa sucursal específica.
     tipo_dte: Mapped[int] = mapped_column(Integer, nullable=False)
     rango_desde: Mapped[int] = mapped_column(Integer, nullable=False)
     rango_hasta: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -419,7 +424,10 @@ class CafFolio(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        Index("ix_caf_empresa_tipo", "empresa_id", "tipo_dte", "estado"),
+        Index(
+            "ix_caf_empresa_tipo_sucursal",
+            "empresa_id", "tipo_dte", "sucursal_id", "estado",
+        ),
     )
 
 
@@ -575,4 +583,162 @@ class MovimientoStock(Base):
 
     __table_args__ = (
         Index("ix_mov_bodega_fecha", "bodega_id", "fecha"),
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+# CERTIFICACIÓN SII — Persistencia del wizard
+# ═══════════════════════════════════════════════════════════════
+
+# Estados de una run de certificación
+CERT_RUN_ESTADOS = (
+    "iniciado",            # run creada, set aún no cargado
+    "set_cargado",         # set parseado y persistido
+    "emitiendo",           # en ejecución de casos/libros
+    "completado",          # todo aprobado, listo para producción
+    "cancelado",           # abandonada por el super admin
+)
+
+# Estados de un caso dentro de una run
+CERT_CASO_ESTADOS = (
+    "pendiente",   # aún no se emite
+    "emitiendo",   # en proceso
+    "emitido",     # DTE generado y enviado al SII
+    "aprobado",    # SII aceptó el caso (SOK/EPR dependiendo del set)
+    "rechazado",   # SII rechazó el caso
+)
+
+# Estados de un libro dentro de una run
+CERT_LIBRO_ESTADOS = (
+    "pendiente",
+    "generando",
+    "enviado",
+    "aprobado",
+    "rechazado",
+)
+
+
+class CertificacionRun(Base):
+    """Ejecución completa del wizard de certificación para una empresa.
+
+    Cada empresa tiene como máximo una run activa (no completada/cancelada).
+    Permite al super admin salir del wizard y retomarlo donde lo dejó.
+    """
+    __tablename__ = "certificacion_run"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    rut_empresa: Mapped[str] = mapped_column(String(12), nullable=False)
+    estado: Mapped[str] = mapped_column(String(20), default="iniciado")
+    screen_actual: Mapped[int] = mapped_column(Integer, default=1)
+    # Archivo original del SII
+    archivo_nombre: Mapped[str | None] = mapped_column(String(120))
+    archivo_contenido: Mapped[str | None] = mapped_column(Text)
+    # Resultado del parser serializado (sets + libros + resumen)
+    datos_parseados: Mapped[dict | None] = mapped_column(JSON)
+    # Metadatos del setup (datos empresa, cert, CAFs) — NO guardar el PFX crudo
+    datos_setup: Mapped[dict | None] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    casos: Mapped[list["CertificacionCaso"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan",
+    )
+    libros: Mapped[list["CertificacionLibro"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        Index("ix_cert_run_rut_estado", "rut_empresa", "estado"),
+    )
+
+
+class CertificacionCaso(Base):
+    """Un caso individual del set de pruebas (factura, NC, ND, guía, etc.).
+
+    Se normaliza para poder actualizar el estado de cada caso a medida
+    que el wizard los va emitiendo.
+    """
+    __tablename__ = "certificacion_caso"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("certificacion_run.id"), nullable=False,
+    )
+    set_nombre: Mapped[str] = mapped_column(String(20), nullable=False)
+    # BASICO / GUIAS / EXENTA
+    numero_caso: Mapped[str] = mapped_column(String(30), nullable=False)
+    # ej: "4768464-1"
+    numero_atencion: Mapped[int] = mapped_column(Integer, nullable=False)
+    tipo_dte: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Datos del caso (copia del parser: items, ref, motivos, etc.)
+    datos: Mapped[dict | None] = mapped_column(JSON)
+    # Progreso de emisión
+    estado: Mapped[str] = mapped_column(String(20), default="pendiente")
+    folio: Mapped[int | None] = mapped_column(Integer)
+    dte_emitido_id: Mapped[str | None] = mapped_column(String(36))
+    trackid: Mapped[str | None] = mapped_column(String(30))
+    estado_sii: Mapped[str | None] = mapped_column(String(10))
+    # EPR / SOK / SRH / LNC / etc.
+    error_mensaje: Mapped[str | None] = mapped_column(Text)
+    emitido_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Tres checks SII: emitido → EPR → declarar avance → aprobado.
+    avance_declarado_at: Mapped[datetime | None] = mapped_column(DateTime)
+    aprobado_at: Mapped[datetime | None] = mapped_column(DateTime)
+    observaciones: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+    )
+
+    run: Mapped["CertificacionRun"] = relationship(back_populates="casos")
+
+    __table_args__ = (
+        Index("ix_cert_caso_run_set", "run_id", "set_nombre"),
+    )
+
+
+class CertificacionLibro(Base):
+    """Un libro del set de pruebas (ventas, compras, guías)."""
+    __tablename__ = "certificacion_libro"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("certificacion_run.id"), nullable=False,
+    )
+    tipo_libro: Mapped[str] = mapped_column(String(20), nullable=False)
+    # ventas / compras / guias
+    numero_atencion: Mapped[int | None] = mapped_column(Integer)
+    # Datos del libro (instrucciones o entradas de compras parseadas)
+    datos: Mapped[dict | None] = mapped_column(JSON)
+    # XML del libro firmado (para reenvío y muestras impresas)
+    xml_libro: Mapped[str | None] = mapped_column(Text)
+    # Progreso de envío
+    estado: Mapped[str] = mapped_column(String(20), default="pendiente")
+    trackid: Mapped[str | None] = mapped_column(String(30))
+    estado_sii: Mapped[str | None] = mapped_column(String(10))
+    # LOK / LNC / SOK / SRH / etc.
+    error_mensaje: Mapped[str | None] = mapped_column(Text)
+    enviado_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Primera vez que el SII aceptó el upload de este libro (con
+    # trackid válido). Sobrevive a ``reiniciar_envio_libro`` — si tiene
+    # valor, los re-envíos posteriores se generan con
+    # ``TipoEnvio=AJUSTE`` en vez de ``TOTAL`` para evitar el rechazo
+    # LNC ("Tipo de Envío No Corresponde") que devuelve el SII cuando
+    # ya tiene registrado un TOTAL para el mismo N°Atención+Periodo+
+    # TipoLibro=ESPECIAL.
+    primer_envio_sii_at: Mapped[datetime | None] = mapped_column(DateTime)
+    # Tres checks SII: enviado → EPR → declarar avance → aprobado.
+    avance_declarado_at: Mapped[datetime | None] = mapped_column(DateTime)
+    aprobado_at: Mapped[datetime | None] = mapped_column(DateTime)
+    observaciones: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+    )
+
+    run: Mapped["CertificacionRun"] = relationship(back_populates="libros")
+
+    __table_args__ = (
+        Index("ix_cert_libro_run_tipo", "run_id", "tipo_libro"),
     )

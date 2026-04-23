@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>trestresPOS · Agregar cliente</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <style>
+    .form-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .plan-options {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .plan-option {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 20px 22px;
+      cursor: pointer;
+      transition: all 200ms var(--ease);
+      background: var(--color-bg);
+    }
+    .plan-option input { display: none; }
+    .plan-option:hover { border-color: var(--color-accent); }
+    .plan-option.selected {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+    .plan-option-title {
+      font-size: var(--text-body);
+      font-weight: 600;
+      color: var(--color-text);
+      margin-bottom: 4px;
+    }
+    .plan-option-desc {
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <div class="topnav-left">
+        <a href="/admin/clientes" class="topnav-back" aria-label="Volver a Clientes">Clientes</a>
+        <span class="topnav-divider" aria-hidden="true"></span>
+        <a href="/admin" class="topnav-brand">
+          <img src="/static/logottpos.svg" alt="trestresPOS">
+        </a>
+      </div>
+      <div class="topnav-spacer"></div>
+      <span class="topnav-user" id="user-label">—</span>
+      <button class="topnav-action" id="btn-logout">Cerrar sesión</button>
+    </div>
+  </nav>
+
+  <div class="page">
+    <header class="page-header">
+      <h1 class="page-title">Agregar cliente</h1>
+      <p class="page-subtitle">
+        Crea una empresa nueva en la plataforma. Quedará en etapa
+        <em>Pendiente de certificación</em> hasta que inicies el wizard.
+      </p>
+    </header>
+
+    <div id="alert-container"></div>
+
+    <form id="form-cliente">
+      <!-- Plan -->
+      <div class="form-card">
+        <h2 class="form-card-title">Plan comercial</h2>
+        <p class="form-card-desc">
+          Asigna el plan con el que operará este cliente. Hoy solo está
+          disponible el plan de cortesía.
+        </p>
+        <div class="plan-options">
+          <label class="plan-option selected" data-plan="full_free">
+            <input type="radio" name="plan" value="full_free" checked>
+            <div class="plan-option-title">Full Free</div>
+            <div class="plan-option-desc">
+              Plan de cortesía — todas las funciones incluidas sin costo.
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Datos de facturación -->
+      <div class="form-card">
+        <h2 class="form-card-title">Datos de facturación</h2>
+        <p class="form-card-desc">
+          Información fiscal tal como figura en el SII. Estos datos se usan
+          para emitir los DTEs de la empresa.
+        </p>
+        <div class="form-grid">
+          <div class="field">
+            <label for="rut">RUT</label>
+            <input type="text" id="rut" name="rut" required placeholder="77.829.149-5">
+          </div>
+          <div class="field">
+            <label for="razon_social">Razón social</label>
+            <input type="text" id="razon_social" name="razon_social" required>
+          </div>
+          <div class="field full">
+            <label for="giro">Giro</label>
+            <input type="text" id="giro" name="giro" required>
+          </div>
+          <div class="field">
+            <label for="acteco">Código ACTECO</label>
+            <input type="number" id="acteco" name="acteco" placeholder="731001">
+          </div>
+          <div class="field">
+            <label for="direccion">Dirección casa matriz</label>
+            <input type="text" id="direccion" name="direccion" required>
+          </div>
+          <div class="field">
+            <label for="comuna">Comuna</label>
+            <input type="text" id="comuna" name="comuna" required>
+          </div>
+          <div class="field">
+            <label for="ciudad">Ciudad</label>
+            <input type="text" id="ciudad" name="ciudad" required>
+          </div>
+        </div>
+      </div>
+
+      <!-- Admin de la empresa -->
+      <div class="form-card">
+        <h2 class="form-card-title">Administrador de la empresa</h2>
+        <p class="form-card-desc">
+          Usuario inicial que podrá operar la empresa. El super admin puede
+          crear más usuarios después.
+        </p>
+        <div class="form-grid">
+          <div class="field">
+            <label for="admin_nombre">Nombre completo</label>
+            <input type="text" id="admin_nombre" name="admin_nombre" required>
+          </div>
+          <div class="field">
+            <label for="admin_email">Correo electrónico</label>
+            <input type="email" id="admin_email" name="admin_email" required>
+          </div>
+          <div class="field full">
+            <label for="admin_password">Contraseña inicial</label>
+            <input type="password" id="admin_password" name="admin_password" required minlength="6">
+            <span class="hint">Mínimo 6 caracteres. El admin podrá cambiarla después.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <a href="/admin/clientes" class="btn btn-ghost">Cancelar</a>
+        <button type="submit" class="btn btn-primary" id="btn-submit">Crear cliente</button>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    const TOKEN_KEY = 'ttpos_token';
+    const USER_KEY = 'ttpos_user';
+
+    function requireSuperAdmin() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const userRaw = localStorage.getItem(USER_KEY);
+      if (!token || !userRaw) {
+        window.location.replace('/admin/login');
+        return null;
+      }
+      try {
+        const user = JSON.parse(userRaw);
+        if (user.rol !== 'super_admin') {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace('/admin/login');
+          return null;
+        }
+        return { token, user };
+      } catch {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        window.location.replace('/admin/login');
+        return null;
+      }
+    }
+
+    const auth = requireSuperAdmin();
+    if (auth) {
+      document.getElementById('user-label').textContent =
+        `${auth.user.nombre} · ${auth.user.email}`;
+    }
+
+    document.getElementById('btn-logout').addEventListener('click', () => {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      window.location.replace('/admin/login');
+    });
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function showAlert(tipo, mensaje) {
+      const c = document.getElementById('alert-container');
+      c.innerHTML = `<div class="alert alert-${tipo}">${escapeHtml(mensaje)}</div>`;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // Selector visual de plan
+    document.querySelectorAll('.plan-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        document.querySelectorAll('.plan-option').forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        opt.querySelector('input').checked = true;
+      });
+    });
+
+    document.getElementById('form-cliente').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!auth) return;
+
+      const btn = document.getElementById('btn-submit');
+      btn.disabled = true;
+      btn.textContent = 'Creando...';
+
+      const form = e.target;
+      const payload = {
+        rut: form.rut.value.trim(),
+        razon_social: form.razon_social.value.trim(),
+        giro: form.giro.value.trim(),
+        acteco: form.acteco.value ? parseInt(form.acteco.value, 10) : null,
+        direccion: form.direccion.value.trim(),
+        comuna: form.comuna.value.trim(),
+        ciudad: form.ciudad.value.trim(),
+        admin_email: form.admin_email.value.trim(),
+        admin_nombre: form.admin_nombre.value.trim(),
+        admin_password: form.admin_password.value,
+        plan: form.plan.value,
+        sucursales: [],
+      };
+
+      try {
+        const resp = await fetch('/api/empresas/', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${auth.token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        if (resp.status === 401 || resp.status === 403) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace('/admin/login');
+          return;
+        }
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          showAlert('error', err.detail || `Error ${resp.status}`);
+          btn.disabled = false;
+          btn.textContent = 'Crear cliente';
+          return;
+        }
+        window.location.replace('/admin/clientes');
+      } catch (err) {
+        showAlert('error', `Error de red: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Crear cliente';
+      }
+    });
+  </script>
+</body>
+</html>

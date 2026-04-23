@@ -143,8 +143,8 @@ def consultar_estado_envio(track_id: str, token: str, rut_emisor: str) -> dict:
 
     # Extract the return value from SOAP response
     import re
-    # The response contains HTML-escaped XML inside getEstUpReturn
-    match = re.search(r'getEstUpReturn[^>]*>([^<]+)</getEstUpReturn', text)
+    # The response contains HTML-escaped XML inside getEstUpReturn (may have ns prefix)
+    match = re.search(r'getEstUpReturn[^>]*>([^<]+)</\w*:?getEstUpReturn', text)
     if match:
         import html
         result_xml = html.unescape(match.group(1))

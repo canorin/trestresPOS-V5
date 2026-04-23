@@ -2,7 +2,7 @@
 
 Los CAFs son por empresa (RUT emisor) y ambiente (certificacion/produccion).
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from crumbpos.db.models import CafFolio, Empresa
@@ -116,9 +116,20 @@ def set_folio(body: SetFolioIn, tenant: TenantContext = Depends(get_tenant)):
 @router.post("/upload")
 async def upload_caf(
     archivo: UploadFile = File(...),
+    folio_inicial_override: int | None = Form(default=None),
     tenant: TenantContext = Depends(get_tenant),
 ):
-    """Sube un nuevo archivo CAF XML."""
+    """Sube un nuevo archivo CAF XML.
+
+    Form fields:
+    - ``archivo``: XML del CAF (requerido).
+    - ``folio_inicial_override``: si el CAF trae folios ya consumidos fuera
+      del sistema (por ejemplo cuando se migra desde otro software o
+      cuando se quemaron folios en intentos previos de certificación),
+      permite arrancar a consumir desde un folio mayor al ``D`` del CAF.
+      Debe estar dentro del rango ``[D, H]`` del archivo. Si se omite,
+      arranca desde ``D`` (comportamiento estándar).
+    """
     try:
         if not archivo.filename or not archivo.filename.endswith(".xml"):
             raise HTTPException(400, "El archivo debe ser un XML de CAF")
@@ -133,15 +144,31 @@ async def upload_caf(
         mgr = CAFManagerDB(db, tenant.empresa_id)
 
         try:
-            info = mgr.registrar_caf(contenido)
+            info = mgr.registrar_caf(
+                contenido,
+                folio_inicial_override=folio_inicial_override,
+            )
             db.commit()
         except ValueError as e:
             db.rollback()
             raise HTTPException(400, str(e))
 
+        folio_inicial = info.get("folio_inicial", info["folio_desde"])
+        if folio_inicial != info["folio_desde"]:
+            mensaje = (
+                f"CAF registrado: tipo {info['tipo_dte']}, "
+                f"rango {info['folio_desde']}-{info['folio_hasta']} "
+                f"(arranca desde folio {folio_inicial})"
+            )
+        else:
+            mensaje = (
+                f"CAF registrado: tipo {info['tipo_dte']}, "
+                f"folios {info['folio_desde']}-{info['folio_hasta']}"
+            )
+
         return {
             "ok": True,
-            "mensaje": f"CAF registrado: tipo {info['tipo_dte']}, folios {info['folio_desde']}-{info['folio_hasta']}",
+            "mensaje": mensaje,
             "ambiente": tenant.ambiente,
             **info,
         }

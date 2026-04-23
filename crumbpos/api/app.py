@@ -13,10 +13,12 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from crumbpos.db.multi_tenant import init_multi_tenant, ensure_super_admin
+from crumbpos.api.scheduler import iniciar_scheduler, detener_scheduler
 from crumbpos.api.routers import (
     auth, articulos, ventas, facturacion, folios, empresas, clientes,
     libros, sii_estado, envio_receptor, rcof, sesion_caja, reportes,
-    dashboard, sucursales, usuarios, cajas, inventario, sync,
+    dashboard, sucursales, usuarios, cajas, inventario, sync, certificacion,
+    baja_empresas,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +49,13 @@ async def lifespan(app: FastAPI):
     )
     logger.info("Super admin ready: %s", SUPER_ADMIN_EMAIL)
 
+    # 3. Iniciar scheduler RCOF diario (23:00)
+    iniciar_scheduler()
+
     yield
+
+    # Shutdown: detener scheduler
+    detener_scheduler()
 
 
 app = FastAPI(
@@ -96,6 +104,8 @@ app.include_router(usuarios.router)
 app.include_router(cajas.router)
 app.include_router(inventario.router)
 app.include_router(sync.router)
+app.include_router(certificacion.router)
+app.include_router(baja_empresas.router)
 
 
 # ── Swagger UI custom con logo trestresPOS ──────────────────────
@@ -196,12 +206,51 @@ async def folios_page():
     return HTMLResponse(html_path.read_text(encoding="utf-8"))
 
 
+@app.get("/certificacion", include_in_schema=False)
+async def certificacion_wizard_page():
+    """Wizard de certificación SII — solo super admin."""
+    html_path = STATIC_DIR / "certificacion" / "wizard.html"
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+
+# ── Consola Super Admin ────────────────────────────────────────
+
+def _admin_page(filename: str) -> HTMLResponse:
+    html_path = STATIC_DIR / "admin" / filename
+    return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/admin/login", include_in_schema=False)
+async def admin_login_page():
+    """Welcome page del super admin."""
+    return _admin_page("login.html")
+
+
+@app.get("/admin", include_in_schema=False)
+async def admin_main_page():
+    """Main page del super admin — grid de opciones."""
+    return _admin_page("main.html")
+
+
+@app.get("/admin/clientes", include_in_schema=False)
+async def admin_clientes_page():
+    """Lista de clientes del super admin."""
+    return _admin_page("clientes.html")
+
+
+@app.get("/admin/clientes/nuevo", include_in_schema=False)
+async def admin_cliente_nuevo_page():
+    """Formulario de alta de cliente."""
+    return _admin_page("cliente_nuevo.html")
+
+
 @app.get("/")
 def root():
     return {
         "app": "trestresPOS API",
         "version": "0.2.0",
         "docs": "/docs",
+        "admin": "/admin/login",
         "arquitectura": "multi-tenant",
         "auth": "POST /api/auth/login",
     }

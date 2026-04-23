@@ -14,11 +14,14 @@ from crumbpos.db.multi_tenant import (
     get_master_db,
     provision_empresa,
     cambiar_ambiente,
+    cambiar_etapa,
     EmpresaRegistro,
     UsuarioAuth,
     get_empresa_db_session,
+    ETAPAS_VALIDAS,
+    PLANES_DISPONIBLES,
 )
-from crumbpos.db.models import Empresa
+from crumbpos.db.models import Empresa, DteEmitido
 from crumbpos.api.dependencies import (
     get_current_user,
     get_tenant,
@@ -61,6 +64,8 @@ class EmpresaCreateIn(BaseModel):
     admin_email: str
     admin_nombre: str
     admin_password: str
+    # Plan comercial
+    plan: str = "full_free"
 
 
 class EmpresaUpdateIn(BaseModel):
@@ -89,6 +94,9 @@ class EmpresaOut(BaseModel):
     ciudad: str
     ambiente_activo: str
     ambiente_sii: str | None = None
+    etapa: str = "pendiente_certificacion"
+    plan: str = "full_free"
+    total_documentos: int = 0
     fecha_resolucion: str | None = None
     numero_resolucion: int = 0
     cert_rut_firmante: str | None = None
@@ -100,6 +108,10 @@ class CambiarAmbienteIn(BaseModel):
     ambiente: str  # "certificacion" | "produccion"
 
 
+class CambiarEtapaIn(BaseModel):
+    etapa: str  # "pendiente_certificacion" | "proceso_certificacion" | "produccion"
+
+
 # ── Endpoints: Super Admin ──
 
 @router.get("/", response_model=list[EmpresaOut])
@@ -107,26 +119,41 @@ def listar_empresas(
     user: UsuarioAuth = Depends(require_super_admin),
     master_db: Session = Depends(get_master_db),
 ):
-    """Lista todas las empresas registradas (solo super_admin)."""
-    registros = master_db.query(EmpresaRegistro).order_by(
+    """Lista todas las empresas registradas (solo super_admin).
+
+    Incluye plan, etapa y conteo de documentos emitidos. Excluye las que
+    estén en papelera (estado='eliminada_soft') o eliminadas definitivamente
+    (estado='eliminada_hard'). Esas viven en GET /api/admin/empresas/papelera.
+    """
+    registros = master_db.query(EmpresaRegistro).filter(
+        EmpresaRegistro.estado == "activa",
+    ).order_by(
         EmpresaRegistro.razon_social,
     ).all()
 
     result = []
     for reg in registros:
-        # Leer config completa desde la BD de la empresa
+        # Leer config + contar DTEs desde la BD de la empresa
+        empresa = None
+        total_documentos = 0
         try:
             db = get_empresa_db_session(reg.rut, reg.ambiente_activo)
-            empresa = db.query(Empresa).filter(Empresa.rut == reg.rut).first()
-            db.close()
+            try:
+                empresa = db.query(Empresa).filter(Empresa.rut == reg.rut).first()
+                total_documentos = db.query(DteEmitido).count()
+            finally:
+                db.close()
         except Exception:
-            empresa = None
+            pass
 
         result.append(EmpresaOut(
             rut=reg.rut,
             razon_social=reg.razon_social,
             ambiente_activo=reg.ambiente_activo,
             ambiente_sii=empresa.ambiente_sii if empresa else None,
+            etapa=reg.etapa,
+            plan=reg.plan,
+            total_documentos=total_documentos,
             giro=empresa.giro if empresa else "Sin configurar",
             acteco=empresa.acteco if empresa else None,
             direccion=empresa.direccion if empresa else "",
@@ -149,12 +176,15 @@ def crear_empresa(
     """Crea una nueva empresa con su admin y bases de datos aisladas.
 
     Esto crea:
-    - Registro en master.db
+    - Registro en master.db (etapa: pendiente_certificacion, plan: full_free)
     - data/{rut}/certificacion.db con todas las tablas
     - data/{rut}/produccion.db con todas las tablas
     - Usuario admin en master + ambas BDs
     - Sucursal default "Casa Matriz" en ambas BDs
     """
+    if body.plan not in PLANES_DISPONIBLES:
+        raise HTTPException(400, f"Plan inválido: {body.plan}")
+
     password_hash = bcrypt.hashpw(
         body.admin_password.encode(), bcrypt.gensalt(),
     ).decode()
@@ -174,6 +204,7 @@ def crear_empresa(
             admin_nombre=body.admin_nombre,
             acteco=body.acteco,
             sucursales=sucursales_data,
+            plan=body.plan,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -187,6 +218,9 @@ def crear_empresa(
         comuna=body.comuna,
         ciudad=body.ciudad,
         ambiente_activo="certificacion",
+        etapa="pendiente_certificacion",
+        plan=body.plan,
+        total_documentos=0,
         activa=True,
     )
 
@@ -212,6 +246,33 @@ def cambiar_ambiente_empresa(
         "empresa_rut": rut,
         "ambiente_activo": nuevo,
         "mensaje": f"Empresa {rut} ahora opera en modo {nuevo}",
+    }
+
+
+@router.put("/{rut}/etapa", response_model=dict)
+def cambiar_etapa_empresa(
+    rut: str,
+    body: CambiarEtapaIn,
+    user: UsuarioAuth = Depends(require_super_admin),
+):
+    """Cambia la etapa del ciclo de vida de una empresa.
+
+    Transiciones típicas:
+      pendiente_certificacion → proceso_certificacion → produccion
+    """
+    if body.etapa not in ETAPAS_VALIDAS:
+        raise HTTPException(
+            400, f"Etapa inválida: {body.etapa}. Válidas: {ETAPAS_VALIDAS}",
+        )
+    try:
+        nueva = cambiar_etapa(rut, body.etapa)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "ok": True,
+        "empresa_rut": rut,
+        "etapa": nueva,
+        "mensaje": f"Empresa {rut} ahora está en etapa {nueva}",
     }
 
 
@@ -364,6 +425,61 @@ async def subir_certificado(
         }
     finally:
         tenant.close()
+
+
+@router.get("/{rut}", response_model=EmpresaOut)
+def obtener_empresa(
+    rut: str,
+    user: UsuarioAuth = Depends(require_super_admin),
+    master_db: Session = Depends(get_master_db),
+):
+    """Datos completos de una empresa específica (solo super_admin).
+
+    Usado por el wizard de certificación para prefillar el form del Paso 1
+    al abrirse con ?rut=... en la URL.
+    """
+    reg = master_db.query(EmpresaRegistro).filter_by(rut=rut).first()
+    if not reg:
+        raise HTTPException(404, f"Empresa {rut} no registrada")
+    if reg.estado != "activa":
+        # Empresa en papelera o eliminada definitivamente: no prefill.
+        raise HTTPException(
+            410,
+            f"Empresa {rut} está dada de baja (estado: {reg.estado}).",
+        )
+
+    empresa = None
+    total_documentos = 0
+    try:
+        db = get_empresa_db_session(reg.rut, reg.ambiente_activo)
+        try:
+            empresa = db.query(Empresa).filter(Empresa.rut == reg.rut).first()
+            total_documentos = db.query(DteEmitido).count()
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("No se pudo cargar empresa %s de la BD tenant: %s", rut, e)
+
+    return EmpresaOut(
+        rut=reg.rut,
+        razon_social=reg.razon_social,
+        nombre_fantasia=empresa.nombre_fantasia if empresa else None,
+        giro=empresa.giro if empresa else "Sin configurar",
+        acteco=empresa.acteco if empresa else None,
+        direccion=empresa.direccion if empresa else "",
+        comuna=empresa.comuna if empresa else "",
+        ciudad=empresa.ciudad if empresa else "",
+        ambiente_activo=reg.ambiente_activo,
+        ambiente_sii=empresa.ambiente_sii if empresa else None,
+        etapa=reg.etapa,
+        plan=reg.plan,
+        total_documentos=total_documentos,
+        fecha_resolucion=empresa.fecha_resolucion if empresa else None,
+        numero_resolucion=empresa.numero_resolucion if empresa else 0,
+        cert_rut_firmante=empresa.cert_rut_firmante if empresa else None,
+        tiene_certificado=bool(empresa.cert_data or empresa.cert_path) if empresa else False,
+        activa=reg.activa,
+    )
 
 
 # ── Helpers ──

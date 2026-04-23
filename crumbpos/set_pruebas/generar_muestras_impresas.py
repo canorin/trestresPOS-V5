@@ -20,7 +20,7 @@ from crumbpos.config import settings
 
 LOGO_PATH = str(Path(__file__).resolve().parent.parent / "config" / "logo.png")
 NUMERO_RESOLUCION = 0
-FECHA_RESOLUCION = "2026-03-26"
+FECHA_RESOLUCION = "2026-04-01"
 
 TIPO_NOMBRE = {
     33: ("FACTURA", "ELECTRONICA"),
@@ -198,7 +198,7 @@ def format_rut(rut: str) -> str:
 def format_number(amount) -> str:
     if amount is None:
         return "0"
-    n = int(amount)
+    n = int(float(amount))
     return f"{n:,}".replace(",", ".")
 
 

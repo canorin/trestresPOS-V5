@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>trestresPOS — Emitir Factura</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="apple-touch-icon" href="/static/favicon.png">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
@@ -172,6 +174,20 @@
     </div>
 
     <div class="container">
+        <!-- Login -->
+        <div class="card" id="loginCard">
+            <h3>Iniciar Sesion</h3>
+            <div class="form-row">
+                <div><label>Email</label><input type="email" id="loginEmail" placeholder="admin@empresa.cl"></div>
+                <div><label>Password</label><input type="password" id="loginPass" placeholder="********" onkeydown="if(event.key==='Enter')hacerLogin()"></div>
+                <div style="display:flex;align-items:flex-end"><button class="btn-emitir" style="padding:8px 24px;font-size:14px" onclick="hacerLogin()">Entrar</button></div>
+            </div>
+            <div id="loginError" style="display:none;color:#e74c3c;font-size:13px;margin-top:8px;"></div>
+        </div>
+
+        <!-- Contenido (oculto hasta login) -->
+        <div id="appContent" style="display:none">
+
         <!-- Empresa emisora -->
         <div class="card" style="padding:12px 20px;">
             <div style="display:flex; align-items:center; gap:12px;">
@@ -179,6 +195,7 @@
                 <select id="empresaSelect" onchange="cambiarEmpresa()" style="flex:1; max-width:450px;">
                     <option value="">Cargando...</option>
                 </select>
+                <button onclick="cerrarSesion()" style="background:none;border:1px solid #ccc;padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;color:#888;">Salir</button>
             </div>
         </div>
 
@@ -381,6 +398,8 @@
                 <button class="btn-pdf" id="btnPdf" style="display:none" onclick="descargarPdf()">Descargar PDF</button>
             </div>
         </div>
+
+        </div><!-- /appContent -->
     </div>
 
 <script>
@@ -388,32 +407,82 @@ const API = '';
 let tipodte = 33;
 let ultimoPdfBase64 = null;
 let empresaRut = null;
+let authToken = localStorage.getItem('ttpos_token');
+
+// ── Auth helpers ──
+function authHeaders() {
+    return authToken ? { 'Authorization': 'Bearer ' + authToken } : {};
+}
+async function authFetch(url, opts = {}) {
+    opts.headers = { ...authHeaders(), ...(opts.headers || {}) };
+    const res = await fetch(url, opts);
+    if (res.status === 401 || res.status === 403) { cerrarSesion(); }
+    return res;
+}
+
+async function hacerLogin() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const pass = document.getElementById('loginPass').value;
+    const errDiv = document.getElementById('loginError');
+    if (!email || !pass) { errDiv.textContent = 'Ingrese email y password'; errDiv.style.display = ''; return; }
+    try {
+        const res = await fetch(API + '/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password: pass }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.access_token) {
+            errDiv.textContent = data.detail || 'Credenciales incorrectas';
+            errDiv.style.display = '';
+            return;
+        }
+        authToken = data.access_token;
+        localStorage.setItem('ttpos_token', authToken);
+        mostrarApp();
+    } catch (e) {
+        errDiv.textContent = 'Error de conexion: ' + e.message;
+        errDiv.style.display = '';
+    }
+}
+
+function cerrarSesion() {
+    authToken = null;
+    localStorage.removeItem('ttpos_token');
+    document.getElementById('loginCard').style.display = '';
+    document.getElementById('appContent').style.display = 'none';
+}
+
+function mostrarApp() {
+    document.getElementById('loginCard').style.display = 'none';
+    document.getElementById('appContent').style.display = '';
+    cargarEmpresas();
+}
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', () => {
-    cargarEmpresas();
     const hoy = new Date().toISOString().split('T')[0];
     document.getElementById('refFecha').value = hoy;
     document.getElementById('ocFecha').value = hoy;
     actualizarFmaPago();
+    // Si hay token guardado, intentar cargar directo
+    if (authToken) { mostrarApp(); }
 });
 
 async function cargarEmpresas() {
     try {
-        const res = await fetch(API + '/api/empresas/');
-        const empresas = await res.json();
+        const res = await authFetch(API + '/api/empresas/mi-empresa');
+        const e = await res.json();
         const sel = document.getElementById('empresaSelect');
-        if (empresas.length === 0) {
-            sel.innerHTML = '<option value="">No hay empresas - registre una primero</option>';
+        if (!e || !e.rut) {
+            sel.innerHTML = '<option value="">No hay empresa asociada</option>';
             return;
         }
-        sel.innerHTML = empresas.map(e =>
-            `<option value="${e.rut}">${e.razon_social} (${e.rut})${!e.tiene_certificado ? ' - SIN CERT' : ''}</option>`
-        ).join('');
-        empresaRut = empresas[0].rut;
+        sel.innerHTML = `<option value="${e.rut}">${e.razon_social} (${e.rut})${!e.tiene_certificado ? ' - SIN CERT' : ''}</option>`;
+        empresaRut = e.rut;
         cargarInfo();
     } catch (e) {
-        document.getElementById('infoBar').textContent = 'Error cargando empresas: ' + e.message;
+        document.getElementById('infoBar').textContent = 'Error cargando empresa: ' + e.message;
     }
 }
 
@@ -425,7 +494,7 @@ function cambiarEmpresa() {
 async function cargarInfo() {
     if (!empresaRut) return;
     try {
-        const res = await fetch(API + '/api/facturacion/info?empresa_rut=' + encodeURIComponent(empresaRut));
+        const res = await authFetch(API + '/api/facturacion/info?empresa_rut=' + encodeURIComponent(empresaRut));
         const data = await res.json();
         if (data.error) {
             document.getElementById('infoBar').textContent = 'Error: ' + data.error;
@@ -641,7 +710,7 @@ async function emitirFactura() {
             oc_fecha: (tipodte === 33 || tipodte === 34) ? ocFecha : null,
         };
 
-        const res = await fetch(API + '/api/facturacion/emitir', {
+        const res = await authFetch(API + '/api/facturacion/emitir', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -709,7 +778,7 @@ async function buscarClientes() {
     clearTimeout(buscarTimeout);
     buscarTimeout = setTimeout(async () => {
         try {
-            const res = await fetch(API + '/api/clientes/?empresa_rut=' + encodeURIComponent(empresaRut) + '&q=' + encodeURIComponent(q));
+            const res = await authFetch(API + '/api/clientes/?empresa_rut=' + encodeURIComponent(empresaRut) + '&q=' + encodeURIComponent(q));
             const clientes = await res.json();
             if (!clientes || clientes.length === 0) {
                 resultsDiv.innerHTML = '<div style="padding:10px;color:#888;font-size:13px;">Sin resultados — puede ingresar datos manualmente</div>';
@@ -803,7 +872,7 @@ async function guardarCliente() {
             condicion_pago: condPago,
         };
 
-        let res = await fetch(API + '/api/clientes/', {
+        let res = await authFetch(API + '/api/clientes/', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body),
@@ -811,11 +880,11 @@ async function guardarCliente() {
 
         if (res.status === 400) {
             // Ya existe — buscar por RUT y actualizar
-            const buscarRes = await fetch(API + '/api/clientes/buscar/rut/' + encodeURIComponent(rut) + '?empresa_rut=' + encodeURIComponent(empresaRut));
+            const buscarRes = await authFetch(API + '/api/clientes/buscar/rut/' + encodeURIComponent(rut) + '?empresa_rut=' + encodeURIComponent(empresaRut));
             const existente = await buscarRes.json();
             if (existente && existente.id) {
                 const updateBody = { razon_social: razon, giro: giro, direccion: dir, comuna: comuna, ciudad: ciudad || null, condicion_pago: condPago };
-                res = await fetch(API + '/api/clientes/' + existente.id, {
+                res = await authFetch(API + '/api/clientes/' + existente.id, {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(updateBody),

@@ -2,12 +2,33 @@
 
 Los folios consumidos se persisten en un archivo JSON para sobrevivir
 reinicios del servidor. Nunca se reasigna un folio ya consumido.
+
+Validaciones SII:
+- Firma FRMA: el CAF está firmado por el SII. Si se dispone de la llave
+  pública del SII (env var ``SII_PUBLIC_KEY_PATH``) se verifica la firma
+  antes de aceptar el CAF. Referencia: instructivo_emision.pdf §1.4.
+- Vigencia: un CAF tiene vigencia máxima de 2 años desde su fecha de
+  autorización (timbraje_electronico.pdf pág 10).
 """
+import base64
 import json
+import os
+import re
+from datetime import date, datetime
 from pathlib import Path
+
 from lxml import etree
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
+from cryptography.hazmat.primitives.serialization import (
+    load_pem_private_key,
+    load_pem_public_key,
+)
+
+# Vigencia máxima de un CAF en días (2 años, SII timbraje_electronico.pdf)
+CAF_VIGENCIA_MAX_DIAS = 730
 
 
 class CAF:
@@ -54,13 +75,18 @@ class CAF:
         # Elemento CAF completo como BYTES RAW del archivo original
         # CRÍTICO: No re-serializar con lxml — preservar bytes exactos
         # para que la firma FRMA del SII siga siendo válida
-        import re as _re
         with open(str(self.xml_path), "rb") as _f:
             _raw = _f.read()
-        _m = _re.search(rb'<CAF version.*?</CAF>', _raw, _re.DOTALL)
+        _m = re.search(rb'<CAF version.*?</CAF>', _raw, re.DOTALL)
         self.caf_xml_raw = _m.group(0) if _m else b""
         # Versión string para compatibilidad (ISO-8859-1)
         self.caf_xml = self.caf_xml_raw.decode("ISO-8859-1") if self.caf_xml_raw else etree.tostring(caf, encoding="unicode")
+
+        # Bytes RAW del elemento DA del archivo original — se usan para
+        # verificar la firma FRMA del SII sin re-serializar (cualquier
+        # cambio en whitespace o encoding invalida la firma).
+        _da_match = re.search(rb'<DA>.*?</DA>', _raw, re.DOTALL)
+        self.da_xml_raw = _da_match.group(0) if _da_match else b""
 
     def get_private_key(self):
         """Retorna la llave privada RSA como objeto cryptography."""
@@ -74,12 +100,142 @@ class CAF:
         """Verifica si un folio está dentro del rango autorizado."""
         return self.folio_desde <= folio <= self.folio_hasta
 
+    def dias_desde_autorizacion(self, hoy: date | None = None) -> int:
+        """Días transcurridos desde la fecha de autorización del CAF.
+
+        ``fecha_autorizacion`` viene del SII en formato ``YYYY-MM-DD``.
+        """
+        if not self.fecha_autorizacion:
+            raise ValueError("CAF sin fecha de autorización")
+        fecha = datetime.strptime(self.fecha_autorizacion, "%Y-%m-%d").date()
+        hoy = hoy or date.today()
+        return (hoy - fecha).days
+
+    def esta_vigente(
+        self,
+        max_dias: int = CAF_VIGENCIA_MAX_DIAS,
+        hoy: date | None = None,
+    ) -> bool:
+        """Indica si el CAF aún está dentro de su vigencia.
+
+        Por defecto usa 2 años (730 días) según SII timbraje_electronico.pdf.
+        Tipos boleta (39/41) tienen vigencia diferente (1 año) — pasar
+        ``max_dias=365`` al llamar si corresponde.
+        """
+        try:
+            return self.dias_desde_autorizacion(hoy) <= max_dias
+        except ValueError:
+            return False
+
+    def validar_firma_sii(self, llave_publica_pem: str | bytes) -> bool:
+        """Verifica la firma FRMA del CAF contra la llave pública del SII.
+
+        La firma FRMA es una firma RSA-SHA1 sobre los bytes canónicos del
+        elemento ``<DA>``. Se usan los bytes raw del archivo para preservar
+        la canonicalización original — cualquier re-serialización
+        invalidaría la firma.
+
+        Args:
+            llave_publica_pem: Llave pública del SII en formato PEM
+                (bytes o string).
+
+        Returns:
+            ``True`` si la firma es válida.
+
+        Raises:
+            ValueError: si faltan datos para validar (DA raw o FRMA).
+            cryptography.exceptions.InvalidSignature: si la firma no
+                verifica contra la llave pública provista.
+        """
+        if not self.da_xml_raw:
+            raise ValueError(
+                "No se puede validar firma: no se extrajeron bytes raw del DA"
+            )
+        if not self.firma_caf:
+            raise ValueError("CAF sin elemento FRMA")
+
+        if isinstance(llave_publica_pem, str):
+            llave_publica_pem = llave_publica_pem.encode("ascii")
+        public_key = load_pem_public_key(llave_publica_pem, backend=default_backend())
+
+        firma_bytes = base64.b64decode(self.firma_caf)
+
+        # SII firma FRMA con RSA-SHA1 sobre los bytes del elemento DA.
+        # Si la firma no verifica, cryptography levanta InvalidSignature.
+        public_key.verify(
+            firma_bytes,
+            self.da_xml_raw,
+            padding.PKCS1v15(),
+            hashes.SHA1(),
+        )
+        return True
+
+    def validar(
+        self,
+        llave_publica_sii: str | bytes | None = None,
+        max_dias_vigencia: int = CAF_VIGENCIA_MAX_DIAS,
+    ) -> list[str]:
+        """Ejecuta todas las validaciones del CAF y retorna lista de errores.
+
+        - Vigencia <= ``max_dias_vigencia`` días desde autorización.
+        - Firma FRMA válida contra llave pública del SII (si se provee).
+
+        No levanta excepciones: retorna lista de mensajes. Lista vacía =
+        CAF válido.
+        """
+        errores: list[str] = []
+
+        # Vigencia
+        try:
+            dias = self.dias_desde_autorizacion()
+            if dias > max_dias_vigencia:
+                errores.append(
+                    f"CAF vencido: {dias} días desde autorización "
+                    f"(máximo {max_dias_vigencia}). "
+                    f"Fecha autorización: {self.fecha_autorizacion}"
+                )
+        except ValueError as e:
+            errores.append(f"Error leyendo fecha de autorización: {e}")
+
+        # Firma FRMA
+        if llave_publica_sii is not None:
+            try:
+                self.validar_firma_sii(llave_publica_sii)
+            except InvalidSignature:
+                errores.append(
+                    "Firma FRMA del CAF no verifica contra la llave "
+                    "pública del SII — CAF inválido o adulterado"
+                )
+            except ValueError as e:
+                errores.append(f"Error validando firma FRMA: {e}")
+
+        return errores
+
     def __repr__(self):
         return (
             f"CAF(tipo={self.tipo_dte}, "
             f"folios={self.folio_desde}-{self.folio_hasta}, "
             f"rut={self.rut_emisor})"
         )
+
+
+def _cargar_llave_publica_sii() -> bytes | None:
+    """Carga la llave pública del SII desde env var ``SII_PUBLIC_KEY_PATH``.
+
+    Retorna ``None`` si la variable no está seteada o el archivo no existe.
+    El llamador debe manejar ese caso (generalmente log warning y continuar).
+    """
+    ruta = os.environ.get("SII_PUBLIC_KEY_PATH")
+    if not ruta:
+        return None
+    p = Path(ruta)
+    if not p.exists():
+        print(
+            f"  WARN: SII_PUBLIC_KEY_PATH={ruta} no existe — "
+            f"no se validará firma FRMA de CAFs"
+        )
+        return None
+    return p.read_bytes()
 
 
 class CAFManager:
@@ -90,6 +246,7 @@ class CAFManager:
         self._cafs: dict[int, list[CAF]] = {}
         self._folio_actual: dict[int, int] = {}
         self._folios_file = self.caf_dir / "folios_consumidos.json"
+        self._llave_publica_sii = _cargar_llave_publica_sii()
         self._cargar_cafs()
         self._cargar_folios_persistidos()
 
@@ -291,8 +448,11 @@ class CAFManager:
     def registrar_caf(self, xml_bytes: bytes, filename: str) -> dict:
         """Registra un nuevo archivo CAF desde bytes.
 
-        Guarda el archivo en el directorio de CAFs y lo carga.
-        Retorna info del CAF registrado.
+        Guarda el archivo en el directorio de CAFs y lo carga. Valida
+        vigencia (<=2 años) y firma FRMA (si hay llave pública SII
+        configurada vía env ``SII_PUBLIC_KEY_PATH``).
+
+        Retorna info del CAF registrado con lista de advertencias.
         """
         # Guardar archivo
         dest = self.caf_dir / filename
@@ -306,6 +466,20 @@ class CAFManager:
         except Exception as e:
             dest.unlink()  # Borrar si no se pudo parsear
             raise ValueError(f"Error parseando CAF: {e}")
+
+        # Validar vigencia y firma FRMA
+        # Tipos boleta (39/41) tienen vigencia de 1 año, el resto 2 años
+        max_dias = 365 if caf.tipo_dte in (39, 41) else CAF_VIGENCIA_MAX_DIAS
+        errores = caf.validar(
+            llave_publica_sii=self._llave_publica_sii,
+            max_dias_vigencia=max_dias,
+        )
+        # Cualquier error bloquea el registro (firma inválida, CAF vencido)
+        if errores:
+            dest.unlink()
+            raise ValueError(
+                "CAF rechazado por validación SII:\n- " + "\n- ".join(errores)
+            )
 
         # Agregar al manager
         if caf.tipo_dte not in self._cafs:

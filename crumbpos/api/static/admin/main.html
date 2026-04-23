@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>trestresPOS · Consola Super Admin</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <a href="/admin" class="topnav-brand">
+        <img src="/static/logottpos.svg" alt="trestresPOS">
+      </a>
+      <div class="topnav-spacer"></div>
+      <span class="topnav-user" id="user-label">—</span>
+      <button class="topnav-action" id="btn-logout">Cerrar sesión</button>
+    </div>
+  </nav>
+
+  <div class="page">
+    <header class="page-header">
+      <div class="page-eyebrow">Consola super admin</div>
+      <h1 class="page-title">¿Qué quieres hacer hoy?</h1>
+      <p class="page-subtitle">
+        Gestiona clientes, certificaciones y configuración del sistema.
+      </p>
+    </header>
+
+    <section class="options-grid">
+      <a href="/admin/clientes" class="card card-hover">
+        <h2 class="card-title">Clientes</h2>
+        <p class="card-desc">
+          Listado de empresas activas, su plan, etapa del ciclo y documentos emitidos.
+          Alta de nuevos clientes.
+        </p>
+        <div class="card-footer">Ver clientes ›</div>
+      </a>
+
+      <a href="/certificacion" class="card card-hover">
+        <h2 class="card-title">Certificar cliente</h2>
+        <p class="card-desc">
+          Wizard paso a paso para certificar una empresa ante el SII.
+          Sube el set de pruebas y los CAFs y el sistema hace el resto.
+        </p>
+        <div class="card-footer">Iniciar wizard ›</div>
+      </a>
+
+      <div class="card card-disabled">
+        <h2 class="card-title">Planes y precios</h2>
+        <p class="card-desc">
+          Catálogo de planes comerciales, features incluidas y precios por mes.
+          Hoy todos los clientes operan con plan de cortesía.
+        </p>
+        <div class="card-footer">Próximamente</div>
+      </div>
+
+      <div class="card card-disabled">
+        <h2 class="card-title">Usuarios del sistema</h2>
+        <p class="card-desc">
+          Super admins, cuentas de soporte y accesos temporales.
+          Control de roles y auditoría de acciones.
+        </p>
+        <div class="card-footer">Próximamente</div>
+      </div>
+
+      <div class="card card-disabled">
+        <h2 class="card-title">Facturación interna</h2>
+        <p class="card-desc">
+          Facturación de la plataforma a los clientes activos.
+          Cobros recurrentes, historial y descargas.
+        </p>
+        <div class="card-footer">Próximamente</div>
+      </div>
+
+      <div class="card card-disabled">
+        <h2 class="card-title">Reportes globales</h2>
+        <p class="card-desc">
+          Métricas agregadas de todas las empresas: documentos emitidos,
+          tasa de éxito SII, uso por día.
+        </p>
+        <div class="card-footer">Próximamente</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const TOKEN_KEY = 'ttpos_token';
+    const USER_KEY = 'ttpos_user';
+
+    function requireSuperAdmin() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const userRaw = localStorage.getItem(USER_KEY);
+      if (!token || !userRaw) {
+        window.location.replace('/admin/login');
+        return null;
+      }
+      try {
+        const user = JSON.parse(userRaw);
+        if (user.rol !== 'super_admin') {
+          // Limpiar para evitar loop con login.html que redirige por presencia de token.
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace('/admin/login');
+          return null;
+        }
+        return user;
+      } catch {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        window.location.replace('/admin/login');
+        return null;
+      }
+    }
+
+    const user = requireSuperAdmin();
+    if (user) {
+      document.getElementById('user-label').textContent =
+        `${user.nombre} · ${user.email}`;
+    }
+
+    document.getElementById('btn-logout').addEventListener('click', () => {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      window.location.replace('/admin/login');
+    });
+  </script>
+</body>
+</html>

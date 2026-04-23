@@ -24,8 +24,10 @@ TIPO_NOMBRE = {
     801: ("ORDEN DE COMPRA", ""),
 }
 
-# Tipos que tienen copia cedible
-TIPOS_CEDIBLES = {33, 34, 52}
+# Tipos que tienen copia cedible (manual_muestras_impresas.pdf pág 8):
+# Factura, Factura Exenta, Factura de Compra, Liquidación Factura y
+# Guía de Despacho. Las NC/ND y boletas no llevan cedible.
+TIPOS_CEDIBLES = {33, 34, 43, 46, 52}
 
 # Sucursal SII (aparece bajo el recuadro rojo)
 SUCURSAL_SII = "SANTIAGO ORIENTE"

@@ -1,4 +1,5 @@
 """Generador de XML para DTEs según formato SII Chile."""
+import logging
 from datetime import datetime
 from lxml import etree
 
@@ -8,6 +9,50 @@ from crumbpos.core.firma.timbre import generar_ted
 
 SII_NS = "http://www.sii.cl/SiiDte"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+
+logger = logging.getLogger(__name__)
+
+# Límites de longitud del XSD SII (DTE_v10.xsd + SiiTypes_v10.xsd).
+# El SII rechaza con STATUS=7 (esquema inválido) cualquier valor que
+# exceda estos límites. Truncar es la política defensiva: preservamos
+# información crítica (RUTs, montos, folios) y sólo acortamos textos
+# descriptivos que a veces vienen largos desde bases externas.
+_XSD_MAXLEN = {
+    # Emisor
+    "RznSoc": 100,          # RznSocLargaType
+    "RznSocEmisor": 100,    # RznSocLargaType (boletas)
+    "GiroEmis": 80,
+    "GiroEmisor": 80,       # boletas
+    "DirOrigen": 70,
+    "CmnaOrigen": 20,       # ComunaType
+    "CiudadOrigen": 20,     # CiudadType
+    # Receptor
+    "RznSocRecep": 100,     # RznSocLargaType
+    "GiroRecep": 40,        # ¡40!, no 80 como el emisor
+    "DirRecep": 70,
+    "CmnaRecep": 20,
+    "CiudadRecep": 20,
+}
+
+
+def _set_text_truncado(parent: etree._Element, tag: str, value) -> etree._Element:
+    """Crea un SubElement con el texto truncado al maxLength del XSD.
+
+    Si ``tag`` no está en ``_XSD_MAXLEN``, se asigna tal cual. Si el valor
+    excede el límite, se trunca y se emite un warning con el tag y la
+    longitud — útil para detectar bases con datos mal cargados.
+    """
+    el = etree.SubElement(parent, tag)
+    text = "" if value is None else str(value)
+    maxlen = _XSD_MAXLEN.get(tag)
+    if maxlen is not None and len(text) > maxlen:
+        logger.warning(
+            "Truncando %s: %d chars -> %d (XSD SII). Valor original: %r",
+            tag, len(text), maxlen, text,
+        )
+        text = text[:maxlen]
+    el.text = text
+    return el
 
 
 def generar_documento_xml(dte: DTE, caf: CAF, timestamp: str | None = None) -> etree._Element:
@@ -62,30 +107,30 @@ def generar_documento_xml(dte: DTE, caf: CAF, timestamp: str | None = None) -> e
     emisor = etree.SubElement(encabezado, "Emisor")
     etree.SubElement(emisor, "RUTEmisor").text = dte.emisor["RUTEmisor"]
     if es_boleta:
-        etree.SubElement(emisor, "RznSocEmisor").text = dte.emisor["RznSoc"]
-        etree.SubElement(emisor, "GiroEmisor").text = dte.emisor["GiroEmis"]
+        _set_text_truncado(emisor, "RznSocEmisor", dte.emisor["RznSoc"])
+        _set_text_truncado(emisor, "GiroEmisor", dte.emisor["GiroEmis"])
         # Boletas NO llevan Acteco pero SÍ llevan CdgSIISucur (opcional)
     else:
-        etree.SubElement(emisor, "RznSoc").text = dte.emisor["RznSoc"]
-        etree.SubElement(emisor, "GiroEmis").text = dte.emisor["GiroEmis"]
+        _set_text_truncado(emisor, "RznSoc", dte.emisor["RznSoc"])
+        _set_text_truncado(emisor, "GiroEmis", dte.emisor["GiroEmis"])
         etree.SubElement(emisor, "Acteco").text = str(dte.emisor["Acteco"])
     # CdgSIISucur: código sucursal SII (opcional, antes de DirOrigen según XSD)
     if dte.emisor.get("SucDeSII"):
         etree.SubElement(emisor, "CdgSIISucur").text = str(dte.emisor["SucDeSII"])
-    etree.SubElement(emisor, "DirOrigen").text = dte.emisor["DirOrigen"]
-    etree.SubElement(emisor, "CmnaOrigen").text = dte.emisor["CmnaOrigen"]
-    etree.SubElement(emisor, "CiudadOrigen").text = dte.emisor["CiudadOrigen"]
+    _set_text_truncado(emisor, "DirOrigen", dte.emisor["DirOrigen"])
+    _set_text_truncado(emisor, "CmnaOrigen", dte.emisor["CmnaOrigen"])
+    _set_text_truncado(emisor, "CiudadOrigen", dte.emisor["CiudadOrigen"])
 
     # Receptor
     receptor = etree.SubElement(encabezado, "Receptor")
     etree.SubElement(receptor, "RUTRecep").text = dte.receptor["RUTRecep"]
     if not es_boleta:
-        etree.SubElement(receptor, "RznSocRecep").text = dte.receptor["RznSocRecep"]
-        etree.SubElement(receptor, "GiroRecep").text = dte.receptor["GiroRecep"]
-        etree.SubElement(receptor, "DirRecep").text = dte.receptor["DirRecep"]
-        etree.SubElement(receptor, "CmnaRecep").text = dte.receptor["CmnaRecep"]
+        _set_text_truncado(receptor, "RznSocRecep", dte.receptor["RznSocRecep"])
+        _set_text_truncado(receptor, "GiroRecep", dte.receptor["GiroRecep"])
+        _set_text_truncado(receptor, "DirRecep", dte.receptor["DirRecep"])
+        _set_text_truncado(receptor, "CmnaRecep", dte.receptor["CmnaRecep"])
         if dte.receptor.get("CiudadRecep"):
-            etree.SubElement(receptor, "CiudadRecep").text = dte.receptor["CiudadRecep"]
+            _set_text_truncado(receptor, "CiudadRecep", dte.receptor["CiudadRecep"])
 
     # Totales
     totales = etree.SubElement(encabezado, "Totales")
@@ -104,7 +149,11 @@ def generar_documento_xml(dte: DTE, caf: CAF, timestamp: str | None = None) -> e
         detalle = etree.SubElement(documento, "Detalle")
         etree.SubElement(detalle, "NroLinDet").text = str(item.nro_linea)
 
-        if item.exento:
+        # IndExe solo para tipos que NO son exentos por definición.
+        # T34 (Factura Exenta) y T41 (Boleta Exenta): todos los items son
+        # exentos implícitamente — agregar IndExe es redundante y puede
+        # interferir con la validación CodRef=3 del SII.
+        if item.exento and dte.tipo_dte not in (34, 41):
             etree.SubElement(detalle, "IndExe").text = "1"
 
         etree.SubElement(detalle, "NmbItem").text = item.nombre

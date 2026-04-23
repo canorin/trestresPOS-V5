@@ -145,6 +145,15 @@ def get_tenant(
         raise HTTPException(404, f"Empresa {empresa_rut} no encontrada")
     if not registro.activa:
         raise HTTPException(403, f"Empresa {empresa_rut} está desactivada")
+    # Si la empresa fue dada de baja (papelera o eliminación definitiva),
+    # ningún JWT debe poder operar contra ella — los archivos en disco
+    # ya no están en data/{rut}/ sino en data/.trash/ o borrados.
+    if registro.estado != "activa":
+        raise HTTPException(
+            410,  # Gone
+            f"Empresa {empresa_rut} está dada de baja (estado: "
+            f"{registro.estado}). No acepta operaciones.",
+        )
 
     ambiente = registro.ambiente_activo
 

@@ -80,6 +80,7 @@ class ServicioLibros:
         periodo: str,
         folio_notificacion: int = 0,
         enviar: bool = True,
+        folios_filter: dict[str, list[int]] | None = None,
     ) -> dict:
         """Genera, firma y opcionalmente envía un Libro de Ventas.
 
@@ -111,6 +112,14 @@ class ServicioLibros:
                 .order_by(DteEmitido.tipo_dte, DteEmitido.folio)
                 .all()
             )
+
+            # Filtro opcional por folios específicos (certificación)
+            if folios_filter:
+                allowed = set()
+                for tipo_str, folio_list in folios_filter.items():
+                    for f in folio_list:
+                        allowed.add((int(tipo_str), f))
+                dtes = [d for d in dtes if (d.tipo_dte, d.folio) in allowed]
 
             if not dtes:
                 return {
@@ -236,6 +245,7 @@ class ServicioLibros:
         folio_notificacion: int = 0,
         enviar: bool = True,
         guias_anuladas: list[int] | None = None,
+        folios_filter: list[int] | None = None,
     ) -> dict:
         """Genera, firma y opcionalmente envía un Libro de Guías de Despacho.
 
@@ -265,6 +275,11 @@ class ServicioLibros:
                 .order_by(DteEmitido.folio)
                 .all()
             )
+
+            # Filtro opcional por folios específicos (certificación)
+            if folios_filter:
+                allowed = set(folios_filter)
+                dtes = [d for d in dtes if d.folio in allowed]
 
             if not dtes:
                 return {

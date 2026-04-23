@@ -1,12 +1,13 @@
 """Servicio de generacion y envio del RCOF (Reporte de Consumo de Folios).
 
-El RCOF reporta diariamente al SII los folios de boletas consumidos.
-Se envia via el endpoint REST boleta_consumo del SII.
+El RCOF (ahora Registro de Ventas Diario / RVD) reporta diariamente
+al SII los folios de boletas consumidos.
 
-Sigue el mismo patron de firma que emision_libros.py:
-- Carga certificado con facturacion_electronica.firma.Firma
-- Firma con type="consu" (consumo de folios)
-- Envia al SII via REST boleta_consumo
+Segun el instructivo SII: "No hay cambios en el envio de RCOF" — se envia
+por el endpoint SOAP tradicional de DTE upload (maullin/palena), NO por
+la REST API de boletas. Usa token SOAP y el mismo mecanismo que EnvioDTE.
+
+La firma del XML si usa type="consu" (consumo de folios) via Firma library.
 """
 import json
 import logging
@@ -17,11 +18,14 @@ import requests
 from datetime import datetime, date
 from pathlib import Path
 
+from cryptography.hazmat.primitives.serialization import (
+    pkcs12, Encoding, PrivateFormat, NoEncryption,
+)
 from sqlalchemy.orm import Session
 
 from crumbpos.db.models import Empresa, DteEmitido, RcofDiario
 from crumbpos.core.rcof.generador_rcof import generar_rcof
-from crumbpos.core.sii_client.autenticacion import obtener_token_boleta
+from crumbpos.core.sii_client.autenticacion import obtener_token
 from crumbpos.config.settings import get_sii_url
 
 # Same Firma library used across the project
@@ -62,13 +66,30 @@ class ServicioRCOF:
             raise RuntimeError(f"Error cargando certificado: {self._firma.errores}")
         self._firma.verify = False
 
-    def _obtener_token_boleta(self) -> str:
-        """Obtiene token de autenticacion para boletas (REST API)."""
-        self._cargar_firma()
+    def _obtener_token_soap(self) -> str:
+        """Obtiene token SOAP tradicional para envio de RCOF al SII.
+
+        El RCOF se envia por el mismo endpoint que DTEs (maullin/palena),
+        por lo que requiere el token SOAP, no el REST de boletas.
+        """
         now = datetime.now()
         if self._token and self._token_time and (now - self._token_time).seconds < 1800:
             return self._token
-        self._token = obtener_token_boleta(self._firma)
+
+        pfx_data = open(self.cert_path, "rb").read()
+        password = self.cert_password.encode() if self.cert_password else None
+        private_key, certificate, _ = pkcs12.load_key_and_certificates(
+            pfx_data, password,
+        )
+        if not private_key or not certificate:
+            raise RuntimeError("Certificado no contiene llave privada o certificado")
+
+        pk_pem = private_key.private_bytes(
+            Encoding.PEM, PrivateFormat.TraditionalOpenSSL, NoEncryption(),
+        )
+        cert_der = certificate.public_bytes(Encoding.DER)
+
+        self._token = obtener_token(pk_pem, cert_der)
         self._token_time = now
         return self._token
 
@@ -229,7 +250,13 @@ class ServicioRCOF:
             }
 
     def _enviar_consumo(self, xml_bytes: bytes) -> dict:
-        """Envia RCOF al SII via REST endpoint boleta_consumo.
+        """Envia RCOF al SII via upload SOAP tradicional (DTEUpload).
+
+        El RCOF/RVD se envia por el mismo mecanismo que los DTEs:
+        - Endpoint: maullin (cert) / palena (prod) via DTEUpload
+        - Token: SOAP tradicional (no REST boleta)
+
+        Segun instructivo SII: "No hay cambios en el envio de RCOF".
 
         Args:
             xml_bytes: XML del RCOF firmado como bytes
@@ -237,17 +264,16 @@ class ServicioRCOF:
         Returns:
             dict con status, track_id, etc.
         """
-        token = self._obtener_token_boleta()
+        token = self._obtener_token_soap()
         rut_envia = self.empresa.cert_rut_firmante or self.empresa.rut
         sender_num, sender_dv = rut_envia.split("-")
         company_num, company_dv = self.empresa.rut.split("-")
 
-        url = get_sii_url("boleta_consumo")
+        url = get_sii_url("upload")
 
         headers = {
             "Cookie": f"TOKEN={token}",
             "User-Agent": "Mozilla/4.0 (compatible; PROG 1.0; CrumbPOS)",
-            "Accept": "application/json",
         }
 
         files = {
@@ -265,7 +291,8 @@ class ServicioRCOF:
                 response = requests.post(url, files=files, headers=headers, timeout=90)
                 response.raise_for_status()
                 break
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout,
+                    requests.exceptions.HTTPError) as e:
                 if attempt < max_retries - 1:
                     wait = 10 * (attempt + 1)
                     logger.warning(
@@ -278,19 +305,7 @@ class ServicioRCOF:
 
         text = response.text
 
-        # La REST API puede responder JSON
-        try:
-            resp_json = json.loads(text)
-            track_id = resp_json.get("trackid")
-            return {
-                "status": "OK" if track_id else "ERROR",
-                "track_id": str(track_id) if track_id else None,
-                "raw": text,
-            }
-        except json.JSONDecodeError:
-            pass
-
-        # Fallback: respuesta XML/HTML
+        # Respuesta es XML de RECEPCIONDTE
         track_id = None
         xml_track = re.search(r'<TRACKID>(\d+)</TRACKID>', text, re.IGNORECASE)
         if xml_track:

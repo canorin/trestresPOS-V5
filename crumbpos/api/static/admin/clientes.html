@@ -1,0 +1,834 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>trestresPOS · Clientes</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <style>
+    .page-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .header-text { flex: 1; }
+    @media (max-width: 720px) {
+      .page-header { flex-direction: column; align-items: stretch; }
+    }
+
+    /* Botones secundarios / destructivos en la tabla */
+    .cell-actions-multi {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    .btn-danger-outline {
+      background: transparent;
+      color: #c0392b;
+      border: 1px solid #e5a9a3;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 120ms, color 120ms;
+    }
+    .btn-danger-outline:hover {
+      background: #c0392b;
+      color: white;
+      border-color: #c0392b;
+    }
+    .btn-danger-solid {
+      background: #c0392b;
+      color: white;
+      border: 1px solid #c0392b;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .btn-danger-solid:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .btn-danger-solid:hover:not(:disabled) {
+      background: #a03023;
+    }
+
+    /* Papelera */
+    .papelera-section {
+      margin-top: 48px;
+      border-top: 1px solid #e5e5e5;
+      padding-top: 32px;
+    }
+    .papelera-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .papelera-desc {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 16px;
+    }
+    .papelera-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      padding: 14px 18px;
+      background: #fafafa;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      align-items: center;
+    }
+    .papelera-info-main {
+      font-weight: 600;
+      color: #333;
+    }
+    .papelera-info-sub {
+      font-size: 12px;
+      color: #777;
+      margin-top: 4px;
+    }
+    .papelera-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    /* Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+    }
+    .modal-backdrop.visible { display: flex; }
+    .modal-card {
+      background: white;
+      border-radius: 14px;
+      max-width: 640px;
+      width: 100%;
+      max-height: 85vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+      padding: 28px 32px;
+    }
+    .modal-title {
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .modal-subtitle {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 20px;
+    }
+    .modal-section {
+      padding: 14px 0;
+      border-top: 1px solid #eee;
+    }
+    .modal-section:first-of-type { border-top: none; padding-top: 0; }
+    .modal-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      margin-bottom: 10px;
+    }
+    .modal-summary-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 16px;
+    }
+    .modal-summary-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 14px;
+    }
+    .modal-summary-label { color: #666; }
+    .modal-summary-value { font-weight: 600; color: #222; }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid #eee;
+    }
+    .modal-alert {
+      background: #fff8e1;
+      border: 1px solid #f4d46b;
+      color: #7d5f00;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin: 12px 0;
+    }
+    .modal-alert.danger {
+      background: #fdecea;
+      border-color: #e5a9a3;
+      color: #8a1f12;
+    }
+    .modal-alert.success {
+      background: #e8f5e9;
+      border-color: #a5d6a7;
+      color: #1e5e22;
+    }
+    .hash-mono {
+      font-family: "SF Mono", Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      background: #f5f5f5;
+      padding: 6px 8px;
+      border-radius: 4px;
+      word-break: break-all;
+      margin-top: 6px;
+    }
+    .input-confirm {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 14px;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <div class="topnav-left">
+        <a href="/admin" class="topnav-back" aria-label="Volver a la consola">Consola</a>
+        <span class="topnav-divider" aria-hidden="true"></span>
+        <a href="/admin" class="topnav-brand">
+          <img src="/static/logottpos.svg" alt="trestresPOS">
+        </a>
+      </div>
+      <div class="topnav-spacer"></div>
+      <span class="topnav-user" id="user-label">—</span>
+      <button class="topnav-action" id="btn-logout">Cerrar sesión</button>
+    </div>
+  </nav>
+
+  <div class="page-wide">
+    <header class="page-header">
+      <div class="header-text">
+        <h1 class="page-title">Clientes</h1>
+        <p class="page-subtitle">
+          Todas las empresas activas en la plataforma, con su plan,
+          etapa del ciclo y documentos emitidos.
+        </p>
+      </div>
+      <div class="page-actions">
+        <a href="/admin/clientes/nuevo" class="btn btn-primary">Agregar cliente</a>
+      </div>
+    </header>
+
+    <div id="alert-container"></div>
+    <div id="content">
+      <div class="empty-state">
+        <div class="empty-state-title">Cargando clientes...</div>
+      </div>
+    </div>
+
+    <div class="papelera-section" id="papelera-section" style="display: none;">
+      <div class="papelera-title">Papelera</div>
+      <div class="papelera-desc">
+        Empresas dadas de baja. Se pueden restaurar dentro de los 30 días o
+        eliminar definitivamente una vez cumplido el período de gracia.
+      </div>
+      <div id="papelera-list"></div>
+    </div>
+  </div>
+
+  <!-- Modal: Dar de baja empresa -->
+  <div id="modal-baja" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-title">Dar de baja empresa</div>
+      <div class="modal-subtitle" id="modal-baja-subtitle">—</div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Resumen</div>
+        <div class="modal-summary-grid" id="modal-baja-summary"></div>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Paso 1 · Respaldo tributario</div>
+        <p style="font-size: 14px; color: #555; margin: 0 0 14px 0;">
+          Antes de dar de baja hay que exportar y descargar un ZIP con todos
+          los DTEs, libros y respaldos tributarios. El hash SHA-256 del archivo
+          se verifica del lado del navegador para garantizar que se recibió
+          una copia íntegra del respaldo.
+        </p>
+        <div id="modal-baja-zip-state">
+          <button class="btn btn-primary" id="btn-exportar-zip">Exportar y descargar ZIP</button>
+        </div>
+      </div>
+
+      <div class="modal-section" id="modal-baja-confirmar-section" style="display: none;">
+        <div class="modal-section-title">Paso 2 · Confirmar baja</div>
+        <div class="modal-alert danger">
+          Esta operación mueve los archivos de la empresa a la papelera.
+          Se puede restaurar dentro de 30 días. Pasado ese plazo, el super
+          admin puede eliminarla definitivamente — no hay vuelta atrás.
+        </div>
+        <button class="btn-danger-solid" id="btn-confirmar-baja" disabled>Confirmar baja</button>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-cerrar-modal-baja">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Eliminar definitivamente -->
+  <div id="modal-eliminar-definitivo" class="modal-backdrop">
+    <div class="modal-card">
+      <div class="modal-title">Eliminar definitivamente</div>
+      <div class="modal-subtitle">
+        <span id="modal-ed-razon">—</span> · <span id="modal-ed-rut">—</span>
+      </div>
+
+      <div class="modal-alert danger">
+        <strong>Esta operación es irreversible.</strong> Los archivos de la
+        empresa se borran del disco y el registro queda como tombstone en
+        master.db. Solo el ZIP que ya fue descargado sirve como respaldo.
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Doble confirmación</div>
+        <p style="font-size: 14px; color: #555; margin: 0 0 8px 0;">
+          Re-escribir el RUT exacto para confirmar:
+        </p>
+        <input type="text" id="modal-ed-input" class="input-confirm" placeholder="Ingresar RUT">
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="btn-cerrar-modal-ed">Cancelar</button>
+        <button class="btn-danger-solid" id="btn-confirmar-eliminar-definitivo" disabled>Eliminar definitivamente</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TOKEN_KEY = 'ttpos_token';
+    const USER_KEY = 'ttpos_user';
+
+    function requireSuperAdmin() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const userRaw = localStorage.getItem(USER_KEY);
+      if (!token || !userRaw) {
+        window.location.replace('/admin/login');
+        return null;
+      }
+      try {
+        const user = JSON.parse(userRaw);
+        if (user.rol !== 'super_admin') {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace('/admin/login');
+          return null;
+        }
+        return { token, user };
+      } catch {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        window.location.replace('/admin/login');
+        return null;
+      }
+    }
+
+    const auth = requireSuperAdmin();
+    if (auth) {
+      document.getElementById('user-label').textContent =
+        `${auth.user.nombre} · ${auth.user.email}`;
+    }
+
+    document.getElementById('btn-logout').addEventListener('click', () => {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      window.location.replace('/admin/login');
+    });
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    const ETAPA_LABELS = {
+      pendiente_certificacion: { text: 'Pendiente de certificación', cls: 'badge-pendiente' },
+      proceso_certificacion:   { text: 'Proceso certificación',      cls: 'badge-proceso' },
+      produccion:              { text: 'Producción',                  cls: 'badge-produccion' },
+    };
+
+    const PLAN_LABELS = {
+      full_free: 'Full Free',
+    };
+
+    function renderEtapa(etapa) {
+      const meta = ETAPA_LABELS[etapa] || { text: etapa, cls: 'badge-pendiente' };
+      return `<span class="badge ${meta.cls}">${escapeHtml(meta.text)}</span>`;
+    }
+
+    function renderPlan(plan) {
+      return `<span class="badge badge-plan">${escapeHtml(PLAN_LABELS[plan] || plan)}</span>`;
+    }
+
+    function renderAccion(empresa) {
+      const rutAttr = escapeHtml(empresa.rut);
+      const razonAttr = escapeHtml(empresa.razon_social);
+      let principal;
+      if (empresa.etapa === 'produccion') {
+        principal = '<span class="cell-sub">En producción</span>';
+      } else {
+        const href = `/certificacion?rut=${encodeURIComponent(empresa.rut)}`;
+        const label = empresa.etapa === 'proceso_certificacion'
+          ? 'Continuar'
+          : 'Certificar';
+        principal = `<a class="btn btn-secondary btn-small" href="${href}">${label}</a>`;
+      }
+      const baja = `<button class="btn-danger-outline" data-rut="${rutAttr}" data-razon="${razonAttr}" data-action="dar-baja">Dar de baja</button>`;
+      return `<div class="cell-actions-multi">${principal}${baja}</div>`;
+    }
+
+    function renderTable(empresas) {
+      if (empresas.length === 0) {
+        return `
+          <div class="empty-state">
+            <div class="empty-state-title">Aún no hay clientes</div>
+            <div class="empty-state-desc">
+              Agrega tu primer cliente para empezar a certificar y emitir documentos.
+            </div>
+            <a href="/admin/clientes/nuevo" class="btn btn-primary">Agregar cliente</a>
+          </div>
+        `;
+      }
+      const rows = empresas.map(e => `
+        <tr>
+          <td>
+            <span class="cell-primary">${escapeHtml(e.razon_social)}</span>
+            <span class="cell-sub">${escapeHtml(e.rut)}</span>
+          </td>
+          <td class="num">${e.total_documentos}</td>
+          <td>${renderEtapa(e.etapa)}</td>
+          <td>${renderPlan(e.plan)}</td>
+          <td class="actions">${renderAccion(e)}</td>
+        </tr>
+      `).join('');
+      return `
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th class="num">Documentos emitidos</th>
+                <th>Etapa</th>
+                <th>Plan</th>
+                <th class="actions">Acción</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function showAlert(tipo, mensaje) {
+      const c = document.getElementById('alert-container');
+      c.innerHTML = `<div class="alert alert-${tipo}">${escapeHtml(mensaje)}</div>`;
+    }
+
+    // ── HTTP helper ──────────────────────────────────────────
+    async function fetchJson(path, options = {}) {
+      const headers = {
+        'Authorization': `Bearer ${auth.token}`,
+        ...(options.headers || {}),
+      };
+      if (options.body && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+      }
+      const resp = await fetch(path, { ...options, headers });
+      if (resp.status === 401 || resp.status === 403) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        window.location.replace('/admin/login');
+        throw new Error('auth');
+      }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `Error ${resp.status}`);
+      }
+      if (resp.status === 204) return null;
+      return resp.json();
+    }
+
+    async function cargarClientes() {
+      try {
+        const empresas = await fetchJson('/api/empresas/');
+        document.getElementById('content').innerHTML = renderTable(empresas);
+      } catch (err) {
+        if (err.message === 'auth') return;
+        showAlert('error', `Error de red: ${err.message}`);
+        document.getElementById('content').innerHTML = '';
+      }
+      // La papelera se carga en paralelo; errores acá no bloquean la página.
+      cargarPapelera().catch(() => {});
+    }
+
+    // ── Papelera ─────────────────────────────────────────────
+    async function cargarPapelera() {
+      const section = document.getElementById('papelera-section');
+      const list = document.getElementById('papelera-list');
+      try {
+        const empresas = await fetchJson('/api/admin/empresas/papelera');
+        if (!empresas || empresas.length === 0) {
+          section.style.display = 'none';
+          list.innerHTML = '';
+          return;
+        }
+        section.style.display = 'block';
+        list.innerHTML = empresas.map(renderPapeleraRow).join('');
+      } catch (err) {
+        if (err.message === 'auth') return;
+        // No bloquea la UI principal, solo oculta la papelera.
+        section.style.display = 'none';
+      }
+    }
+
+    function renderPapeleraRow(e) {
+      const rutAttr = escapeHtml(e.rut);
+      const razonAttr = escapeHtml(e.razon_social);
+      const puedeYa = !!e.puede_eliminarse_ya;
+      const dias = e.dias_restantes == null ? '—' : e.dias_restantes;
+      const subTexto = puedeYa
+        ? 'Período de gracia cumplido — ya se puede eliminar definitivamente.'
+        : `Quedan ${dias} día${dias === 1 ? '' : 's'} del período de gracia.`;
+      const fechaBaja = e.fecha_eliminacion_soft
+        ? new Date(e.fecha_eliminacion_soft).toLocaleString('es-CL')
+        : '—';
+      const btnEliminar = puedeYa
+        ? `<button class="btn-danger-solid" data-action="eliminar-def" data-rut="${rutAttr}" data-razon="${razonAttr}">Eliminar definitivamente</button>`
+        : `<button class="btn-danger-solid" disabled title="Quedan ${dias} días de gracia">Eliminar definitivamente</button>`;
+      return `
+        <div class="papelera-row">
+          <div>
+            <div class="papelera-info-main">${razonAttr} · ${rutAttr}</div>
+            <div class="papelera-info-sub">
+              Dada de baja el ${escapeHtml(fechaBaja)}. ${escapeHtml(subTexto)}
+            </div>
+          </div>
+          <div class="papelera-actions">
+            <button class="btn btn-secondary btn-small" data-action="restaurar" data-rut="${rutAttr}">Restaurar</button>
+            ${btnEliminar}
+          </div>
+        </div>
+      `;
+    }
+
+    async function restaurarEmpresa(rut) {
+      if (!confirm(`¿Restaurar la empresa ${rut} desde la papelera?`)) return;
+      try {
+        await fetchJson(`/api/admin/empresas/${encodeURIComponent(rut)}/restaurar`, {
+          method: 'POST',
+        });
+        showAlert('success', `Empresa ${rut} restaurada.`);
+        await cargarClientes();
+      } catch (err) {
+        if (err.message === 'auth') return;
+        showAlert('error', err.message);
+      }
+    }
+
+    // ── Modal: dar de baja ───────────────────────────────────
+    const estadoBaja = {
+      rut: null,
+      razonSocial: null,
+      lastZipSha256: null,
+      zipVerificado: false,
+    };
+
+    async function abrirModalBaja(rut, razonSocial) {
+      estadoBaja.rut = rut;
+      estadoBaja.razonSocial = razonSocial;
+      estadoBaja.lastZipSha256 = null;
+      estadoBaja.zipVerificado = false;
+
+      const modal = document.getElementById('modal-baja');
+      const subtitle = document.getElementById('modal-baja-subtitle');
+      const summary = document.getElementById('modal-baja-summary');
+      const confirmarSection = document.getElementById('modal-baja-confirmar-section');
+      const btnConfirmar = document.getElementById('btn-confirmar-baja');
+      const zipState = document.getElementById('modal-baja-zip-state');
+
+      subtitle.textContent = `${razonSocial} · ${rut}`;
+      summary.innerHTML = '<div class="modal-summary-item"><span>Cargando…</span></div>';
+      confirmarSection.style.display = 'none';
+      btnConfirmar.disabled = true;
+      btnConfirmar.textContent = 'Confirmar baja';
+      zipState.innerHTML = `<button class="btn btn-primary" id="btn-exportar-zip">Exportar y descargar ZIP</button>`;
+      document.getElementById('btn-exportar-zip').addEventListener('click', exportarYDescargarClick);
+
+      modal.classList.add('visible');
+
+      try {
+        const data = await fetchJson(
+          `/api/admin/empresas/${encodeURIComponent(rut)}/preparar-baja`,
+          { method: 'POST' },
+        );
+        estadoBaja.razonSocial = data.razon_social || razonSocial;
+        subtitle.textContent = `${estadoBaja.razonSocial} · ${rut}`;
+        const c = data.conteos || {};
+        const items = [
+          { label: 'Estado actual', value: data.estado || 'activa' },
+          { label: 'Etapa', value: data.etapa || '—' },
+          { label: 'Ambiente activo', value: data.ambiente_activo || '—' },
+          { label: 'DTEs emitidos (prod)', value: c.dtes ?? 0 },
+          { label: 'Libros generados (prod)', value: c.libros ?? 0 },
+          { label: 'CAFs cargados (prod)', value: c.cafs ?? 0 },
+          { label: 'RCOFs enviados (prod)', value: c.rcofs ?? 0 },
+        ];
+        summary.innerHTML = items.map(i => `
+          <div class="modal-summary-item">
+            <span class="modal-summary-label">${escapeHtml(i.label)}</span>
+            <span class="modal-summary-value">${escapeHtml(String(i.value))}</span>
+          </div>
+        `).join('');
+      } catch (err) {
+        if (err.message === 'auth') return;
+        summary.innerHTML = `<div class="modal-alert danger">Error cargando resumen: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function cerrarModalBaja() {
+      document.getElementById('modal-baja').classList.remove('visible');
+    }
+
+    async function exportarYDescargarClick() {
+      const zipState = document.getElementById('modal-baja-zip-state');
+      const rut = estadoBaja.rut;
+      if (!rut) return;
+
+      zipState.innerHTML = `
+        <button class="btn btn-primary" disabled>Exportando ZIP en el servidor…</button>
+      `;
+
+      try {
+        // Paso 1: crear ZIP en el servidor
+        const expData = await fetchJson(
+          `/api/admin/empresas/${encodeURIComponent(rut)}/exportar-zip`,
+          { method: 'POST' },
+        );
+        const shaServidor = expData.sha256;
+        const nombreZip = expData.zip_nombre || `${rut}_respaldo.zip`;
+
+        // Paso 2: descargar el ZIP
+        zipState.innerHTML = `<button class="btn btn-primary" disabled>Descargando y verificando hash…</button>`;
+        const resp = await fetch(
+          `/api/admin/empresas/${encodeURIComponent(rut)}/descargar-zip`,
+          { headers: { 'Authorization': `Bearer ${auth.token}` } },
+        );
+        if (resp.status === 401 || resp.status === 403) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace('/admin/login');
+          return;
+        }
+        if (!resp.ok) {
+          throw new Error(`Error descargando ZIP: HTTP ${resp.status}`);
+        }
+        const arrayBuffer = await resp.arrayBuffer();
+
+        // Paso 3: calcular sha256 en el navegador
+        const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const shaCliente = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+        if (shaCliente !== shaServidor) {
+          throw new Error(
+            `Hash mismatch — servidor ${shaServidor.slice(0, 12)}…, ` +
+            `navegador ${shaCliente.slice(0, 12)}…`,
+          );
+        }
+
+        // Paso 4: guardar archivo en disco del usuario
+        const blob = new Blob([arrayBuffer], { type: 'application/zip' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = nombreZip;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        // Paso 5: habilitar confirmación
+        estadoBaja.lastZipSha256 = shaCliente;
+        estadoBaja.zipVerificado = true;
+
+        const kb = (arrayBuffer.byteLength / 1024).toFixed(1);
+        zipState.innerHTML = `
+          <div class="modal-alert success">
+            ZIP descargado y verificado · ${escapeHtml(nombreZip)} · ${kb} KB
+          </div>
+          <div style="font-size: 12px; color: #666; margin-top: 8px;">SHA-256 verificado:</div>
+          <div class="hash-mono">${escapeHtml(shaCliente)}</div>
+          <div style="margin-top: 12px;">
+            <button class="btn btn-secondary btn-small" id="btn-reexportar-zip">Volver a exportar</button>
+          </div>
+        `;
+        document.getElementById('btn-reexportar-zip').addEventListener('click', exportarYDescargarClick);
+
+        const confirmarSection = document.getElementById('modal-baja-confirmar-section');
+        const btnConfirmar = document.getElementById('btn-confirmar-baja');
+        confirmarSection.style.display = 'block';
+        btnConfirmar.disabled = false;
+      } catch (err) {
+        if (err.message === 'auth') return;
+        zipState.innerHTML = `
+          <div class="modal-alert danger">Error: ${escapeHtml(err.message)}</div>
+          <button class="btn btn-primary" id="btn-exportar-zip">Reintentar</button>
+        `;
+        document.getElementById('btn-exportar-zip').addEventListener('click', exportarYDescargarClick);
+      }
+    }
+
+    async function confirmarBajaClick() {
+      if (!estadoBaja.zipVerificado || !estadoBaja.lastZipSha256 || !estadoBaja.rut) {
+        return;
+      }
+      const btn = document.getElementById('btn-confirmar-baja');
+      btn.disabled = true;
+      btn.textContent = 'Dando de baja…';
+      try {
+        await fetchJson(
+          `/api/admin/empresas/${encodeURIComponent(estadoBaja.rut)}/confirmar-baja`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ sha256: estadoBaja.lastZipSha256 }),
+          },
+        );
+        const razon = estadoBaja.razonSocial || estadoBaja.rut;
+        cerrarModalBaja();
+        showAlert('success',
+          `Empresa ${razon} dada de baja. Se puede restaurar desde la Papelera durante 30 días.`,
+        );
+        await cargarClientes();
+      } catch (err) {
+        if (err.message === 'auth') return;
+        btn.disabled = false;
+        btn.textContent = 'Confirmar baja';
+        showAlert('error', err.message);
+      }
+    }
+
+    // ── Modal: eliminar definitivamente ──────────────────────
+    function abrirModalEliminarDefinitivo(rut, razonSocial) {
+      const modal = document.getElementById('modal-eliminar-definitivo');
+      document.getElementById('modal-ed-razon').textContent = razonSocial;
+      document.getElementById('modal-ed-rut').textContent = rut;
+      const input = document.getElementById('modal-ed-input');
+      input.value = '';
+      const btn = document.getElementById('btn-confirmar-eliminar-definitivo');
+      btn.disabled = true;
+      btn.textContent = 'Eliminar definitivamente';
+      btn.dataset.rut = rut;
+      btn.dataset.razon = razonSocial;
+      modal.classList.add('visible');
+      setTimeout(() => input.focus(), 50);
+    }
+
+    function cerrarModalEliminarDefinitivo() {
+      document.getElementById('modal-eliminar-definitivo').classList.remove('visible');
+    }
+
+    async function confirmarEliminarDefinitivoClick() {
+      const btn = document.getElementById('btn-confirmar-eliminar-definitivo');
+      const rut = btn.dataset.rut;
+      const razon = btn.dataset.razon || rut;
+      const input = document.getElementById('modal-ed-input').value;
+      btn.disabled = true;
+      btn.textContent = 'Eliminando…';
+      try {
+        await fetchJson(
+          `/api/admin/empresas/${encodeURIComponent(rut)}/eliminar-definitivo`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ rut_confirmacion: input }),
+          },
+        );
+        cerrarModalEliminarDefinitivo();
+        showAlert('success', `Empresa ${razon} eliminada definitivamente.`);
+        await cargarClientes();
+      } catch (err) {
+        if (err.message === 'auth') return;
+        btn.disabled = false;
+        btn.textContent = 'Eliminar definitivamente';
+        showAlert('error', err.message);
+      }
+    }
+
+    // ── Event wiring ─────────────────────────────────────────
+    document.getElementById('btn-cerrar-modal-baja').addEventListener('click', cerrarModalBaja);
+    document.getElementById('btn-confirmar-baja').addEventListener('click', confirmarBajaClick);
+    document.getElementById('btn-cerrar-modal-ed').addEventListener('click', cerrarModalEliminarDefinitivo);
+    document.getElementById('btn-confirmar-eliminar-definitivo').addEventListener('click', confirmarEliminarDefinitivoClick);
+
+    // Input de doble confirmación: habilita el botón solo si el RUT coincide
+    document.getElementById('modal-ed-input').addEventListener('input', (ev) => {
+      const btn = document.getElementById('btn-confirmar-eliminar-definitivo');
+      const rutEsperado = btn.dataset.rut || '';
+      btn.disabled = ev.target.value.trim() !== rutEsperado.trim();
+    });
+
+    // Cerrar modal al hacer click fuera del card
+    for (const modalId of ['modal-baja', 'modal-eliminar-definitivo']) {
+      document.getElementById(modalId).addEventListener('click', (ev) => {
+        if (ev.target.id === modalId) {
+          ev.currentTarget.classList.remove('visible');
+        }
+      });
+    }
+
+    // Cerrar con ESC
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape') {
+        cerrarModalBaja();
+        cerrarModalEliminarDefinitivo();
+      }
+    });
+
+    // Delegación: clicks en botones data-action dentro de la tabla y la papelera
+    document.addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.dataset.action;
+      const rut = btn.dataset.rut;
+      const razon = btn.dataset.razon || rut;
+      if (action === 'dar-baja') {
+        abrirModalBaja(rut, razon);
+      } else if (action === 'restaurar') {
+        restaurarEmpresa(rut);
+      } else if (action === 'eliminar-def') {
+        abrirModalEliminarDefinitivo(rut, razon);
+      }
+    });
+
+    if (auth) cargarClientes();
+  </script>
+</body>
+</html>
