@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>trestresPOS · Iniciar sesión</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--color-bg-alt);
+      border-radius: var(--radius-lg);
+      padding: 48px 44px;
+    }
+    .login-brand {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 20px;
+    }
+    .login-brand img { height: 38px; }
+    .login-empresa {
+      text-align: center;
+      margin-bottom: 28px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+    .login-empresa .razon {
+      font-size: var(--text-heading);
+      font-weight: 600;
+      letter-spacing: -0.022em;
+      line-height: 1.2;
+      color: var(--color-text);
+      margin-bottom: 4px;
+    }
+    .login-empresa .rut {
+      font-size: var(--text-caption);
+      color: var(--color-text-tertiary);
+      font-variant-numeric: tabular-nums;
+    }
+    .login-title {
+      text-align: center;
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      letter-spacing: -0.018em;
+      margin-bottom: 4px;
+    }
+    .login-subtitle {
+      text-align: center;
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      margin-bottom: 28px;
+    }
+    .login-card .field { margin-bottom: 14px; }
+    .login-card .btn { width: 100%; margin-top: 10px; }
+    footer {
+      text-align: center;
+      padding: 24px;
+      color: var(--color-text-tertiary);
+      font-size: var(--text-small);
+    }
+    footer img {
+      height: 18px; width: auto;
+      opacity: 0.85;
+      display: inline-block;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="login-card">
+      <div class="login-brand">
+        <img src="/static/logottpos.svg" alt="trestresPOS">
+      </div>
+      <div class="login-empresa">
+        <div class="razon" id="empresa-razon">Cargando…</div>
+        <div class="rut" id="empresa-rut">—</div>
+      </div>
+      <h1 class="login-title">Consola del cliente</h1>
+      <p class="login-subtitle">Ingresa con tu correo y contraseña para administrar tu negocio.</p>
+
+      <div id="alert-container"></div>
+
+      <form id="login-form" autocomplete="on">
+        <div class="field">
+          <label for="email">Correo electrónico</label>
+          <input type="email" id="email" name="email" autocomplete="email" required>
+        </div>
+        <div class="field">
+          <label for="password">Contraseña</label>
+          <input type="password" id="password" name="password" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="btn btn-primary" id="btn-submit">Iniciar sesión</button>
+      </form>
+    </div>
+  </main>
+  <footer>
+    <img src="/static/copyright.svg" alt="trestresPOS">
+  </footer>
+
+  <script>
+    // RUT empresa tomado del primer segmento del path. El backend ya
+    // valida que sea un RUT real — si llegamos acá, la URL es válida.
+    const EMPRESA_RUT = window.location.pathname.split('/')[1];
+    const TOKEN_KEY = `ttpos_token_${EMPRESA_RUT}`;
+    const USER_KEY = `ttpos_user_${EMPRESA_RUT}`;
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    function showAlert(tipo, mensaje) {
+      const c = document.getElementById('alert-container');
+      c.innerHTML = `<div class="alert alert-${tipo}">${escapeHtml(mensaje)}</div>`;
+    }
+
+    // Si ya hay sesión válida para ESTA empresa, redirigir al dashboard.
+    // Cada empresa tiene su propio token en localStorage (namespaced por
+    // RUT) — así un navegador puede mantener sesiones paralelas en N
+    // consolas distintas sin pisarse.
+    (function () {
+      const existingToken = localStorage.getItem(TOKEN_KEY);
+      const existingUserRaw = localStorage.getItem(USER_KEY);
+      if (!existingToken || !existingUserRaw) return;
+      try {
+        const u = JSON.parse(existingUserRaw);
+        if (u && u.empresa_rut === EMPRESA_RUT && u.rol !== 'super_admin') {
+          window.location.replace(`/${EMPRESA_RUT}/dashboard`);
+        } else {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+        }
+      } catch {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+      }
+    })();
+
+    // Cargar razón social / RUT en el header del card.
+    (async () => {
+      try {
+        const resp = await fetch(`/${EMPRESA_RUT}/info-publica`);
+        if (!resp.ok) {
+          document.getElementById('empresa-razon').textContent = 'Empresa no encontrada';
+          document.getElementById('empresa-rut').textContent = EMPRESA_RUT;
+          return;
+        }
+        const data = await resp.json();
+        document.getElementById('empresa-razon').textContent = data.razon_social;
+        document.getElementById('empresa-rut').textContent = `RUT ${data.rut}`;
+        document.title = `${data.razon_social} · trestresPOS`;
+      } catch {
+        document.getElementById('empresa-razon').textContent = EMPRESA_RUT;
+      }
+    })();
+
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const btn = document.getElementById('btn-submit');
+
+      btn.disabled = true;
+      btn.textContent = 'Conectando…';
+      document.getElementById('alert-container').innerHTML = '';
+
+      try {
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            empresa_rut: EMPRESA_RUT,
+          }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          showAlert('error', err.detail || `Error ${resp.status}`);
+          btn.disabled = false;
+          btn.textContent = 'Iniciar sesión';
+          return;
+        }
+        const data = await resp.json();
+        if (data.usuario.rol === 'super_admin') {
+          showAlert('error',
+            'Esta consola es para usuarios del cliente. ' +
+            'Si eres super admin, usa /admin/login.');
+          btn.disabled = false;
+          btn.textContent = 'Iniciar sesión';
+          return;
+        }
+        if (data.usuario.empresa_rut !== EMPRESA_RUT) {
+          showAlert('error',
+            'Tu usuario pertenece a otra empresa.');
+          btn.disabled = false;
+          btn.textContent = 'Iniciar sesión';
+          return;
+        }
+        localStorage.setItem(TOKEN_KEY, data.access_token);
+        localStorage.setItem(USER_KEY, JSON.stringify(data.usuario));
+        window.location.replace(`/${EMPRESA_RUT}/dashboard`);
+      } catch (err) {
+        showAlert('error', `Error de red: ${err.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Iniciar sesión';
+      }
+    });
+  </script>
+</body>
+</html>

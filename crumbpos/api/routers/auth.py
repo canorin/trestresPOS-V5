@@ -23,8 +23,18 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 # ── Schemas ──
 
 class LoginRequest(BaseModel):
+    """Payload del login.
+
+    ``empresa_rut`` namespaces la búsqueda: el par (empresa_rut, email) es
+    único en ``usuario_auth``, así que un mismo correo puede ser master de
+    varias empresas sin colisión. Los formularios ``/{rut}/login`` envían
+    este campo; la consola super admin (``/admin/login``) lo omite y la
+    búsqueda cae al namespace especial ``SYSTEM`` reservado para
+    super_admin.
+    """
     email: str
     password: str
+    empresa_rut: str | None = None  # None = super_admin (namespace SYSTEM)
     sucursal_id: str | None = None  # POS envía la sucursal donde opera
 
 
@@ -87,7 +97,14 @@ def login(body: LoginRequest, master_db: Session = Depends(get_master_db)):
     """
     from crumbpos.db.models import Sucursal, UsuarioSucursal
 
+    # Scope de búsqueda: si el caller no manda empresa_rut, asumimos login
+    # super_admin (namespace reservado "SYSTEM"). El form de la consola
+    # master cliente siempre manda el RUT de la empresa desde el path
+    # ``/{rut}/login``.
+    empresa_rut_scope = (body.empresa_rut or "SYSTEM").strip() or "SYSTEM"
+
     user = master_db.query(UsuarioAuth).filter(
+        UsuarioAuth.empresa_rut == empresa_rut_scope,
         UsuarioAuth.email == body.email,
     ).first()
     if not user or not _verify_password(body.password, user.password_hash):

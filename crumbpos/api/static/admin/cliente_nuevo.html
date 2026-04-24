@@ -43,6 +43,87 @@
       font-size: var(--text-caption);
       color: var(--color-text-secondary);
     }
+    /* Modal de credenciales — overlay post-creación.
+       Aparece una sola vez: cuando el super admin cierre el modal,
+       la password no se vuelve a mostrar nunca más (solo queda el hash
+       en la BD). Por eso obligamos a copiar antes de cerrar. */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 24px;
+    }
+    .overlay.visible { display: flex; }
+    .modal-cred {
+      background: var(--color-bg);
+      border-radius: var(--radius-lg);
+      max-width: 520px;
+      width: 100%;
+      padding: 36px 36px 30px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+    }
+    .modal-cred h3 {
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      letter-spacing: -0.018em;
+      margin-bottom: 6px;
+    }
+    .modal-cred .lead {
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      margin-bottom: 22px;
+    }
+    .cred-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 14px;
+      background: var(--color-bg-alt);
+      border-radius: var(--radius-md);
+      margin-bottom: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: var(--text-caption);
+    }
+    .cred-row .label {
+      color: var(--color-text-tertiary);
+      min-width: 70px;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .cred-row .value {
+      flex: 1;
+      user-select: all;
+      word-break: break-all;
+    }
+    .cred-row .copy-btn {
+      background: none;
+      border: 1px solid var(--color-border);
+      color: var(--color-text);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      font: inherit;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      cursor: pointer;
+    }
+    .cred-row .copy-btn:hover { border-color: var(--color-accent); }
+    .cred-row .copy-btn.copied { background: var(--color-accent); color: #fff; }
+    .cred-warning {
+      margin: 18px 0 22px;
+      padding: 12px 14px;
+      background: var(--color-etapa-proceso-bg);
+      color: var(--color-etapa-proceso-fg);
+      border-radius: var(--radius-md);
+      font-size: var(--text-caption);
+      line-height: 1.5;
+    }
+    .modal-cred .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
   </style>
 </head>
 <body>
@@ -130,12 +211,14 @@
         </div>
       </div>
 
-      <!-- Admin de la empresa -->
+      <!-- Master cliente (representante legal) -->
       <div class="form-card">
-        <h2 class="form-card-title">Administrador de la empresa</h2>
+        <h2 class="form-card-title">Master cliente de la empresa</h2>
         <p class="form-card-desc">
-          Usuario inicial que podrá operar la empresa. El super admin puede
-          crear más usuarios después.
+          Usuario principal del cliente — el dueño o representante legal.
+          Accederá a su consola en
+          <code>/{RUT empresa}/login</code>. La password inicial la
+          genera el sistema y se muestra una sola vez al crear.
         </p>
         <div class="form-grid">
           <div class="field">
@@ -143,13 +226,18 @@
             <input type="text" id="admin_nombre" name="admin_nombre" required>
           </div>
           <div class="field">
-            <label for="admin_email">Correo electrónico</label>
-            <input type="email" id="admin_email" name="admin_email" required>
+            <label for="admin_rut_personal">RUT personal</label>
+            <input type="text" id="admin_rut_personal" name="admin_rut_personal"
+                   required placeholder="17.586.255-2">
+            <span class="hint">RUT del representante legal.</span>
           </div>
           <div class="field full">
-            <label for="admin_password">Contraseña inicial</label>
-            <input type="password" id="admin_password" name="admin_password" required minlength="6">
-            <span class="hint">Mínimo 6 caracteres. El admin podrá cambiarla después.</span>
+            <label for="admin_email">Correo electrónico</label>
+            <input type="email" id="admin_email" name="admin_email" required>
+            <span class="hint">
+              Aquí le llegarán las credenciales. Puede repetirse entre empresas
+              — el login queda scopeado al RUT de cada empresa.
+            </span>
           </div>
         </div>
       </div>
@@ -159,6 +247,39 @@
         <button type="submit" class="btn btn-primary" id="btn-submit">Crear cliente</button>
       </div>
     </form>
+  </div>
+
+  <!-- Modal de credenciales recién generadas — visible una sola vez tras crear -->
+  <div class="overlay" id="cred-overlay" role="dialog" aria-modal="true" aria-labelledby="cred-title">
+    <div class="modal-cred">
+      <h3 id="cred-title">Cliente creado</h3>
+      <p class="lead">
+        Copia estas credenciales ahora. La password no se vuelve a mostrar;
+        solo queda su hash en la base de datos.
+      </p>
+      <div class="cred-row">
+        <span class="label">Login</span>
+        <span class="value" id="cred-url">—</span>
+        <button type="button" class="copy-btn" data-copy="cred-url">Copiar</button>
+      </div>
+      <div class="cred-row">
+        <span class="label">Correo</span>
+        <span class="value" id="cred-email">—</span>
+        <button type="button" class="copy-btn" data-copy="cred-email">Copiar</button>
+      </div>
+      <div class="cred-row">
+        <span class="label">Password</span>
+        <span class="value" id="cred-pass">—</span>
+        <button type="button" class="copy-btn" data-copy="cred-pass">Copiar</button>
+      </div>
+      <div class="cred-warning">
+        Envía estos datos al cliente por correo. Él rotará su password al
+        iniciar sesión por primera vez.
+      </div>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="btn-cred-done">Listo, volver a clientes</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -240,7 +361,7 @@
         ciudad: form.ciudad.value.trim(),
         admin_email: form.admin_email.value.trim(),
         admin_nombre: form.admin_nombre.value.trim(),
-        admin_password: form.admin_password.value,
+        admin_rut_personal: form.admin_rut_personal.value.trim(),
         plan: form.plan.value,
         sucursales: [],
       };
@@ -267,12 +388,50 @@
           btn.textContent = 'Crear cliente';
           return;
         }
-        window.location.replace('/admin/clientes');
+        const data = await resp.json();
+        // El backend devuelve { empresa, master_cliente }. La password
+        // se muestra una sola vez acá y el super admin la copia al
+        // correo que enviará al cliente (ID mail_credencial).
+        const mc = data.master_cliente || {};
+        const loginUrl = `${window.location.origin}${mc.login_url || '/' + data.empresa.rut + '/login'}`;
+        document.getElementById('cred-url').textContent = loginUrl;
+        document.getElementById('cred-email').textContent = mc.email || '—';
+        document.getElementById('cred-pass').textContent = mc.password_inicial || '—';
+        document.getElementById('cred-overlay').classList.add('visible');
       } catch (err) {
         showAlert('error', `Error de red: ${err.message}`);
         btn.disabled = false;
         btn.textContent = 'Crear cliente';
       }
+    });
+
+    // Copiado de valores del modal (login, email, password).
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const target = document.getElementById(btn.dataset.copy);
+        if (!target) return;
+        try {
+          await navigator.clipboard.writeText(target.textContent.trim());
+          const prev = btn.textContent;
+          btn.textContent = 'Copiado';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = prev;
+            btn.classList.remove('copied');
+          }, 1400);
+        } catch {
+          // Fallback: selección manual — forzar range sobre el texto.
+          const range = document.createRange();
+          range.selectNodeContents(target);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      });
+    });
+
+    document.getElementById('btn-cred-done').addEventListener('click', () => {
+      window.location.replace('/admin/clientes');
     });
   </script>
 </body>

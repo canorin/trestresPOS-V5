@@ -18,7 +18,7 @@ from crumbpos.api.routers import (
     auth, articulos, ventas, facturacion, folios, empresas, clientes,
     libros, sii_estado, envio_receptor, rcof, sesion_caja, reportes,
     dashboard, sucursales, usuarios, cajas, inventario, sync, certificacion,
-    baja_empresas,
+    baja_empresas, consola_cliente,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,6 +106,14 @@ app.include_router(inventario.router)
 app.include_router(sync.router)
 app.include_router(certificacion.router)
 app.include_router(baja_empresas.router)
+# ── consola_cliente: include_router se hace AL FINAL del archivo ──
+# Sus rutas son /{empresa_rut}/login y /{empresa_rut}/dashboard con path
+# param regex-validado. Debe registrarse después de todos los @app.get
+# fijos (/admin/*, /docs, /factura, /folios, /certificacion, /health, /)
+# porque FastAPI/Starlette matchea por orden de registro: una URL como
+# /admin/login matchearía primero /{empresa_rut}/login y — aunque el
+# regex no valide — FastAPI devuelve 422 en vez de seguir buscando.
+# Ver: `app.include_router(consola_cliente.router)` al final del archivo.
 
 
 # ── Swagger UI custom con logo trestresPOS ──────────────────────
@@ -259,3 +267,11 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Router catch-all por RUT empresa (registrado AL FINAL) ────────
+# Ver la nota cerca de app.include_router(baja_empresas.router): este
+# router usa path param /{empresa_rut} y debe ir después de todas las
+# rutas con prefijo fijo para que el matching por orden no convierta
+# segmentos como "admin" o "docs" en RUTs inválidos (422).
+app.include_router(consola_cliente.router)

@@ -5,6 +5,7 @@ Admin empresa: puede ver y modificar solo su empresa.
 """
 import base64
 import logging
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
@@ -49,7 +50,14 @@ class SucursalCreateIn(BaseModel):
 
 
 class EmpresaCreateIn(BaseModel):
-    """Datos para crear una nueva empresa (solo super_admin)."""
+    """Datos para crear una nueva empresa (solo super_admin).
+
+    El admin que se crea acá ES el master cliente de la empresa: el
+    representante legal/dueño. Se guarda su RUT personal en
+    ``UsuarioAuth.rut_personal`` (slug de login secundario) y se copia
+    a ``EmpresaRegistro.representante_legal_*``. La password la genera
+    el backend y se devuelve solo en la respuesta de creación.
+    """
     rut: str
     razon_social: str
     giro: str
@@ -60,10 +68,10 @@ class EmpresaCreateIn(BaseModel):
     ciudad: str
     # Sucursales adicionales (aparte de casa matriz)
     sucursales: list[SucursalCreateIn] = []
-    # Admin de la empresa
+    # Admin/master cliente de la empresa (= representante legal)
     admin_email: str
     admin_nombre: str
-    admin_password: str
+    admin_rut_personal: str
     # Plan comercial
     plan: str = "full_free"
 
@@ -102,6 +110,17 @@ class EmpresaOut(BaseModel):
     cert_rut_firmante: str | None = None
     tiene_certificado: bool = False
     activa: bool = True
+
+
+class EmpresaCreadaOut(BaseModel):
+    """Respuesta de creación de empresa con credenciales del master cliente.
+
+    La password inicial se devuelve UNA vez, en esta respuesta — el
+    backend no la persiste en texto claro. El super admin la copia y
+    la comparte con el cliente por correo (ID ``mail_credencial``).
+    """
+    empresa: EmpresaOut
+    master_cliente: dict  # {email, nombre, rut_personal, password_inicial, login_url}
 
 
 class CambiarAmbienteIn(BaseModel):
@@ -168,25 +187,33 @@ def listar_empresas(
     return result
 
 
-@router.post("/", response_model=EmpresaOut, status_code=201)
+@router.post("/", response_model=EmpresaCreadaOut, status_code=201)
 def crear_empresa(
     body: EmpresaCreateIn,
     user: UsuarioAuth = Depends(require_super_admin),
 ):
-    """Crea una nueva empresa con su admin y bases de datos aisladas.
+    """Crea una nueva empresa con su master cliente y BDs aisladas.
 
     Esto crea:
-    - Registro en master.db (etapa: pendiente_certificacion, plan: full_free)
+    - Registro en master.db (etapa: pendiente_certificacion, plan: full_free,
+      representante_legal_* = master cliente)
     - data/{rut}/certificacion.db con todas las tablas
     - data/{rut}/produccion.db con todas las tablas
-    - Usuario admin en master + ambas BDs
+    - UsuarioAuth (master.db) + Usuario (tenant.db) con rol ``admin_empresa``
     - Sucursal default "Casa Matriz" en ambas BDs
+
+    La password inicial se genera acá (``secrets.token_urlsafe(12)`` →
+    ~16 caracteres URL-safe, 96 bits de entropía) y se devuelve UNA
+    sola vez en la respuesta. Se hashea con bcrypt antes de persistir,
+    así no queda en claro en ninguna BD. El super admin copia la
+    password y la envía al cliente por correo.
     """
     if body.plan not in PLANES_DISPONIBLES:
         raise HTTPException(400, f"Plan inválido: {body.plan}")
 
+    password_inicial = secrets.token_urlsafe(12)
     password_hash = bcrypt.hashpw(
-        body.admin_password.encode(), bcrypt.gensalt(),
+        password_inicial.encode(), bcrypt.gensalt(),
     ).decode()
 
     sucursales_data = [s.model_dump() for s in body.sucursales] if body.sucursales else None
@@ -202,6 +229,7 @@ def crear_empresa(
             admin_email=body.admin_email,
             admin_password_hash=password_hash,
             admin_nombre=body.admin_nombre,
+            admin_rut_personal=body.admin_rut_personal,
             acteco=body.acteco,
             sucursales=sucursales_data,
             plan=body.plan,
@@ -209,7 +237,7 @@ def crear_empresa(
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    return EmpresaOut(
+    empresa_out = EmpresaOut(
         rut=body.rut,
         razon_social=body.razon_social,
         giro=body.giro,
@@ -222,6 +250,16 @@ def crear_empresa(
         plan=body.plan,
         total_documentos=0,
         activa=True,
+    )
+    return EmpresaCreadaOut(
+        empresa=empresa_out,
+        master_cliente={
+            "email": body.admin_email,
+            "nombre": body.admin_nombre,
+            "rut_personal": body.admin_rut_personal,
+            "password_inicial": password_inicial,
+            "login_url": f"/{body.rut}/login",
+        },
     )
 
 

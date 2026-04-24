@@ -24,6 +24,7 @@ from pathlib import Path
 
 from sqlalchemy import (
     create_engine, String, Integer, Boolean, DateTime, Text, event, text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import (
     sessionmaker, DeclarativeBase, Mapped, mapped_column, Session,
@@ -145,6 +146,25 @@ class EmpresaRegistro(BaseMaster):
         DateTime, nullable=True,
     )
 
+    # ── Representante legal de la empresa ──
+    #
+    # Metadata fiscal (no auth). Quién es la persona natural que figura
+    # como representante legal en el SII. Puede coincidir con el master
+    # cliente (mismo correo), pero son conceptos separados: el master
+    # cliente es la cuenta que hace login; el representante legal es la
+    # persona con responsabilidad legal ante el SII. Los 3 campos son
+    # nullable hasta que se capturan (empresas preexistentes los tienen
+    # en NULL hasta que el super admin las actualiza).
+    representante_legal_nombre: Mapped[str | None] = mapped_column(
+        String(80), nullable=True,
+    )
+    representante_legal_rut: Mapped[str | None] = mapped_column(
+        String(12), nullable=True,
+    )
+    representante_legal_email: Mapped[str | None] = mapped_column(
+        String(120), nullable=True,
+    )
+
 
 class EmpresaEliminacionLog(BaseMaster):
     """Log append-only de eventos del ciclo de baja/restauración/eliminación.
@@ -181,20 +201,36 @@ class EmpresaEliminacionLog(BaseMaster):
 class UsuarioAuth(BaseMaster):
     """Usuarios para autenticación centralizada — solo en master.db.
 
+    Namespacing por empresa: la unicidad es (empresa_rut, email), no solo
+    (email). Así un mismo correo puede ser master de N empresas (típico cuando
+    un representante legal tiene varios negocios), y cada empresa es un
+    "espacio" aislado que convive con el patrón ``data/{rut}/...`` del
+    filesystem. El super_admin usa empresa_rut="SYSTEM".
+
     Roles:
       - super_admin: ve todas las empresas, gestiona el sistema
-      - admin_empresa: administra su empresa, ve solo su data
+      - admin_empresa: administra su empresa, ve solo su data (master cliente)
       - admin_sucursal: administra sucursal(es) asignadas
       - cajero: solo POS en sucursales asignadas
     """
     __tablename__ = "usuario_auth"
+    __table_args__ = (
+        UniqueConstraint(
+            "empresa_rut", "email",
+            name="uq_usuario_auth_empresa_email",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     empresa_rut: Mapped[str] = mapped_column(
         String(12), nullable=False,
     )  # "SYSTEM" para super_admin
-    email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(120), nullable=False)
     nombre: Mapped[str] = mapped_column(String(80), nullable=False)
+    # RUT personal del usuario (p.ej. el del representante legal para el
+    # master del cliente). Nullable porque usuarios históricos (super_admin
+    # inicial, admins creados antes de esta migración) pueden no tenerlo.
+    rut_personal: Mapped[str | None] = mapped_column(String(12), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     rol: Mapped[str] = mapped_column(String(20), nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -337,6 +373,114 @@ def _migrate_master_schema(engine):
             "CREATE INDEX IF NOT EXISTS ix_elim_log_rut "
             "ON empresa_eliminacion_log (empresa_rut)"
         ))
+
+        # ── Representante legal en empresa_registro ──
+        if "representante_legal_nombre" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN representante_legal_nombre VARCHAR(80)"
+            ))
+            logger.info(
+                "Master migrate: columna 'representante_legal_nombre' "
+                "agregada a empresa_registro",
+            )
+        if "representante_legal_rut" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN representante_legal_rut VARCHAR(12)"
+            ))
+            logger.info(
+                "Master migrate: columna 'representante_legal_rut' "
+                "agregada a empresa_registro",
+            )
+        if "representante_legal_email" not in cols:
+            conn.execute(text(
+                "ALTER TABLE empresa_registro "
+                "ADD COLUMN representante_legal_email VARCHAR(120)"
+            ))
+            logger.info(
+                "Master migrate: columna 'representante_legal_email' "
+                "agregada a empresa_registro",
+            )
+
+        # ── Migración de usuario_auth: slug por RUT ──
+        #
+        # Hasta ahora la tabla tenía UNIQUE(email) — un correo solo podía
+        # existir una vez en toda la plataforma. Eso chocaba con el caso
+        # real: un representante legal puede ser master de N empresas con
+        # el mismo correo. Movemos el scope de unicidad a (empresa_rut,
+        # email) alineado con el namespacing por RUT del filesystem
+        # (data/{rut}/...) y de las URLs (/{rut}/login).
+        #
+        # SQLite no soporta DROP/ADD CONSTRAINT, así que recreamos la tabla
+        # cuando detectamos el schema viejo. Idempotente: si ya está
+        # migrado (UNIQUE(empresa_rut, email) presente), no hace nada.
+        ua_cols = {
+            row[1] for row in conn.execute(
+                text("PRAGMA table_info(usuario_auth)"),
+            )
+        }
+        needs_rut_personal = "rut_personal" not in ua_cols
+        schema_sql_row = conn.execute(text(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='table' AND name='usuario_auth'"
+        )).first()
+        schema_sql = (schema_sql_row[0] if schema_sql_row else "") or ""
+        # El constraint viejo venía como "UNIQUE (email)" sin empresa_rut.
+        has_old_unique = (
+            "UNIQUE (email)" in schema_sql
+            and "empresa_rut" not in schema_sql.split("UNIQUE (email)")[0][-40:]
+        )
+        # Detectar si ya tiene el UNIQUE nuevo (idempotencia).
+        has_new_unique = "uq_usuario_auth_empresa_email" in schema_sql or (
+            "UNIQUE (empresa_rut, email)" in schema_sql
+        )
+
+        if has_old_unique and not has_new_unique:
+            # Recrear tabla con el nuevo UNIQUE compuesto + rut_personal.
+            conn.execute(text(
+                "CREATE TABLE usuario_auth_new ("
+                "id VARCHAR(36) NOT NULL PRIMARY KEY, "
+                "empresa_rut VARCHAR(12) NOT NULL, "
+                "email VARCHAR(120) NOT NULL, "
+                "rut_personal VARCHAR(12), "
+                "nombre VARCHAR(80) NOT NULL, "
+                "password_hash VARCHAR(255) NOT NULL, "
+                "rol VARCHAR(20) NOT NULL, "
+                "activo BOOLEAN NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "CONSTRAINT uq_usuario_auth_empresa_email "
+                "UNIQUE (empresa_rut, email)"
+                ")"
+            ))
+            # Copiar datos existentes. rut_personal queda NULL (se rellena
+            # después al seedear / re-crear usuarios con los nuevos forms).
+            conn.execute(text(
+                "INSERT INTO usuario_auth_new "
+                "(id, empresa_rut, email, rut_personal, nombre, "
+                "password_hash, rol, activo, created_at) "
+                "SELECT id, empresa_rut, email, NULL, nombre, "
+                "password_hash, rol, activo, created_at "
+                "FROM usuario_auth"
+            ))
+            conn.execute(text("DROP TABLE usuario_auth"))
+            conn.execute(text(
+                "ALTER TABLE usuario_auth_new RENAME TO usuario_auth"
+            ))
+            logger.info(
+                "Master migrate: usuario_auth recreada con UNIQUE(empresa_rut, "
+                "email) + columna rut_personal",
+            )
+        elif needs_rut_personal:
+            # Tabla ya tiene el UNIQUE correcto pero falta rut_personal
+            # (caso: la tabla fue creada por create_all con el modelo nuevo
+            # antes de que hubiera datos; poco probable pero cubierto).
+            conn.execute(text(
+                "ALTER TABLE usuario_auth ADD COLUMN rut_personal VARCHAR(12)"
+            ))
+            logger.info(
+                "Master migrate: columna 'rut_personal' agregada a usuario_auth",
+            )
 
 
 def get_master_session() -> Session:
@@ -656,16 +800,23 @@ def provision_empresa(
     acteco: int | None = None,
     sucursales: list[dict] | None = None,
     plan: str = "full_free",
+    admin_rut_personal: str | None = None,
 ) -> tuple[str, str]:
     """Provisiona una nueva empresa completa.
 
-    1. Crea registro en master.db
-    2. Crea certificacion.db y produccion.db con todas las tablas
-    3. Inserta Empresa + admin Usuario + Sucursal "Casa Matriz" en cada BD
-    4. Crea sucursales adicionales si se proporcionan
+    1. Crea registro en master.db (incluye representante_legal_* si
+       viene ``admin_rut_personal``, porque ese usuario ES el master
+       cliente = representante legal).
+    2. Crea certificacion.db y produccion.db con todas las tablas.
+    3. Inserta Empresa + admin Usuario + Sucursal "Casa Matriz" en cada BD.
+    4. Crea sucursales adicionales si se proporcionan.
 
     Args:
         sucursales: lista de dicts con {nombre, codigo, direccion, comuna, ciudad, sii_sucursal}
+        admin_rut_personal: RUT personal del master cliente (el dueño/representante
+            legal). Se guarda en ``UsuarioAuth.rut_personal`` para la
+            consola ``/{rut}/login``, y se copia a
+            ``EmpresaRegistro.representante_legal_*`` para los DTEs.
 
     Returns:
         (empresa_id, user_id)
@@ -697,12 +848,19 @@ def provision_empresa(
             ambiente_activo="certificacion",
             etapa="pendiente_certificacion",
             plan=plan,
+            # El master cliente es el representante legal de la empresa
+            # — se precargan estos campos desde el alta para que el
+            # wizard de certificación no tenga que volver a pedirlos.
+            representante_legal_nombre=admin_nombre,
+            representante_legal_rut=admin_rut_personal,
+            representante_legal_email=admin_email,
         ))
         master.add(UsuarioAuth(
             id=user_id,
             empresa_rut=rut,
             email=admin_email,
             nombre=admin_nombre,
+            rut_personal=admin_rut_personal,
             password_hash=admin_password_hash,
             rol="admin_empresa",
         ))
@@ -784,13 +942,18 @@ def provision_empresa(
 def ensure_super_admin(email: str, password_hash: str, nombre: str) -> str:
     """Asegura que exista un super_admin en master.db.
 
-    Si ya existe con ese email, no hace nada. Si no, lo crea.
-    Returns user_id.
+    Busca en el namespace "SYSTEM" (empresa_rut="SYSTEM") porque el
+    UNIQUE es (empresa_rut, email): el mismo correo puede existir como
+    master cliente de empresas reales. El super_admin es un caso
+    separado con empresa_rut="SYSTEM".
+
+    Si ya existe, no hace nada. Si no, lo crea. Returns user_id.
     """
     _ensure_master()
     master = _MasterSessionFactory()
     try:
         existing = master.query(UsuarioAuth).filter(
+            UsuarioAuth.empresa_rut == "SYSTEM",
             UsuarioAuth.email == email,
         ).first()
         if existing:
