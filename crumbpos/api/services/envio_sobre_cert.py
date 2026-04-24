@@ -416,7 +416,7 @@ def armar_sobre(
         "resumen_por_tipo": subtotales,
         "folios": folios_ordenados,
         "casos_ids": [c.id for c in casos_set],
-        "url_sii": get_sii_url("upload"),
+        "url_sii": get_sii_url("upload", servicio.config.ambiente),
     }
 
 
@@ -467,6 +467,7 @@ def enviar_sobre(
         xml_bytes=xml_bytes,
         token=token,
         rut_emisor=servicio.config.rut,
+        ambiente=servicio.config.ambiente,
         rut_envia=rut_envia,
     )
 
@@ -591,6 +592,7 @@ def consultar_estado(
         track_id=trackid,
         token=token,
         rut_emisor=servicio.config.rut,
+        ambiente=servicio.config.ambiente,
     )
     raw_xml = resp.get("raw", "") or ""
 

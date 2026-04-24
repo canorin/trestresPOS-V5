@@ -48,6 +48,7 @@ def servicio():
         fecha_resolucion="2020-01-01",
         numero_resolucion=0,
         cert_path=str(dummy_pfx),
+        ambiente="certificacion",
     )
     try:
         yield ServicioEmisionDTE(config=config)

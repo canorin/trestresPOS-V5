@@ -11,6 +11,7 @@ def enviar_dte(
     xml_bytes: bytes,
     token: str,
     rut_emisor: str,
+    ambiente: str,
     rut_envia: str | None = None,
     es_boleta: bool = False,
 ) -> dict:
@@ -21,6 +22,7 @@ def enviar_dte(
         xml_bytes: XML del EnvioDTE serializado como bytes
         token: Token de autenticación del SII
         rut_emisor: RUT de la empresa (sin puntos, con guión)
+        ambiente: "certificacion" o "produccion" — define el host SII.
         rut_envia: RUT de la persona que envía (firmante). Si None, usa rut_emisor.
         es_boleta: True si es envío de boletas
 
@@ -33,7 +35,7 @@ def enviar_dte(
     sender_num, sender_dv = rut_envia.split("-")
     company_num, company_dv = rut_emisor.split("-")
     servicio = "upload_boleta" if es_boleta else "upload"
-    url = get_sii_url(servicio)
+    url = get_sii_url(servicio, ambiente)
 
     headers = {
         "Cookie": f"TOKEN={token}",
@@ -113,11 +115,23 @@ def enviar_dte(
     }
 
 
-def consultar_estado_envio(track_id: str, token: str, rut_emisor: str) -> dict:
-    """Consulta el estado de un envío al SII via SOAP."""
+def consultar_estado_envio(
+    track_id: str,
+    token: str,
+    rut_emisor: str,
+    ambiente: str,
+) -> dict:
+    """Consulta el estado de un envío al SII via SOAP.
+
+    Args:
+        track_id: TrackID devuelto por el SII al hacer upload.
+        token: Token SOAP vigente.
+        rut_emisor: RUT de la empresa (sin puntos, con guión).
+        ambiente: "certificacion" o "produccion".
+    """
     import xml.sax.saxutils
     rut_num, rut_dv = rut_emisor.split("-")
-    url = get_sii_url("estado_envio")
+    url = get_sii_url("estado_envio", ambiente)
 
     soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -157,6 +171,7 @@ def enviar_boleta(
     xml_bytes: bytes,
     token: str,
     rut_emisor: str,
+    ambiente: str,
     rut_envia: str | None = None,
 ) -> dict:
     """
@@ -170,6 +185,7 @@ def enviar_boleta(
         xml_bytes: XML del EnvioBOLETA serializado como bytes
         token: Token de autenticación del SII (obtenido vía boleta.electronica.token)
         rut_emisor: RUT de la empresa (sin puntos, con guión)
+        ambiente: "certificacion" o "produccion" — resuelve pangal vs rahue.
         rut_envia: RUT de la persona que envía (firmante)
 
     Returns:
@@ -180,7 +196,7 @@ def enviar_boleta(
 
     sender_num, sender_dv = rut_envia.split("-")
     company_num, company_dv = rut_emisor.split("-")
-    url = get_sii_url("boleta_upload")
+    url = get_sii_url("boleta_upload", ambiente)
 
     headers = {
         "Cookie": f"TOKEN={token}",
@@ -245,10 +261,22 @@ def enviar_boleta(
         }
 
 
-def consultar_estado_boleta(track_id: str, token: str, rut_emisor: str) -> dict:
-    """Consulta el estado de un envío de boletas vía REST API."""
+def consultar_estado_boleta(
+    track_id: str,
+    token: str,
+    rut_emisor: str,
+    ambiente: str,
+) -> dict:
+    """Consulta el estado de un envío de boletas vía REST API.
+
+    Args:
+        track_id: TrackID devuelto por el SII al hacer upload de boletas.
+        token: Token REST vigente para boletas.
+        rut_emisor: RUT de la empresa (sin puntos, con guión).
+        ambiente: "certificacion" o "produccion".
+    """
     rut_num, rut_dv = rut_emisor.split("-")
-    url = f"{get_sii_url('boleta_estado')}/{rut_num}-{rut_dv}-{track_id}"
+    url = f"{get_sii_url('boleta_estado', ambiente)}/{rut_num}-{rut_dv}-{track_id}"
 
     headers = {
         "Accept": "application/json",

@@ -93,9 +93,14 @@ def _soap_call_with_body(url: str, action: str, body_xml: str) -> str:
     raise ValueError(f"No se pudo parsear respuesta SOAP: {response.text[:500]}")
 
 
-def obtener_semilla() -> str:
-    """Obtiene una semilla del SII vía SOAP."""
-    url = get_sii_url("seed")
+def obtener_semilla(ambiente: str) -> str:
+    """Obtiene una semilla del SII vía SOAP.
+
+    Args:
+        ambiente: "certificacion" o "produccion" — resuelve el host SII
+            (maullin vs palena).
+    """
+    url = get_sii_url("seed", ambiente)
     xml_interno = _soap_call(url, "getSeed")
 
     # Parsear el XML interno
@@ -162,14 +167,20 @@ def firmar_semilla(semilla: str, private_key_pem: bytes, cert_der: bytes) -> str
     return etree.tostring(gettoken, encoding="unicode")
 
 
-def obtener_token(private_key_pem: bytes, cert_der: bytes) -> str:
-    """Obtiene un token de autenticación del SII."""
-    semilla = obtener_semilla()
+def obtener_token(private_key_pem: bytes, cert_der: bytes, ambiente: str) -> str:
+    """Obtiene un token de autenticación del SII.
+
+    Args:
+        private_key_pem: llave privada del certificado digital, en PEM.
+        cert_der: certificado en DER para incluir en X509Data.
+        ambiente: "certificacion" o "produccion" — determina el host SII.
+    """
+    semilla = obtener_semilla(ambiente)
     print(f"  Semilla obtenida: {semilla}")
 
     xml_firmado = firmar_semilla(semilla, private_key_pem, cert_der)
 
-    url = get_sii_url("token")
+    url = get_sii_url("token", ambiente)
     # Enviar como SOAP call con el XML firmado
     xml_interno = _soap_call_with_body(url, "getToken", xml_firmado)
 
@@ -192,9 +203,13 @@ def obtener_token(private_key_pem: bytes, cert_der: bytes) -> str:
 
 # ==================== BOLETA REST API ====================
 
-def obtener_semilla_boleta() -> str:
-    """Obtiene una semilla del SII vía REST API (boletas)."""
-    url = get_sii_url("boleta_seed")
+def obtener_semilla_boleta(ambiente: str) -> str:
+    """Obtiene una semilla del SII vía REST API (boletas).
+
+    Args:
+        ambiente: "certificacion" o "produccion" — resuelve apicert vs api.
+    """
+    url = get_sii_url("boleta_seed", ambiente)
     response = requests.get(url, headers={"Accept": "application/xml"}, timeout=30)
     response.raise_for_status()
 
@@ -228,21 +243,22 @@ def firmar_semilla_boleta(semilla: str, firma) -> str:
     return signed
 
 
-def obtener_token_boleta(firma) -> str:
+def obtener_token_boleta(firma, ambiente: str) -> str:
     """Obtiene un token de autenticación del SII para boletas vía REST API.
 
     Args:
         firma: instancia de facturacion_electronica.firma.Firma ya inicializada
+        ambiente: "certificacion" o "produccion" — resuelve apicert vs api.
 
     Returns:
         Token string para uso en Cookie header
     """
-    semilla = obtener_semilla_boleta()
+    semilla = obtener_semilla_boleta(ambiente)
     print(f"  Semilla boleta obtenida: {semilla}")
 
     xml_firmado = firmar_semilla_boleta(semilla, firma)
 
-    url = get_sii_url("boleta_token")
+    url = get_sii_url("boleta_token", ambiente)
     body = '<?xml version="1.0" encoding="UTF-8"?>' + xml_firmado
     response = requests.post(
         url,

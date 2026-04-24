@@ -114,6 +114,7 @@ def _get_servicio(tenant: TenantContext, sucursal_id: str | None = None) -> tupl
         fecha_resolucion=empresa.fecha_resolucion,
         numero_resolucion=empresa.numero_resolucion,
         cert_path=cert_path,
+        ambiente=empresa.ambiente_sii,
         cert_password=cert_password,
         rut_firmante=empresa.cert_rut_firmante,
         caf_dir=caf_dir,
@@ -471,7 +472,7 @@ def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
         # Obtener tokens SII (DTE y Boleta usan tokens distintos)
         cert_path, cert_password = _resolve_cert(empresa)
         private_key, _, cert_der = cargar_certificado_pfx(cert_path, cert_password)
-        token_dte = obtener_token(private_key, cert_der)
+        token_dte = obtener_token(private_key, cert_der, empresa.ambiente_sii)
 
         # Token boleta: solo si hay boletas pendientes
         token_boleta = None
@@ -484,7 +485,7 @@ def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
                 "init_signature": True,
                 "rut_firmante": empresa.cert_rut_firmante or empresa.rut,
             })
-            token_boleta = obtener_token_boleta(firma_lib)
+            token_boleta = obtener_token_boleta(firma_lib, empresa.ambiente_sii)
 
         resultados = []
         for dte_record in dtes:
@@ -497,6 +498,7 @@ def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
                     xml_bytes=xml_bytes,
                     token=token_boleta,
                     rut_emisor=empresa.rut,
+                    ambiente=empresa.ambiente_sii,
                     rut_envia=rut_envia,
                 )
             else:
@@ -504,6 +506,7 @@ def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
                     xml_bytes=xml_bytes,
                     token=token_dte,
                     rut_emisor=empresa.rut,
+                    ambiente=empresa.ambiente_sii,
                     rut_envia=rut_envia,
                 )
 
@@ -736,13 +739,14 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
                 xml_bytes=xml_bytes,
                 token=token,
                 rut_emisor=empresa.rut,
+                ambiente=empresa.ambiente_sii,
                 rut_envia=rut_envia,
             )
 
         # ── Enviar DTEs normales agrupados ──
         if dtes_normales:
             private_key, _, cert_der = cargar_certificado_pfx(cert_path, cert_password)
-            token_dte = obtener_token(private_key, cert_der)
+            token_dte = obtener_token(private_key, cert_der, empresa.ambiente_sii)
 
             resultado_sii = _firmar_y_enviar(
                 dtes_normales, "EnvioDTE", "EnvioDTE_v10.xsd",
@@ -780,7 +784,7 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
                 "init_signature": True,
                 "rut_firmante": rut_envia,
             })
-            token_bol = obtener_token_boleta(firma_bol)
+            token_bol = obtener_token_boleta(firma_bol, empresa.ambiente_sii)
 
             resultado_sii = _firmar_y_enviar(
                 boletas, "EnvioBOLETA", "EnvioBOLETA_v11.xsd",

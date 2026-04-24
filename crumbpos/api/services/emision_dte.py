@@ -47,6 +47,7 @@ class EmisorConfig:
     fecha_resolucion: str
     numero_resolucion: int
     cert_path: str
+    ambiente: str  # "certificacion" o "produccion" — define host SII (maullin vs palena)
     cert_password: str | None = None
     rut_firmante: str | None = None
     caf_dir: str | None = None
@@ -203,7 +204,9 @@ class ServicioEmisionDTE:
         now = datetime.now()
         if self._token and self._token_time and (now - self._token_time).seconds < 1800:
             return self._token
-        self._token = obtener_token(self._private_key, self._cert_der)
+        self._token = obtener_token(
+            self._private_key, self._cert_der, self.config.ambiente
+        )
         self._token_time = now
         return self._token
 
@@ -216,7 +219,7 @@ class ServicioEmisionDTE:
             self._token_boleta_time = None
         if self._token_boleta and self._token_boleta_time and (now - self._token_boleta_time).seconds < 1800:
             return self._token_boleta
-        self._token_boleta = obtener_token_boleta(self._firma)
+        self._token_boleta = obtener_token_boleta(self._firma, self.config.ambiente)
         self._token_boleta_time = now
         return self._token_boleta
 
@@ -1063,6 +1066,7 @@ class ServicioEmisionDTE:
                         xml_bytes=xml_bytes,
                         token=token,
                         rut_emisor=self.config.rut,
+                        ambiente=self.config.ambiente,
                         rut_envia=rut_envia,
                     )
                 else:
@@ -1072,6 +1076,7 @@ class ServicioEmisionDTE:
                         xml_bytes=xml_bytes,
                         token=token,
                         rut_emisor=self.config.rut,
+                        ambiente=self.config.ambiente,
                         rut_envia=rut_envia,
                     )
 

@@ -1997,6 +1997,7 @@ def _get_servicio_for_certificacion(
         fecha_resolucion=empresa.fecha_resolucion,
         numero_resolucion=empresa.numero_resolucion,
         cert_path=cert_path,
+        ambiente=empresa.ambiente_sii,
         cert_password=cert_password,
         rut_firmante=empresa.cert_rut_firmante,
     )

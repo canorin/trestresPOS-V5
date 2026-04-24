@@ -89,7 +89,7 @@ class ServicioRCOF:
         )
         cert_der = certificate.public_bytes(Encoding.DER)
 
-        self._token = obtener_token(pk_pem, cert_der)
+        self._token = obtener_token(pk_pem, cert_der, self.empresa.ambiente_sii)
         self._token_time = now
         return self._token
 
@@ -269,7 +269,7 @@ class ServicioRCOF:
         sender_num, sender_dv = rut_envia.split("-")
         company_num, company_dv = self.empresa.rut.split("-")
 
-        url = get_sii_url("upload")
+        url = get_sii_url("upload", self.empresa.ambiente_sii)
 
         headers = {
             "Cookie": f"TOKEN={token}",

@@ -28,6 +28,11 @@ TIPO_DTE = {
 TASA_IVA = 19
 
 # Ambiente
+# DEPRECATED global. Se mantiene solo como fallback para scripts legacy
+# (set_pruebas/*, certificacion/nuevapostulacion/*). En el core SII y en la
+# API multi-tenant, el ambiente se resuelve dinámicamente desde la empresa
+# (Empresa.ambiente_sii / EmpresaRegistro.ambiente_activo) y se pasa como
+# parámetro a get_sii_url(). No agregar nuevos usos de esta constante.
 AMBIENTE = "certificacion"  # "certificacion" o "produccion"
 
 # URLs SII
@@ -61,6 +66,34 @@ SII_URLS = {
 }
 
 
-def get_sii_url(servicio: str) -> str:
-    """Obtiene la URL del SII según ambiente actual."""
-    return SII_URLS[AMBIENTE][servicio]
+def get_sii_url(servicio: str, ambiente: str | None = None) -> str:
+    """Obtiene la URL del SII para el servicio y ambiente indicados.
+
+    En contexto multi-tenant, ``ambiente`` debe pasarse explícitamente
+    (resuelto desde ``Empresa.ambiente_sii`` / ``tenant.ambiente``). El
+    fallback a ``settings.AMBIENTE`` existe únicamente para scripts
+    legacy internos (``set_pruebas/*``, ``certificacion/nuevapostulacion/*``)
+    y NO debe usarse desde el core SII ni desde la API.
+
+    Args:
+        servicio: clave del servicio ("seed", "token", "upload",
+            "estado_envio", "estado_dte", "boleta_seed", "boleta_token",
+            "boleta_upload", "boleta_consumo", "boleta_estado").
+        ambiente: "certificacion" o "produccion". Obligatorio en el core SII.
+
+    Raises:
+        ValueError: si ``ambiente`` o ``servicio`` son inválidos.
+    """
+    amb = ambiente if ambiente is not None else AMBIENTE
+    if amb not in SII_URLS:
+        raise ValueError(
+            f"Ambiente SII inválido: '{amb}'. "
+            "Debe ser 'certificacion' o 'produccion'."
+        )
+    servicios = SII_URLS[amb]
+    if servicio not in servicios:
+        raise ValueError(
+            f"Servicio SII '{servicio}' no existe en ambiente '{amb}'. "
+            f"Disponibles: {sorted(servicios.keys())}."
+        )
+    return servicios[servicio]

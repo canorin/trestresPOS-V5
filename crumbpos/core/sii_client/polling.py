@@ -236,6 +236,7 @@ def poll_dtes(
                 track_id=dte.track_id,
                 token=token,
                 rut_emisor=empresa.rut,
+                ambiente=empresa.ambiente_sii,
             )
 
             raw_xml = resp.get("raw", "")
@@ -327,6 +328,7 @@ def poll_dtes(
                         track_id=track,
                         token=token_boleta,
                         rut_emisor=empresa.rut,
+                        ambiente=empresa.ambiente_sii,
                     )
                     tracks_consultados[track] = resp_json
 
@@ -436,6 +438,7 @@ def poll_libros(
                 track_id=libro.track_id,
                 token=token,
                 rut_emisor=empresa.rut,
+                ambiente=empresa.ambiente_sii,
             )
 
             raw_xml = resp.get("raw", "")

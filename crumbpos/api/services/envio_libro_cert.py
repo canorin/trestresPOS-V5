@@ -558,6 +558,7 @@ def enviar_libro(
         xml_bytes=xml_bytes,
         token=token,
         rut_emisor=servicio.config.rut,
+        ambiente=servicio.config.ambiente,
         rut_envia=rut_envia,
     )
 
@@ -659,6 +660,7 @@ def consultar_estado_libro(
         track_id=libro.trackid,
         token=token,
         rut_emisor=servicio.config.rut,
+        ambiente=servicio.config.ambiente,
     )
     raw_xml = resp.get("raw", "") or ""
 

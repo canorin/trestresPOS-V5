@@ -12,11 +12,23 @@ def consultar_estado_dte(
     fecha_emision: str,
     monto_total: int,
     rut_receptor: str,
+    ambiente: str,
 ) -> dict:
-    """Consulta el estado de un DTE específico en el SII via SOAP."""
+    """Consulta el estado de un DTE específico en el SII via SOAP.
+
+    Args:
+        token: Token SOAP vigente.
+        rut_emisor: RUT de la empresa emisora (sin puntos, con guión).
+        tipo_dte: Código del tipo de DTE (33, 34, 39, 41, 52, 56, 61).
+        folio: Folio del DTE consultado.
+        fecha_emision: Fecha de emisión en formato YYYY-MM-DD.
+        monto_total: Monto total del DTE.
+        rut_receptor: RUT del receptor del DTE.
+        ambiente: "certificacion" o "produccion" — resuelve maullin vs palena.
+    """
     rut_e_num, rut_e_dv = rut_emisor.split("-")
     rut_r_num, rut_r_dv = rut_receptor.split("-")
-    url = get_sii_url("estado_dte")
+    url = get_sii_url("estado_dte", ambiente)
 
     soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"

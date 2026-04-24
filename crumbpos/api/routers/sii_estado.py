@@ -51,6 +51,9 @@ def _get_empresa(tenant: TenantContext) -> Empresa:
 def _load_cert_and_get_token(empresa: Empresa) -> str:
     """Carga el certificado de la empresa y obtiene un token SII.
 
+    El ambiente (cert/prod) se resuelve desde ``empresa.ambiente_sii``,
+    no desde el settings global.
+
     Sigue el mismo patron que facturacion.py para cargar el certificado:
     1. cert_data (base64 en DB) — prioridad
     2. cert_path (archivo local)
@@ -102,7 +105,7 @@ def _load_cert_and_get_token(empresa: Empresa) -> str:
         )
         cert_der = certificate.public_bytes(Encoding.DER)
 
-        token = obtener_token(private_key_pem, cert_der)
+        token = obtener_token(private_key_pem, cert_der, empresa.ambiente_sii)
         return token
 
     finally:
@@ -160,7 +163,7 @@ def _get_boleta_token(empresa: Empresa) -> str:
             raise HTTPException(500, f"Error cargando certificado: {firma.errores}")
         firma.verify = False
 
-        token = obtener_token_boleta(firma)
+        token = obtener_token_boleta(firma, empresa.ambiente_sii)
         return token
 
     finally:
@@ -323,6 +326,7 @@ def consultar_estado_dte_especifico(
                         track_id=dte.track_id,
                         token=token_bol,
                         rut_emisor=empresa.rut,
+                        ambiente=empresa.ambiente_sii,
                     )
                     estado_sii_code, glosa = _parse_estado_boleta(resp_json)
                     estado_map = ESTADO_BOLETA_MAP
@@ -334,6 +338,7 @@ def consultar_estado_dte_especifico(
                         track_id=dte.track_id,
                         token=token,
                         rut_emisor=empresa.rut,
+                        ambiente=empresa.ambiente_sii,
                     )
                     raw_xml = resp.get("raw", "")
                     estado_sii_code, glosa = _parse_estado_envio(raw_xml)
@@ -396,6 +401,7 @@ def consultar_estado_envio_boleta(
             track_id=track_id,
             token=token_bol,
             rut_emisor=empresa.rut,
+            ambiente=empresa.ambiente_sii,
         )
 
         estado_sii_code, glosa = _parse_estado_boleta(resp_json)

@@ -70,7 +70,9 @@ class ServicioLibros:
         now = datetime.now()
         if self._token and self._token_time and (now - self._token_time).seconds < 1800:
             return self._token
-        self._token = obtener_token(self._private_key, self._cert_der)
+        self._token = obtener_token(
+            self._private_key, self._cert_der, self.empresa.ambiente_sii
+        )
         self._token_time = now
         return self._token
 
@@ -166,6 +168,7 @@ class ServicioLibros:
                         xml_bytes=xml_bytes,
                         token=token,
                         rut_emisor=self.empresa.rut,
+                        ambiente=self.empresa.ambiente_sii,
                         rut_envia=rut_envia,
                     )
                     track_id = resultado_sii.get("track_id")
@@ -332,6 +335,7 @@ class ServicioLibros:
                         xml_bytes=xml_bytes,
                         token=token,
                         rut_emisor=self.empresa.rut,
+                        ambiente=self.empresa.ambiente_sii,
                         rut_envia=rut_envia,
                     )
                     track_id = resultado_sii.get("track_id")
@@ -455,6 +459,7 @@ class ServicioLibros:
                         xml_bytes=xml_bytes,
                         token=token,
                         rut_emisor=self.empresa.rut,
+                        ambiente=self.empresa.ambiente_sii,
                         rut_envia=rut_envia,
                     )
                     track_id = resultado_sii.get("track_id")
