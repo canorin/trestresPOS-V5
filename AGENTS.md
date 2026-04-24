@@ -143,10 +143,13 @@ La única operación que legítimamente mueve o borra archivos dentro de `data/`
 es la baja de una empresa (Fase 7). Esa operación vive en un solo archivo,
 con guardas verificables automáticamente:
 
-- **Único archivo autorizado a hacer `shutil.move`, `shutil.rmtree`,
+- **Archivos autorizados a hacer `shutil.move`, `shutil.rmtree`,
   `os.remove`, `Path.unlink` sobre rutas dentro de `data/`**:
-  `crumbpos/admin/eliminacion_empresa.py`.
-- **Toda función destructiva** en ese archivo (`confirmar_baja`,
+  - `crumbpos/admin/eliminacion_empresa.py` — baja de empresas (guardado
+    por `_verificar_zip_descargado_o_error`).
+  - `crumbpos/api/services/logo_empresa.py` — sobreescribir/eliminar el
+    archivo cosmético `data/{rut}/logo.png`. Ver R4.b más abajo.
+- **Toda función destructiva** en `eliminacion_empresa.py` (`confirmar_baja`,
   `eliminar_definitivo`) **debe tener como primera instrucción ejecutable**
   una llamada a `_verificar_zip_descargado_o_error(rut)`. Esa llamada falla
   con `RuntimeError` si la empresa no registró en `master.db` el hash SHA-256
@@ -163,10 +166,29 @@ con guardas verificables automáticamente:
 Estas invariantes están codificadas en tres lugares:
 1. `.claude/hooks/guardian.py` bloquea writes a archivos que introduzcan
    `shutil.move`/`shutil.rmtree`/`os.remove`/`Path.unlink` contra rutas en
-   `data/` fuera de `eliminacion_empresa.py`.
+   `data/` fuera de los archivos autorizados.
 2. `tests/test_invariantes_produccion.py::test_R4a_*` verifica por AST que
    el guard existe y que las operaciones destructivas están confinadas.
 3. Este archivo (contrato leído al inicio de cada sesión).
+
+#### R4.b — Excepción narrow-scoped: logo cosmético de empresa
+
+El archivo `data/{rut}/logo.png` **no** es dato fiscal — los DTEs
+emitidos guardan su propia copia del PDF (`DteEmitido.pdf_bytes`) con
+el logo embebido, así que perder `logo.png` solo afecta la apariencia
+de emisiones **futuras** (caen al logo default del sistema). Por eso
+habilitamos `crumbpos/api/services/logo_empresa.py` a sobreescribir y
+eliminar ese único archivo sin pasar por el guard de baja.
+
+- **Alcance**: solo `data/{rut}/logo.png`. El servicio resuelve el path
+  vía `DATA_DIR / rut / LOGO_FILENAME`; cualquier otra ruta dentro de
+  `data/` queda fuera de scope y el enforcement R4.a la sigue cubriendo.
+- **Endpoint**: `POST/DELETE /api/empresas/mi-empresa/logo` — autenticado,
+  scoped al tenant de la sesión. Un super_admin en shadow session puede
+  operarlo en nombre del cliente; un usuario regular solo puede tocar el
+  logo de su propia empresa.
+- **No toca**: certificados, CAFs, bases de datos (`.db`), XMLs de
+  DTEs emitidos, ZIPs de respaldo.
 
 ### R5 — Sin envíos parciales al SII
 

@@ -30,6 +30,7 @@ from typing import Any
 
 from lxml import etree
 
+from crumbpos.api.services.logo_empresa import resolver_logo_por_rut
 from crumbpos.core.impresion.base import DTEPrintData, TIPOS_CEDIBLES
 from crumbpos.core.impresion.formato_carta import PDFCarta
 from crumbpos.db.models import (
@@ -104,6 +105,10 @@ def xml_to_print_data(
         raise ValueError("No se encontró <Documento> en el XML firmado.")
 
     data = DTEPrintData()
+    # Si la empresa ya subió su logo desde la consola, la muestra impresa
+    # del set de certificación también lo usa. Si no hay logo custom, se
+    # cae al default del sistema dentro del renderer.
+    data.logo_path = resolver_logo_por_rut(empresa.rut)
 
     # ── Encabezado ──────────────────────────────────────────────
     enc = _find_el(doc, "Encabezado")

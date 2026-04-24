@@ -207,3 +207,23 @@ def path_absoluto_logo(rut: str) -> Path:
     :class:`FileResponse` antes de validar existencia.
     """
     return DATA_DIR / rut / LOGO_FILENAME
+
+
+def resolver_logo_por_rut(rut: str) -> str:
+    """Variante de :func:`resolver_logo_path` que recibe directamente el RUT.
+
+    Útil para el pipeline de emisión de DTEs, donde el código tiene el
+    RUT del emisor a mano pero no siempre tiene acceso al objeto
+    ``Empresa`` (por ej., :func:`crumbpos.api.services.emision_dte` arma
+    el ``DTEPrintData`` desde ``EmisorConfig``, que no lleva
+    ``logo_url``).
+
+    Returns
+    -------
+    str
+        Path absoluto si el logo existe en disco, ``""`` en caso
+        contrario. Consumible directamente por
+        ``DTEPrintData(logo_path=...)``.
+    """
+    candidato = path_absoluto_logo(rut)
+    return str(candidato) if candidato.exists() else ""

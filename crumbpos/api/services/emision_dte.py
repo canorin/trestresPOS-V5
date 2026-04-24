@@ -25,6 +25,7 @@ from crumbpos.core.sii_client.envio import enviar_dte, enviar_boleta
 from crumbpos.core.firma.firma_digital import cargar_certificado_pfx
 from crumbpos.core.impresion import generar_pdf
 from crumbpos.core.impresion.base import DTEPrintData
+from crumbpos.api.services.logo_empresa import resolver_logo_por_rut
 
 # Misma librería usada en firmar_set.py (aprobada por SII)
 from facturacion_electronica.firma import Firma
@@ -1147,6 +1148,11 @@ class ServicioEmisionDTE:
                 fecha_vencimiento=req.fecha_vencimiento,
                 numero_resolucion=self.config.numero_resolucion,
                 fecha_resolucion=self.config.fecha_resolucion,
+                # Si el cliente subió logo por /api/empresas/mi-empresa/logo,
+                # el renderer lo usa en el encabezado del PDF. Si no hay
+                # logo custom, resolver_logo_por_rut devuelve "" y el
+                # renderer cae al logo default del sistema.
+                logo_path=resolver_logo_por_rut(self.config.rut),
             )
             try:
                 pdf_bytes = generar_pdf(print_data, formato="carta")

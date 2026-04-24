@@ -263,6 +263,18 @@ def test_R4_ningun_modulo_rm_produccion_db():
 ELIMINACION_EMPRESA_FILE = CORE / "admin" / "eliminacion_empresa.py"
 R4A_AUTHORIZED_REL = "crumbpos/admin/eliminacion_empresa.py"
 
+# Archivos autorizados a ejecutar operaciones destructivas sobre data/.
+# ``eliminacion_empresa.py`` cubre la baja de empresas — protegido por el
+# guard del ZIP. ``logo_empresa.py`` cubre sobrescribir/eliminar el archivo
+# cosmético ``data/{rut}/logo.png`` (ver AGENTS.md R4.b): el logo NO es
+# dato fiscal porque los PDFs ya emitidos lo tienen embebido en
+# ``DteEmitido.pdf_bytes``, así que el cliente puede rotarlo o borrarlo
+# sin riesgo regulatorio.
+R4A_AUTHORIZED_RELS = frozenset({
+    R4A_AUTHORIZED_REL,
+    "crumbpos/api/services/logo_empresa.py",
+})
+
 # Funciones destructivas dentro de eliminacion_empresa.py que deben iniciar
 # con una llamada a _verificar_zip_descargado_o_error(rut).
 R4A_FUNCIONES_GUARDADAS = ("confirmar_baja", "eliminar_definitivo")
@@ -399,7 +411,7 @@ def test_R4a_shutil_destructivo_solo_en_eliminacion():
     ofensores = []
     for f in _all_py_files(CORE):
         rel = _rel(f)
-        if rel == R4A_AUTHORIZED_REL:
+        if rel in R4A_AUTHORIZED_RELS:
             continue
         # scripts/migrar_ quedan exentos por la misma lógica de R2.
         if rel.startswith("crumbpos/scripts/migrar_"):
@@ -416,16 +428,17 @@ def test_R4a_shutil_destructivo_solo_en_eliminacion():
                 )
 
     assert not ofensores, (
-        "\nR4.a violada — operaciones destructivas sobre data/ fuera del "
-        "archivo autorizado:\n  "
+        "\nR4.a violada — operaciones destructivas sobre data/ fuera de "
+        "los archivos autorizados:\n  "
         + "\n  ".join(ofensores)
-        + f"\n\nEl único archivo autorizado a hacer shutil.move/rmtree, "
-        f"os.remove/unlink contra rutas en data/ es {R4A_AUTHORIZED_REL}, "
-        f"y debe hacerlo siempre después del guard "
-        f"{R4A_GUARD_NAME}(rut). Si el código nuevo necesita mover o "
-        f"borrar archivos de una empresa, invocar a "
-        f"crumbpos.admin.eliminacion_empresa vía el router "
-        f"baja_empresas. Ver AGENTS.md R4.a."
+        + f"\n\nArchivos autorizados: {sorted(R4A_AUTHORIZED_RELS)}. "
+        f"El archivo principal ({R4A_AUTHORIZED_REL}) debe llamar al guard "
+        f"{R4A_GUARD_NAME}(rut) como primera instrucción ejecutable. "
+        f"Para agregar un archivo nuevo a la whitelist hace falta justificar "
+        f"la excepción en AGENTS.md (sección R4.x). Si el código nuevo "
+        f"necesita mover o borrar archivos de una empresa, invocar a "
+        f"crumbpos.admin.eliminacion_empresa vía el router baja_empresas. "
+        f"Ver AGENTS.md R4.a/R4.b."
     )
 
 
