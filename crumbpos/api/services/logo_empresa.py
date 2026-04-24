@@ -109,7 +109,7 @@ def guardar_logo(rut: str, contenido: bytes) -> str:
     # PIL es permisivo con el formato; rechaza lo que no es imagen.
     try:
         img = Image.open(io.BytesIO(contenido))
-        img.load()  # forzar decode acá para capturar errores de archivo corrupto
+        img.load()  # forzar decode aquí para capturar errores de archivo corrupto
     except Exception as e:
         raise LogoValidationError(
             f"No se pudo abrir el archivo como imagen: {e}",

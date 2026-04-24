@@ -312,7 +312,7 @@
         // super_admin es aceptado SOLO si viene con shadow=true, que
         // identifica una sesión creada por POST /api/admin/empresas/{rut}/entrar.
         // Un super_admin con su JWT normal (empresa_rut="SYSTEM") no debe
-        // aterrizar acá — si lo hace, lo mandamos al login normal del tenant.
+        // aterrizar aquí — si lo hace, lo mandamos al login normal del tenant.
         if (user.rol === 'super_admin' && !user.shadow) {
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(USER_KEY);

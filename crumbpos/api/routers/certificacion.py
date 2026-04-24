@@ -822,7 +822,7 @@ def armar_sobre_set(rut: str, run_id: str, set_nombre: str) -> dict:
         except RuntimeError as e:
             raise HTTPException(500, str(e))
 
-        # El XML crudo no sale de acá — solo el resumen y el hash.
+        # El XML crudo no sale de aquí — solo el resumen y el hash.
         return {
             "set_nombre": set_nombre,
             "run_id": run_id,
@@ -2029,7 +2029,7 @@ def _caso_a_factura_request(
         para NC/ND CodRef=3 (MODIFICA MONTO) puede declarar SOLO el precio
         (VALOR UNITARIO) sin cantidad — la cantidad real se hereda del DTE
         referenciado. El core (``_enriquecer_items_codref3``) distingue
-        ``None`` de ``1`` y decide si enriquecer. Si forzáramos ``1`` acá,
+        ``None`` de ``1`` y decide si enriquecer. Si forzáramos ``1`` aquí,
         el core no podría saber si el caller quiso cantidad=1 o no declaró.
         """
         out: list[dict] = []
@@ -2081,7 +2081,7 @@ def _caso_a_factura_request(
     items = _normalizar_items(datos.get("items") or [])
 
     # Referencia: NC/ND apuntan a otro caso del mismo set por numero_caso.
-    # Acá resolvemos a folio real (el caso referido debe estar emitido).
+    # Aquí resolvemos a folio real (el caso referido debe estar emitido).
     referencias: list[dict] | None = None
     ref = datos.get("referencia")
     if ref and ref.get("caso_referido"):
@@ -2129,7 +2129,7 @@ def _caso_a_factura_request(
             items = _items_de_caso_referido(ref["caso_referido"])
 
     # NOTA: El enriquecimiento de precios para CodRef=3 (MODIFICA MONTO) se hizo
-    # antes acá, pero se movió al core (``ServicioEmisionDTE._enriquecer_items_codref3``)
+    # antes aquí, pero se movió al core (``ServicioEmisionDTE._enriquecer_items_codref3``)
     # para cumplir la directriz: un solo core procesa documentos tanto en
     # certificación como en producción. El mapper queda puro: solo traduce el
     # caso SII al FacturaRequest sin efectos laterales ni lookups.
@@ -2159,7 +2159,7 @@ def _caso_a_factura_request(
     # Traslado interno (5), otros (6), devolución (7), venta por efectuar (2)
     # NO llevan TipoDespacho. Si en caso.datos quedó un TipoDespacho stale
     # (ej: generador de simulación previo al fix 2026-04-23 ponía
-    # TipoDespacho=1 en slot 14), lo descartamos acá para que el reintentar
+    # TipoDespacho=1 en slot 14), lo descartamos aquí para que el reintentar
     # funcione sin necesidad de regenerar preview y descartar DTEs ya
     # emitidos del mismo set.
     ind_traslado_val = datos.get("ind_traslado")

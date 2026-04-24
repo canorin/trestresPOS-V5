@@ -390,7 +390,7 @@
         }
         const data = await resp.json();
         // El backend devuelve { empresa, master_cliente }. La password
-        // se muestra una sola vez acá y el super admin la copia al
+        // se muestra una sola vez aquí y el super admin la copia al
         // correo que enviará al cliente (ID mail_credencial).
         const mc = data.master_cliente || {};
         const loginUrl = `${window.location.origin}${mc.login_url || '/' + data.empresa.rut + '/login'}`;

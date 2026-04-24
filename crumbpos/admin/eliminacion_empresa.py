@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 # UBICACIONES EN DISCO
 # ══════════════════════════════════════════════════════════════════
 
-# Raíz de los ZIPs exportados por empresa. Los archivos acá son
+# Raíz de los ZIPs exportados por empresa. Los archivos aquí son
 # efímeros — se conservan hasta que el super admin confirma la baja
 # o hasta que pide un nuevo export.
 ZIP_EXPORT_ROOT = DATA_DIR / ".exports"

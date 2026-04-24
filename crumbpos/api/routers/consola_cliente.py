@@ -21,7 +21,7 @@ pattern y FastAPI continúa buscando rutas.
 **Control de acceso.** Este router solo sirve las páginas HTML; la auth la
 hace el JS del cliente contra ``POST /api/auth/login`` enviando
 ``empresa_rut`` en el body. La validación server-side de "¿esta empresa
-existe?" la hacemos acá para devolver 404 antes de servir el HTML.
+existe?" la hacemos aquí para devolver 404 antes de servir el HTML.
 """
 from pathlib import Path as FsPath
 
@@ -46,7 +46,7 @@ def _validar_empresa_existe(empresa_rut: str, master_db: Session) -> EmpresaRegi
     """404 si la empresa no está registrada; 410 si está dada de baja.
 
     No valida estado ``activa``/suspendida — eso lo hace el endpoint de
-    login. Acá queremos que la página de login se sirva incluso para
+    login. Aquí queremos que la página de login se sirva incluso para
     empresas suspendidas (para que el master entienda qué pasó), pero no
     para empresas inexistentes o eliminadas.
     """
@@ -138,7 +138,7 @@ async def facturacion_master_cliente(
 ):
     """Índice del módulo Facturación — CTA de emisión + tiles.
 
-    Landing del módulo: desde acá el master cliente ve el botón para
+    Landing del módulo: desde aquí el master cliente ve el botón para
     emitir un DTE nuevo y los sub-módulos pendientes (documentos
     emitidos, facturas recibidas, libros/RCOF).
     """

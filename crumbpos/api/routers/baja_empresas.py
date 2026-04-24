@@ -13,7 +13,7 @@ EXCEPCIÓN A R4
 ══════════════
 La sección de baja es un wrapper delgado sobre
 ``crumbpos.admin.eliminacion_empresa``. Toda la lógica destructiva
-vive en ese módulo — acá solo traducimos HTTP a llamadas Python y de
+vive en ese módulo — aquí solo traducimos HTTP a llamadas Python y de
 vuelta. El router en sí no toca ``data/`` directamente.
 
 Todas las operaciones son super_admin-only vía ``require_super_admin``.

@@ -490,7 +490,7 @@
         showAlert('error', `Error de red: ${err.message}`);
         document.getElementById('content').innerHTML = '';
       }
-      // La papelera se carga en paralelo; errores acá no bloquean la página.
+      // La papelera se carga en paralelo; errores aquí no bloquean la página.
       cargarPapelera().catch(() => {});
     }
 

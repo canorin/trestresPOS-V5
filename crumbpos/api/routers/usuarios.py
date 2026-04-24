@@ -3,7 +3,7 @@
 Este router mantiene dos BDs en sync para cada user:
 
 * ``master.db:usuario_auth`` — identidad/auth global (email,
-  password_hash, rol, empresa_rut). El login vive acá.
+  password_hash, rol, empresa_rut). El login vive aquí.
 * ``data/{rut}/{ambiente}.db:usuario`` — replica para queries
   internas del tenant (joins con ``usuario_sucursal``, etc).
 
@@ -253,7 +253,7 @@ def crear_usuario(body: UsuarioCreateIn, tenant: TenantContext = Depends(get_ten
         # duplicados SOLO dentro del mismo tenant, así que el filtro
         # tiene que incluir empresa_rut. Si no, un master_client que
         # existe en otra empresa con el mismo correo bloquea la
-        # creación acá falsamente.
+        # creación aquí falsamente.
         master_session = get_master_session()
         master_existing = master_session.query(UsuarioAuth).filter(
             UsuarioAuth.empresa_rut == tenant.empresa_rut,

@@ -363,7 +363,7 @@ def armar_sobre(
         folios_ordenados.append({"tipo": d.tipo_dte, "folio": d.folio})
 
     # La firma del envelope requiere que el ServicioEmisionDTE tenga
-    # `_firma` cargado. Lo hacemos explícito acá por si el servicio
+    # `_firma` cargado. Lo hacemos explícito aquí por si el servicio
     # viene "frío".
     servicio._cargar_firma()
     firma = servicio._firma

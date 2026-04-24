@@ -172,7 +172,7 @@ class EmpresaEliminacionLog(BaseMaster):
     Este log es la fuente de verdad para auditoría del super admin. Cada
     transición (exportar ZIP, soft-delete, restaurar, hard-delete) agrega
     una fila con quién la ejecutó y un JSON con contexto. Nunca se actualiza
-    ni se borra — las empresas eliminadas mantienen su historial acá aunque
+    ni se borra — las empresas eliminadas mantienen su historial aquí aunque
     `empresa_registro` las haya movido a estado='eliminada_hard'.
     """
     __tablename__ = "empresa_eliminacion_log"
@@ -381,7 +381,7 @@ def _migrate_master_schema(engine):
         # empresa_eliminacion_log: la creación se hace vía
         # BaseMaster.metadata.create_all() que ya corre antes de esta
         # función en `_ensure_master`, pero para ser explícitos y
-        # sobrevivir a un rollback parcial, la creamos también acá
+        # sobrevivir a un rollback parcial, la creamos también aquí
         # con IF NOT EXISTS.
         conn.execute(text(
             "CREATE TABLE IF NOT EXISTS empresa_eliminacion_log ("
@@ -564,7 +564,7 @@ def _migrate_empresa_schema(engine):
     PRAGMA table_info + ALTER TABLE para SQLite.
 
     Cualquier columna nueva que se sume a un modelo de empresa debe
-    registrarse acá para que las DBs viejas la reciban al primer acceso.
+    registrarse aquí para que las DBs viejas la reciban al primer acceso.
     """
     with engine.begin() as conn:
         # ── caf_folio: sucursal_id (asignación CAF→sucursal) ──
@@ -673,7 +673,7 @@ def _migrate_empresa_schema(engine):
                 # Corre SOLO cuando se agrega la columna (dentro del if)
                 # — es idempotente por construcción: la segunda vez que
                 # corra el migrate, la columna ya existe y no entramos
-                # acá, así que nunca pisamos valores existentes.
+                # aquí, así que nunca pisamos valores existentes.
                 result = conn.execute(text(
                     "UPDATE certificacion_libro "
                     "SET primer_envio_sii_at = enviado_at "
@@ -1133,7 +1133,7 @@ def listar_papelera() -> list[EmpresaRegistro]:
     """Lista las empresas en soft-delete (papelera).
 
     Solo incluye estado='eliminada_soft'. Las que ya fueron eliminadas
-    definitivamente (estado='eliminada_hard') NO aparecen acá — ya no
+    definitivamente (estado='eliminada_hard') NO aparecen aquí — ya no
     existen operativamente, solo quedan en empresa_eliminacion_log como
     tombstone de auditoría.
     """

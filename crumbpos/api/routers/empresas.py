@@ -60,7 +60,7 @@ class SucursalCreateIn(BaseModel):
 class EmpresaCreateIn(BaseModel):
     """Datos para crear una nueva empresa (solo super_admin).
 
-    El admin que se crea acá ES el master cliente de la empresa: el
+    El admin que se crea aquí ES el master cliente de la empresa: el
     representante legal/dueño. Se guarda su RUT personal en
     ``UsuarioAuth.rut_personal`` (slug de login secundario) y se copia
     a ``EmpresaRegistro.representante_legal_*``. La password la genera
@@ -216,7 +216,7 @@ def crear_empresa(
     - UsuarioAuth (master.db) + Usuario (tenant.db) con rol ``master_client``
     - Sucursal default "Casa Matriz" en ambas BDs
 
-    La password inicial se genera acá (``secrets.token_urlsafe(12)`` →
+    La password inicial se genera aquí (``secrets.token_urlsafe(12)`` →
     ~16 caracteres URL-safe, 96 bits de entropía) y se devuelve UNA
     sola vez en la respuesta. Se hashea con bcrypt antes de persistir,
     así no queda en claro en ninguna BD. El super admin copia la

@@ -45,7 +45,7 @@ Decisiones de diseño (2026-04-23, tras confirmación del usuario):
   orden del layout. Prefijo distinto de BASICO/GUIAS/EXENTA para que los
   filtros por ``set_nombre`` sigan funcionando.
 
-- **Receptor**: no se resuelve acá. ``_caso_a_factura_request`` usa el
+- **Receptor**: no se resuelve aquí. ``_caso_a_factura_request`` usa el
   RUT del emisor (autofactura) cuando ``receptor_rut`` viene vacío, que
   es el único valor válido en ambiente certificación.
 
@@ -382,7 +382,7 @@ def _referencia(
     caso_referido = numero_caso_por_slot.get(referido_num)
     if not caso_referido:
         # No debería pasar porque iteramos en orden, pero defensa en
-        # profundidad — si alguna vez se reordena, fallamos acá explícito.
+        # profundidad — si alguna vez se reordena, fallamos aquí explícito.
         raise ValueError(
             f"Slot {slot_num} referencia al slot {referido_num} pero no "
             "se emitió antes. Revisar ORDEN_TIPOS.",

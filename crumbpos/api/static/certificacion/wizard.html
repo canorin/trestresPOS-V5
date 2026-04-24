@@ -1636,7 +1636,7 @@
             </button>
           </div>
           <!-- Alerta local del configurador: los resultados del click
-               en "Generar preview"/"Regenerar" aparecen acá para que el
+               en "Generar preview"/"Regenerar" aparecen aquí para que el
                usuario no tenga que scrollear al tope de la página. -->
           <div id="sim-config-alert" style="margin-top:16px;"></div>
         </div>
@@ -1704,17 +1704,17 @@
           <div class="step-eyebrow">Paso 6 · Opcional</div>
           <h1 class="step-title">Intercambio de Información</h1>
           <p class="step-subtitle">
-            Si el SII te pidió esta etapa (simulador del Intercambio), subí el
+            Si el SII te pidió esta etapa (simulador del Intercambio), sube el
             archivo <code>ENVIO_DTE.xml</code> que te enviaron y el wizard arma
             las 3 respuestas firmadas listas para subir al portal del SII. Si
-            no te la pidieron, podés saltar este paso.
+            no te la pidieron, puedes saltar este paso.
           </p>
         </header>
 
         <div class="form-card">
-          <h2 class="form-card-title">1. Subí el ENVIO_DTE.xml del SII</h2>
+          <h2 class="form-card-title">1. Sube el ENVIO_DTE.xml del SII</h2>
           <p class="form-card-desc">
-            El XML te llega al correo registrado en el SII o podés descargarlo
+            El XML te llega al correo registrado en el SII o puedes descargarlo
             desde el portal. Formato ISO-8859-1.
           </p>
 
@@ -1738,7 +1738,7 @@
           <h2 class="form-card-title">2. Previsualización del sobre</h2>
           <p class="form-card-desc" id="intercambio-preview-desc">
             Cada DTE se compara contra el RUT de tu empresa. Los que no van
-            dirigidos a vos aparecen marcados como rechazados — es lo esperado
+            dirigidos a ti aparecen marcados como rechazados — es lo esperado
             por el SII durante la certificación.
           </p>
           <div id="intercambio-resumen-sobre"></div>
@@ -1815,7 +1815,7 @@
           <h2 class="form-card-title">¿El SII no te pidió esta etapa?</h2>
           <p class="form-card-desc">
             No todas las certificaciones requieren Intercambio. Si no te
-            llegó el XML, podés saltar este paso y seguir al cierre.
+            llegó el XML, puedes saltar este paso y seguir al cierre.
           </p>
           <button class="btn btn-text" id="btn-saltar-intercambio">
             Saltar este paso →
@@ -2747,7 +2747,7 @@
         // pasa por get_tenant que la consulta. Si falla el PATCH, no
         // seguimos porque el upload tampoco funcionaría.
         // (En fresh start no existe simulacion todavía, así que no hace
-        // falta preservarla acá — el spread opcional es inocuo).
+        // falta preservarla aquí — el spread opcional es inocuo).
         try {
           await persistirRun({
             datos_setup: {
@@ -3283,7 +3283,7 @@
                 data-action="declarar-avance-set"
                 data-set-key="${escapeHtml(setKey)}"
                 ${btnDeclararDisabled}
-                title="Declara avance en la web del SII y luego confirma acá">
+                title="Declara avance en la web del SII y luego confirma aquí">
           Declarar avance
         </button>
         <button class="btn btn-primary btn-small"
@@ -3502,7 +3502,7 @@
                     data-action="declarar-avance-libro"
                     data-libro-id="${escapeHtml(lib.id)}"
                     ${btnDeclararDisabled}
-                    title="Declara avance en la web del SII y confirma acá">
+                    title="Declara avance en la web del SII y confirma aquí">
               Declarar avance
             </button>
             <button class="btn btn-primary btn-small"
@@ -5076,7 +5076,7 @@
       const rut = state.empresa && state.empresa.rut;
       if (!rut) {
         showAlert('error',
-          'No hay empresa cargada. Volvé al Paso 1 antes de intercambio.');
+          'No hay empresa cargada. Vuelve al Paso 1 antes de intercambio.');
         return;
       }
 
@@ -5194,7 +5194,7 @@
         clearAlert({ target: alertTarget });
 
         if (!intercambio.archivo) {
-          showAlert('error', 'Primero subí el ENVIO_DTE.xml del SII.',
+          showAlert('error', 'Primero sube el ENVIO_DTE.xml del SII.',
             { target: alertTarget });
           return;
         }
@@ -5202,7 +5202,7 @@
         const rut = state.empresa && state.empresa.rut;
         if (!rut) {
           showAlert('error',
-            'No hay empresa cargada. Volvé al Paso 1 antes de intercambio.',
+            'No hay empresa cargada. Vuelve al Paso 1 antes de intercambio.',
             { target: alertTarget });
           return;
         }
@@ -5274,7 +5274,7 @@
                  target="_blank" rel="noopener">
                 https://www4.sii.cl/pfeInternet/#subirArchivos
               </a>
-              y subí cada XML al campo correspondiente
+              y sube cada XML al campo correspondiente
               (uploadFile1 = RecepcionDTE${conRecibos
                 ? ', uploadFile2 = EnvioRecibos' : ''},
               uploadFile${conRecibos ? '3' : '2'} = ResultadoDTE).
@@ -5458,7 +5458,7 @@
       if (!state.authToken) return false;
 
       // Preseleccionar el RUT en el formulario — aunque no haya run activa,
-      // el usuario llega acá "para certificar esa empresa".
+      // el usuario llega aquí "para certificar esa empresa".
       const rutInput = document.getElementById('emp-rut');
       if (rutInput) rutInput.value = rutQuery;
       state.empresa.rut = rutQuery;

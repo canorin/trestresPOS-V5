@@ -577,7 +577,7 @@
     <!-- ── Tipo DTE ───────────────────────────────────────────── -->
     <section class="card">
       <h2>Tipo de documento</h2>
-      <p class="section-hint">Seleccioná qué tipo de DTE vas a emitir.</p>
+      <p class="section-hint">Selecciona qué tipo de DTE quieres emitir.</p>
       <div class="tipo-dte-selector">
         <button type="button" class="tipo-dte-btn active" data-tipo="33">Factura electrónica</button>
         <button type="button" class="tipo-dte-btn" data-tipo="34">Factura exenta</button>
@@ -589,7 +589,7 @@
     <!-- ── Receptor ───────────────────────────────────────────── -->
     <section class="card">
       <h2>Receptor</h2>
-      <p class="section-hint">Buscá un cliente guardado o ingresá los datos manualmente.</p>
+      <p class="section-hint">Busca un cliente guardado o ingresa los datos manualmente.</p>
 
       <div class="cliente-buscar-wrap">
         <label class="field">
@@ -678,7 +678,7 @@
     <!-- ── Ítems ──────────────────────────────────────────────── -->
     <section class="card">
       <h2>Detalle de ítems</h2>
-      <p class="section-hint">Agregá cada producto o servicio con cantidad y precio unitario.</p>
+      <p class="section-hint">Agrega cada producto o servicio con cantidad y precio unitario.</p>
       <table class="items-table">
         <thead>
           <tr>
@@ -1066,7 +1066,7 @@
         }
         const clientes = await res.json();
         if (!clientes || clientes.length === 0) {
-          clienteResultsEl.innerHTML = '<div class="empty">Sin resultados — podés ingresar los datos manualmente</div>';
+          clienteResultsEl.innerHTML = '<div class="empty">Sin resultados — puedes ingresar los datos manualmente</div>';
           clienteResultsEl.classList.add('visible');
           return;
         }
@@ -1136,7 +1136,7 @@
       const ciudad = document.getElementById('recCiudad').value.trim();
 
       if (!rut || !razon || !giro || !dir || !comuna) {
-        alert('Completá RUT, razón social, giro, dirección y comuna para guardar el cliente.');
+        alert('Completa RUT, razón social, giro, dirección y comuna para guardar el cliente.');
         return;
       }
 
@@ -1238,7 +1238,7 @@
       const recComuna = document.getElementById('recComuna').value.trim();
       const recCiudad = document.getElementById('recCiudad').value.trim();
       if (!recRut || !recRazon || !recGiro || !recDir || !recComuna) {
-        alert('Completá todos los datos del receptor (RUT, razón social, giro, dirección y comuna).');
+        alert('Completa todos los datos del receptor (RUT, razón social, giro, dirección y comuna).');
         return;
       }
 
@@ -1250,7 +1250,7 @@
         const cant = parseFloat(row.querySelector('.item-cant').value) || 0;
         const precio = parseInt(row.querySelector('.item-precio').value) || 0;
         if (!nombre || cant <= 0 || precio <= 0) {
-          alert('Completá todos los ítems (nombre, cantidad y precio).');
+          alert('Completa todos los ítems (nombre, cantidad y precio).');
           return;
         }
         items.push({ nombre, cantidad: cant, precio_unitario: precio });
