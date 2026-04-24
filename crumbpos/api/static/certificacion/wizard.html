@@ -1245,6 +1245,24 @@
       .case-row .case-detail,
       .case-row .case-status { grid-column: 2; }
     }
+
+    /* ── Iconos de estado (ok / warn / error / pending / empty) ───── */
+    .status-icon {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      vertical-align: -3px;
+      stroke-width: 2;
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .status-icon.ok      { color: #34c759; }
+    .status-icon.warn    { color: #ff9500; }
+    .status-icon.error   { color: #ff3b30; }
+    .status-icon.pending { color: #8e8e93; }
+    .status-icon.empty   { color: #c7c7cc; }
   </style>
 </head>
 <body>
@@ -2162,6 +2180,30 @@
       return String(s ?? '')
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /**
+     * Icono SVG de estado — estados: ok / warn / error / pending / empty.
+     * Devuelve el HTML de un <svg class="status-icon {kind}"> listo para
+     * interpolar. Colores se definen en CSS (.status-icon.ok/warn/etc).
+     *
+     * Kinds soportados:
+     *   - 'ok'      → check circle (aprobado, aceptado, completo)
+     *   - 'warn'    → triangle-exclamation (rechazado suave, advertencia)
+     *   - 'error'   → x-circle (error duro, rechazo definitivo)
+     *   - 'pending' → clock (enviado, en espera, en proceso)
+     *   - 'empty'   → square outline (sin emitir, placeholder)
+     */
+    function statusIconSVG(kind) {
+      const paths = {
+        ok: '<circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/>',
+        warn: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+        error: '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/>',
+        pending: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+        empty: '<rect x="3" y="3" width="18" height="18" rx="2"/>',
+      };
+      const k = paths[kind] ? kind : 'empty';
+      return `<svg class="status-icon ${k}" viewBox="0 0 24 24" aria-hidden="true">${paths[k]}</svg>`;
     }
 
     // ============================================================
@@ -5111,7 +5153,7 @@
       tbody.innerHTML = (data.dtes || []).map(d => {
         const tipoLabel = NOMBRES_DTE_INTERCAMBIO[d.tipo_dte] || `T${d.tipo_dte}`;
         const estadoColor = d.aceptado ? '#34c759' : '#ff9500';
-        const estadoIcon = d.aceptado ? '✅' : '⚠️';
+        const estadoIcon = statusIconSVG(d.aceptado ? 'ok' : 'warn');
         return `
           <tr>
             <td>${d.tipo_dte} — ${escapeHtml(tipoLabel)}</td>
@@ -5308,7 +5350,9 @@
       // ── Cards de resumen por set ──────────────────────────────
       const setsHtml = info.sets.map(s => {
         const label = SET_NOMBRES[s.nombre] || s.nombre;
-        const icon = s.completo ? '✅' : (s.errores > 0 ? '❌' : '⏳');
+        const icon = statusIconSVG(
+          s.completo ? 'ok' : (s.errores > 0 ? 'error' : 'pending'),
+        );
         return `
           <div class="form-card" style="margin-bottom:12px;">
             <h3 style="margin:0 0 8px;font-size:15px;">
@@ -5332,7 +5376,9 @@
       const LIBRO_LABEL = { ventas: 'Libro de Ventas', compras: 'Libro de Compras', guias: 'Libro de Guías' };
       const librosHtml = info.libros.map(l => {
         const label = LIBRO_LABEL[l.tipo] || l.tipo;
-        const icon = l.aprobado ? '✅' : (l.trackid ? '⏳' : '⬜');
+        const icon = statusIconSVG(
+          l.aprobado ? 'ok' : (l.trackid ? 'pending' : 'empty'),
+        );
         const estadoText = l.aprobado ? 'Aprobado'
           : l.avance ? 'Avance declarado'
           : l.trackid ? 'Enviado'
