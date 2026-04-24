@@ -1,0 +1,1406 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emitir documento · trestresPOS</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <!--
+    facturacion_emision.html — pantalla de emisión del módulo Facturación.
+
+    Ruta: /{empresa_rut}/facturacion/emision
+
+    Se llega desde /{empresa_rut}/facturacion (índice del módulo)
+    haciendo click en "Emitir documento". Reemplaza a la página legacy
+    /factura (static/factura.html) y la integra al nav multi-tenant
+    del master cliente. Mantiene toda la funcionalidad anterior:
+      · Tipos: 33 factura, 34 exenta, 61 NC, 56 ND.
+      · Buscador de clientes + guardar/actualizar.
+      · Condiciones de pago (contado / crédito con vencimiento).
+      · Orden de compra (referencia 801, facturas).
+      · Referencias (para NC/ND).
+      · Tabla de ítems con neto/IVA/total.
+      · Descarga del PDF emitido.
+
+    Agrega:
+      · Los datos del emisor vienen ya autenticados por el tenant del
+        path (JWT ttpos_token_${rut}). No hay selector de empresa ni
+        login embebido — si el token no es válido, redirige a /login.
+      · Selector "Emitir desde": casa matriz (default) o cualquier
+        sucursal activa. Cuando se elige sucursal, se envía
+        sucursal_id en el body y el endpoint sustituye la dirección
+        del DTE por la de esa sucursal.
+
+    Todas las operaciones van contra:
+      GET  /api/empresas/mi-empresa
+      GET  /api/sucursales/
+      GET  /api/facturacion/info
+      POST /api/facturacion/emitir
+      GET  /api/clientes/?q=…
+      POST /api/clientes/
+      PUT  /api/clientes/{id}
+      GET  /api/clientes/buscar/rut/{rut}
+  -->
+  <style>
+    main { padding: 32px 24px 80px; max-width: 980px; margin: 0 auto; }
+
+    /* ── Topnav (shared con dashboard/negocio) ──────────────── */
+    nav.topnav {
+      background: var(--color-text);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    nav.topnav img { height: 24px; }
+    nav.topnav .right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    nav.topnav span {
+      color: #fff;
+      font-size: var(--text-caption);
+      opacity: 0.85;
+    }
+
+    /* ── Breadcrumb + page title ────────────────────────────── */
+    .breadcrumb {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      text-decoration: none;
+      margin-bottom: 18px;
+      transition: color 150ms var(--ease);
+    }
+    .breadcrumb:hover { color: var(--color-accent); }
+    .breadcrumb svg { width: 14px; height: 14px; }
+
+    .page-title h1 {
+      font-size: var(--text-title);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      color: var(--color-text);
+      margin-bottom: 6px;
+    }
+    .page-title .subtitle {
+      color: var(--color-text-secondary);
+      font-size: var(--text-body);
+      margin-bottom: 28px;
+    }
+
+    /* ── Card genérico ──────────────────────────────────────── */
+    section.card {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 24px 26px;
+      margin-bottom: 18px;
+    }
+    section.card h2 {
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--color-text);
+      margin-bottom: 4px;
+    }
+    section.card .section-hint {
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      margin-bottom: 18px;
+    }
+
+    /* ── Emisor: grid resumen + selector de dirección ──────── */
+    .emisor-grid {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 6px 20px;
+      font-size: var(--text-caption);
+      margin-bottom: 18px;
+    }
+    .emisor-grid dt { color: var(--color-text-secondary); }
+    .emisor-grid dd {
+      color: var(--color-text);
+      font-variant-numeric: tabular-nums;
+    }
+    .ambiente-badge {
+      display: inline-block;
+      font-size: var(--text-small);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+    }
+    .ambiente-badge.cert {
+      background: var(--color-etapa-proceso-bg);
+      color: var(--color-etapa-proceso-fg);
+    }
+    .ambiente-badge.prod {
+      background: var(--color-etapa-produccion-bg);
+      color: var(--color-etapa-produccion-fg);
+    }
+
+    /* ── Form fields ─────────────────────────────────────────── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+    }
+    .field.full { grid-column: 1 / -1; }
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      font-size: var(--text-body);
+      color: var(--color-text);
+      background: var(--color-bg);
+      transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease);
+    }
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+    .field input[readonly] {
+      background: var(--color-bg-alt);
+      color: var(--color-text-secondary);
+      cursor: default;
+    }
+
+    /* ── Tipo DTE selector (botones pill) ───────────────────── */
+    .tipo-dte-selector {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .tipo-dte-btn {
+      padding: 10px 18px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-pill);
+      background: var(--color-bg);
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      transition: all 150ms var(--ease);
+    }
+    .tipo-dte-btn:hover {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+    }
+    .tipo-dte-btn.active {
+      background: var(--color-accent);
+      border-color: var(--color-accent);
+      color: #fff;
+    }
+
+    /* ── Receptor: buscador de clientes con resultados ──────── */
+    .cliente-buscar-wrap {
+      position: relative;
+      margin-bottom: 14px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: end;
+    }
+    .cliente-buscar-wrap .field { grid-column: 1; }
+    .cliente-results {
+      position: absolute;
+      top: calc(100% + 2px);
+      left: 0;
+      right: 0;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      max-height: 240px;
+      overflow-y: auto;
+      z-index: 50;
+      box-shadow: var(--shadow-card-hover);
+      display: none;
+    }
+    .cliente-results.visible { display: block; }
+    .cliente-result-item {
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--color-border-light);
+      font-size: var(--text-caption);
+      transition: background 120ms var(--ease);
+    }
+    .cliente-result-item:last-child { border-bottom: 0; }
+    .cliente-result-item:hover { background: var(--color-bg-alt); }
+    .cliente-result-item .rut {
+      font-weight: 600;
+      color: var(--color-text);
+      margin-right: 6px;
+    }
+    .cliente-result-item .giro {
+      color: var(--color-text-tertiary);
+      font-size: var(--text-small);
+      margin-left: 8px;
+    }
+    .cliente-result-item .cond {
+      color: var(--color-accent);
+      font-size: var(--text-small);
+      margin-left: 8px;
+      font-weight: 500;
+    }
+    .cliente-result-item .empty {
+      padding: 10px 14px;
+      color: var(--color-text-tertiary);
+      font-size: var(--text-caption);
+    }
+    .cliente-info {
+      font-size: var(--text-caption);
+      color: var(--color-success);
+      font-weight: 500;
+      margin-top: 6px;
+      display: none;
+    }
+    .cliente-info.visible { display: block; }
+
+    /* ── Ítems table ────────────────────────────────────────── */
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 12px;
+    }
+    .items-table th {
+      text-align: left;
+      font-size: var(--text-small);
+      color: var(--color-text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--color-border-light);
+      font-weight: 600;
+    }
+    .items-table th.right,
+    .items-table td.right { text-align: right; }
+    .items-table th.center,
+    .items-table td.center { text-align: center; }
+    .items-table td {
+      padding: 6px 8px;
+      vertical-align: middle;
+    }
+    .items-table input {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      font-size: var(--text-caption);
+      background: var(--color-bg);
+      transition: border-color 150ms var(--ease);
+    }
+    .items-table input:focus {
+      outline: none;
+      border-color: var(--color-accent);
+    }
+    .items-table .col-nombre { width: 45%; }
+    .items-table .col-cant { width: 10%; }
+    .items-table .col-precio { width: 18%; }
+    .items-table .col-total {
+      width: 17%;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .items-table .col-accion { width: 10%; }
+
+    .btn-add-item {
+      background: transparent;
+      border: 1px dashed var(--color-border);
+      color: var(--color-text-secondary);
+      padding: 10px;
+      width: 100%;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--text-caption);
+      transition: all 150ms var(--ease);
+    }
+    .btn-add-item:hover {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+    }
+
+    .btn-remove {
+      background: none;
+      border: 0;
+      color: var(--color-text-tertiary);
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      padding: 4px 8px;
+      transition: color 150ms var(--ease);
+    }
+    .btn-remove:hover { color: var(--color-error); }
+
+    /* ── Totales ────────────────────────────────────────────── */
+    .totales {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--color-border-light);
+    }
+    .totales-row {
+      display: flex;
+      gap: 24px;
+      font-size: var(--text-body);
+      font-variant-numeric: tabular-nums;
+    }
+    .totales-row .label {
+      color: var(--color-text-secondary);
+      min-width: 100px;
+      text-align: right;
+    }
+    .totales-row .value {
+      min-width: 130px;
+      text-align: right;
+      font-weight: 600;
+      color: var(--color-text);
+    }
+    .totales-row.total {
+      font-size: var(--text-body-lg);
+      border-top: 1px solid var(--color-border-light);
+      padding-top: 8px;
+      margin-top: 4px;
+    }
+    .totales-row.total .value { color: var(--color-accent); }
+
+    /* ── Botones ────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 22px;
+      border-radius: var(--radius-pill);
+      font: inherit;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 150ms var(--ease),
+                  color 150ms var(--ease),
+                  border-color 150ms var(--ease);
+    }
+    .btn-primary {
+      background: var(--color-accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--color-accent-hover); }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--color-accent);
+      border-color: var(--color-accent);
+    }
+    .btn-secondary:hover { background: rgba(0, 113, 227, 0.08); }
+    .btn-success {
+      background: var(--color-success);
+      color: #fff;
+    }
+    .btn-success:hover:not(:disabled) { filter: brightness(1.05); }
+    .btn-dark {
+      background: var(--color-text);
+      color: #fff;
+    }
+    .btn-dark:hover:not(:disabled) { filter: brightness(1.3); }
+    .btn-lg {
+      padding: 12px 32px;
+      font-size: var(--text-body);
+      font-weight: 600;
+    }
+
+    .emitir-row {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin: 24px 0 0;
+    }
+
+    /* ── Spinner ────────────────────────────────────────────── */
+    .spinner {
+      display: none;
+      text-align: center;
+      padding: 32px;
+      color: var(--color-text-secondary);
+    }
+    .spinner.visible { display: block; }
+    .spinner::after {
+      content: '';
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      border: 3px solid var(--color-border-light);
+      border-top-color: var(--color-accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 10px;
+    }
+    .spinner p {
+      font-size: var(--text-caption);
+      margin-top: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Resultado ──────────────────────────────────────────── */
+    .result {
+      display: none;
+      border-left: 4px solid var(--color-accent);
+    }
+    .result.visible { display: block; }
+    .result.success { border-left-color: var(--color-success); }
+    .result.error { border-left-color: var(--color-error); }
+    .result h2.success { color: var(--color-success); }
+    .result h2.error { color: var(--color-error); }
+    .result-detail {
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      margin-top: 10px;
+      line-height: 1.7;
+    }
+    .result-detail strong {
+      color: var(--color-text);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+    .result-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    /* ── Banner (info / error cross-cutting) ────────────────── */
+    .banner {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: var(--text-caption);
+      margin-bottom: 16px;
+      display: none;
+    }
+    .banner.visible { display: block; }
+    .banner.info {
+      background: var(--color-etapa-proceso-bg);
+      color: var(--color-etapa-proceso-fg);
+    }
+    .banner.error {
+      background: var(--color-etapa-pendiente-bg);
+      color: var(--color-etapa-pendiente-fg);
+    }
+
+    @media (max-width: 640px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .cliente-buscar-wrap { grid-template-columns: 1fr; }
+      .emisor-grid { grid-template-columns: 1fr; gap: 4px; }
+      .items-table .col-nombre { width: auto; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+    <div class="right">
+      <span id="nav-razon">—</span>
+    </div>
+  </nav>
+
+  <main>
+    <a class="breadcrumb" id="back-link" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      Volver a Facturación
+    </a>
+
+    <div class="page-title">
+      <h1>Emitir documento</h1>
+      <p class="subtitle">Factura electrónica, factura exenta, nota de crédito o nota de débito.</p>
+    </div>
+
+    <!-- Banner global de errores (cert faltante, folios, etc.) -->
+    <div class="banner" id="info-banner"></div>
+
+    <!-- ── Emisor ─────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Emisor</h2>
+      <p class="section-hint">
+        Datos de tu empresa que irán impresos en el documento.
+        La dirección se toma de la casa matriz salvo que elijas una sucursal.
+      </p>
+      <dl class="emisor-grid">
+        <dt>Razón social</dt><dd id="em-razon">—</dd>
+        <dt>RUT</dt><dd id="em-rut">—</dd>
+        <dt>Giro</dt><dd id="em-giro">—</dd>
+        <dt>Ambiente</dt><dd><span class="ambiente-badge" id="em-amb">—</span></dd>
+        <dt>Folios disponibles</dt><dd id="em-folios">—</dd>
+      </dl>
+
+      <div class="form-grid">
+        <label class="field full">
+          Emitir desde
+          <select id="sucursalSelect">
+            <option value="">Casa matriz</option>
+          </select>
+        </label>
+        <label class="field full">
+          Dirección (aparece en el DTE)
+          <input type="text" id="em-direccion-preview" readonly>
+        </label>
+      </div>
+    </section>
+
+    <!-- ── Tipo DTE ───────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Tipo de documento</h2>
+      <p class="section-hint">Seleccioná qué tipo de DTE vas a emitir.</p>
+      <div class="tipo-dte-selector">
+        <button type="button" class="tipo-dte-btn active" data-tipo="33">Factura electrónica</button>
+        <button type="button" class="tipo-dte-btn" data-tipo="34">Factura exenta</button>
+        <button type="button" class="tipo-dte-btn" data-tipo="61">Nota de crédito</button>
+        <button type="button" class="tipo-dte-btn" data-tipo="56">Nota de débito</button>
+      </div>
+    </section>
+
+    <!-- ── Receptor ───────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Receptor</h2>
+      <p class="section-hint">Buscá un cliente guardado o ingresá los datos manualmente.</p>
+
+      <div class="cliente-buscar-wrap">
+        <label class="field">
+          Buscar cliente
+          <input type="text" id="clienteBuscar" placeholder="Por RUT o razón social…" autocomplete="off">
+          <div class="cliente-results" id="clienteResults"></div>
+        </label>
+        <button type="button" class="btn btn-success" id="btnGuardarCliente" title="Guardar los datos actuales como cliente">Guardar cliente</button>
+      </div>
+      <div class="cliente-info" id="clienteInfo"></div>
+
+      <div class="form-grid" style="margin-top: 14px;">
+        <label class="field">
+          RUT
+          <input type="text" id="recRut" placeholder="12.345.678-9">
+        </label>
+        <label class="field">
+          Razón social
+          <input type="text" id="recRazon" placeholder="EMPRESA S.A.">
+        </label>
+        <label class="field full">
+          Giro
+          <input type="text" id="recGiro" placeholder="VENTA AL POR MENOR">
+        </label>
+        <label class="field full">
+          Dirección
+          <input type="text" id="recDir" placeholder="AV PRINCIPAL 123">
+        </label>
+        <label class="field">
+          Comuna
+          <input type="text" id="recComuna" placeholder="SANTIAGO">
+        </label>
+        <label class="field">
+          Ciudad
+          <input type="text" id="recCiudad" placeholder="SANTIAGO">
+        </label>
+      </div>
+    </section>
+
+    <!-- ── Condiciones de pago (solo 33/34) ───────────────────── -->
+    <section class="card" id="pagoCard">
+      <h2>Condiciones de pago</h2>
+      <p class="section-hint">Aplica solo a facturas (afecta y exenta).</p>
+      <div class="form-grid">
+        <label class="field">
+          Forma de pago
+          <select id="fmaPago">
+            <option value="1">Contado</option>
+            <option value="2">Crédito</option>
+          </select>
+        </label>
+        <label class="field" id="condicionPagoWrap" style="display:none;">
+          Condición
+          <select id="condicionPago">
+            <option value="15">15 días</option>
+            <option value="20">20 días</option>
+            <option value="30" selected>30 días</option>
+            <option value="45">45 días</option>
+            <option value="60">60 días</option>
+            <option value="custom">Fecha específica</option>
+          </select>
+        </label>
+        <label class="field" id="fechaVencWrap" style="display:none;">
+          Fecha de vencimiento
+          <input type="date" id="fechaVencimiento">
+        </label>
+      </div>
+    </section>
+
+    <!-- ── Orden de compra (opcional, solo 33/34) ─────────────── -->
+    <section class="card" id="ocCard">
+      <h2>Orden de compra <span style="font-weight: 400; color: var(--color-text-tertiary); font-size: var(--text-caption);">(opcional)</span></h2>
+      <p class="section-hint">Se agrega como referencia tipo 801 al DTE.</p>
+      <div class="form-grid">
+        <label class="field">
+          N° Orden de compra
+          <input type="text" id="ocNumero" placeholder="OC-12345">
+        </label>
+        <label class="field">
+          Fecha OC
+          <input type="date" id="ocFecha">
+        </label>
+      </div>
+    </section>
+
+    <!-- ── Ítems ──────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Detalle de ítems</h2>
+      <p class="section-hint">Agregá cada producto o servicio con cantidad y precio unitario.</p>
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th class="col-nombre">Descripción</th>
+            <th class="col-cant center">Cant.</th>
+            <th class="col-precio right">Precio unit.</th>
+            <th class="col-total right">Total</th>
+            <th class="col-accion"></th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody">
+          <tr>
+            <td class="col-nombre"><input type="text" class="item-nombre" placeholder="Descripción del producto o servicio"></td>
+            <td class="col-cant"><input type="number" class="item-cant" value="1" min="1" step="1"></td>
+            <td class="col-precio"><input type="number" class="item-precio" placeholder="0" min="0"></td>
+            <td class="col-total right item-total">$0</td>
+            <td class="col-accion center"><button type="button" class="btn-remove" title="Quitar ítem">&times;</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <button type="button" class="btn-add-item" id="btnAddItem">+ Agregar ítem</button>
+
+      <div class="totales">
+        <div class="totales-row"><span class="label">Neto</span><span class="value" id="totalNeto">$0</span></div>
+        <div class="totales-row"><span class="label">IVA (19%)</span><span class="value" id="totalIva">$0</span></div>
+        <div class="totales-row total"><span class="label">Total</span><span class="value" id="totalTotal">$0</span></div>
+      </div>
+    </section>
+
+    <!-- ── Referencia (solo 61/56) ────────────────────────────── -->
+    <section class="card" id="refCard" style="display:none;">
+      <h2>Referencia</h2>
+      <p class="section-hint">Obligatoria para notas de crédito y notas de débito — indica qué documento corrige.</p>
+      <div class="form-grid">
+        <label class="field">
+          Tipo documento referencia
+          <select id="refTipoDoc">
+            <option value="33">33 - Factura</option>
+            <option value="34">34 - Factura exenta</option>
+            <option value="52">52 - Guía de despacho</option>
+            <option value="801">801 - Orden de compra</option>
+          </select>
+        </label>
+        <label class="field">
+          Folio referencia
+          <input type="number" id="refFolio" placeholder="123">
+        </label>
+        <label class="field">
+          Fecha referencia
+          <input type="date" id="refFecha">
+        </label>
+        <label class="field">
+          Código
+          <select id="refCodigo">
+            <option value="">Sin código</option>
+            <option value="1">1 - Anula documento</option>
+            <option value="2">2 - Corrige texto</option>
+            <option value="3">3 - Corrige monto</option>
+          </select>
+        </label>
+        <label class="field full">
+          Razón referencia
+          <input type="text" id="refRazon" placeholder="Anula factura / Corrige monto">
+        </label>
+      </div>
+    </section>
+
+    <!-- ── Emitir ─────────────────────────────────────────────── -->
+    <div class="emitir-row">
+      <button type="button" class="btn btn-primary btn-lg" id="btnEmitir">Emitir factura</button>
+    </div>
+
+    <div class="spinner" id="spinner">
+      <p>Firmando y enviando al SII…</p>
+    </div>
+
+    <section class="card result" id="resultado">
+      <h2 id="resTitle">Documento emitido</h2>
+      <div class="result-detail" id="resDetail"></div>
+      <div class="result-actions">
+        <button type="button" class="btn btn-dark" id="btnPdf" style="display:none;">Descargar PDF</button>
+        <button type="button" class="btn btn-secondary" id="btnNuevo" style="display:none;">Emitir otro documento</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ══ Sesión namespaced por RUT (igual patrón que dashboard/negocio) ══
+    const EMPRESA_RUT = window.location.pathname.split('/')[1];
+    const TOKEN_KEY = `ttpos_token_${EMPRESA_RUT}`;
+    const USER_KEY = `ttpos_user_${EMPRESA_RUT}`;
+
+    function requireAuth() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const raw = localStorage.getItem(USER_KEY);
+      if (!token || !raw) {
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        return null;
+      }
+      try {
+        const user = JSON.parse(raw);
+        if (!user || user.empresa_rut !== EMPRESA_RUT) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`);
+          return null;
+        }
+        // super_admin solo se acepta con shadow=true (ver baja_empresas).
+        if (user.rol === 'super_admin' && !user.shadow) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`);
+          return null;
+        }
+        return { token, user };
+      } catch {
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        return null;
+      }
+    }
+
+    const auth = requireAuth();
+    if (!auth) throw new Error('no-auth');
+
+    document.getElementById('back-link').href = `/${EMPRESA_RUT}/facturacion`;
+
+    // ══ Fetch helper con token + X-Empresa-Rut ══
+    async function apiFetch(url, opts = {}) {
+      const headers = {
+        'Authorization': `Bearer ${auth.token}`,
+        'X-Empresa-Rut': EMPRESA_RUT,
+        ...(opts.headers || {}),
+      };
+      if (opts.body && typeof opts.body === 'string') {
+        headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+      }
+      const res = await fetch(url, { ...opts, headers });
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        throw new Error('unauth');
+      }
+      return res;
+    }
+
+    // ══ Estado de la página ══
+    let tipoDte = 33;
+    let empresaData = null;      // GET /api/empresas/mi-empresa
+    let sucursales = [];          // GET /api/sucursales/
+    let sucursalActual = null;    // Id de la sucursal elegida (null = casa matriz)
+    let ultimoPdfBase64 = null;
+    let clienteSeleccionado = null;
+    let buscarTimeout = null;
+
+    // ══ Banners globales ══
+    function showInfoBanner(kind, text) {
+      const el = document.getElementById('info-banner');
+      el.textContent = text;
+      el.className = `banner ${kind} visible`;
+    }
+    function hideInfoBanner() {
+      document.getElementById('info-banner').classList.remove('visible');
+    }
+
+    // ══ Cargar empresa ══
+    async function cargarEmpresa() {
+      try {
+        const res = await apiFetch('/api/empresas/mi-empresa');
+        if (!res.ok) throw new Error('No se pudo cargar la empresa');
+        const data = await res.json();
+        empresaData = data;
+        document.getElementById('nav-razon').textContent = data.razon_social;
+        document.getElementById('em-razon').textContent = data.razon_social;
+        document.getElementById('em-rut').textContent = data.rut;
+        document.getElementById('em-giro').textContent = data.giro || '—';
+        document.title = `Facturación · ${data.razon_social}`;
+
+        const amb = (data.ambiente_sii || 'certificacion').toLowerCase();
+        const badge = document.getElementById('em-amb');
+        if (amb === 'produccion') {
+          badge.textContent = 'Producción';
+          badge.className = 'ambiente-badge prod';
+        } else {
+          badge.textContent = 'Certificación';
+          badge.className = 'ambiente-badge cert';
+        }
+
+        actualizarDireccionPreview();
+      } catch (e) {
+        showInfoBanner('error', 'Error cargando datos de la empresa: ' + e.message);
+      }
+    }
+
+    // ══ Cargar sucursales ══
+    async function cargarSucursales() {
+      try {
+        const res = await apiFetch('/api/sucursales/');
+        if (!res.ok) return; // Silencio — si no hay sucursales, solo casa matriz.
+        sucursales = await res.json();
+        const sel = document.getElementById('sucursalSelect');
+        // Primera opción = casa matriz (ya está en HTML).
+        sucursales.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = s.id;
+          opt.textContent = `${s.nombre} — ${s.direccion}, ${s.comuna}`;
+          sel.appendChild(opt);
+        });
+      } catch (e) {
+        // No bloqueante.
+      }
+    }
+
+    function actualizarDireccionPreview() {
+      const input = document.getElementById('em-direccion-preview');
+      if (sucursalActual) {
+        const s = sucursales.find(x => x.id === sucursalActual);
+        if (s) {
+          input.value = `${s.direccion}, ${s.comuna}, ${s.ciudad}`;
+          return;
+        }
+      }
+      if (empresaData) {
+        const partes = [empresaData.direccion, empresaData.comuna, empresaData.ciudad]
+          .filter(Boolean);
+        input.value = partes.join(', ') || '—';
+      } else {
+        input.value = '—';
+      }
+    }
+
+    document.getElementById('sucursalSelect').addEventListener('change', (e) => {
+      sucursalActual = e.target.value || null;
+      actualizarDireccionPreview();
+    });
+
+    // ══ Cargar info facturación (ambiente + folios) ══
+    async function cargarInfoFacturacion() {
+      try {
+        const res = await apiFetch('/api/facturacion/info');
+        const data = await res.json();
+        if (data.error) {
+          showInfoBanner('info',
+            'No se puede emitir todavía: ' + data.error +
+            ' Revisa Información del negocio → Datos SII / certificado.');
+          document.getElementById('btnEmitir').disabled = true;
+          return;
+        }
+        const folios = data.folios_actuales || {};
+        const texto = Object.keys(folios).length
+          ? Object.entries(folios).map(([t, f]) => `T${t}: ${f}`).join(' · ')
+          : 'No hay CAFs cargados';
+        document.getElementById('em-folios').textContent = texto;
+      } catch (e) {
+        showInfoBanner('info', 'No se pudo obtener el estado de folios: ' + e.message);
+      }
+    }
+
+    // ══ Selector de tipo DTE ══
+    document.querySelectorAll('.tipo-dte-btn').forEach(btn => {
+      btn.addEventListener('click', () => seleccionarTipo(parseInt(btn.dataset.tipo), btn));
+    });
+
+    function seleccionarTipo(tipo, btnEl) {
+      tipoDte = tipo;
+      document.querySelectorAll('.tipo-dte-btn').forEach(b => b.classList.remove('active'));
+      (btnEl || document.querySelector(`.tipo-dte-btn[data-tipo="${tipo}"]`)).classList.add('active');
+
+      const esFactura = (tipo === 33 || tipo === 34);
+      document.getElementById('ocCard').style.display = esFactura ? '' : 'none';
+      document.getElementById('pagoCard').style.display = esFactura ? '' : 'none';
+      document.getElementById('refCard').style.display = (tipo === 61 || tipo === 56) ? '' : 'none';
+
+      const nombres = {33: 'factura', 34: 'factura exenta', 61: 'nota de crédito', 56: 'nota de débito'};
+      document.getElementById('btnEmitir').textContent = 'Emitir ' + (nombres[tipo] || 'documento');
+
+      recalcular();
+    }
+
+    // ══ Ítems ══
+    document.getElementById('btnAddItem').addEventListener('click', addItem);
+    document.getElementById('itemsBody').addEventListener('click', (e) => {
+      if (e.target.classList.contains('btn-remove')) {
+        removeItem(e.target);
+      }
+    });
+    document.getElementById('itemsBody').addEventListener('input', (e) => {
+      if (e.target.classList.contains('item-cant') || e.target.classList.contains('item-precio')) {
+        recalcular();
+      }
+    });
+
+    function addItem() {
+      const tbody = document.getElementById('itemsBody');
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="col-nombre"><input type="text" class="item-nombre" placeholder="Descripción del producto o servicio"></td>
+        <td class="col-cant"><input type="number" class="item-cant" value="1" min="1" step="1"></td>
+        <td class="col-precio"><input type="number" class="item-precio" placeholder="0" min="0"></td>
+        <td class="col-total right item-total">$0</td>
+        <td class="col-accion center"><button type="button" class="btn-remove" title="Quitar ítem">&times;</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+
+    function removeItem(btn) {
+      const tbody = document.getElementById('itemsBody');
+      if (tbody.rows.length > 1) {
+        btn.closest('tr').remove();
+        recalcular();
+      }
+    }
+
+    function recalcular() {
+      const rows = document.querySelectorAll('#itemsBody tr');
+      let totalNeto = 0;
+      rows.forEach(row => {
+        const cant = parseFloat(row.querySelector('.item-cant')?.value) || 0;
+        const precio = parseInt(row.querySelector('.item-precio')?.value) || 0;
+        const total = Math.round(cant * precio);
+        row.querySelector('.item-total').textContent = '$' + total.toLocaleString('es-CL');
+        totalNeto += total;
+      });
+      const esExenta = (tipoDte === 34);
+      const iva = esExenta ? 0 : Math.round(totalNeto * 0.19);
+      const total = totalNeto + iva;
+      document.getElementById('totalNeto').textContent = '$' + totalNeto.toLocaleString('es-CL');
+      document.getElementById('totalIva').textContent = '$' + iva.toLocaleString('es-CL');
+      document.getElementById('totalTotal').textContent = '$' + total.toLocaleString('es-CL');
+    }
+
+    // ══ Condiciones de pago ══
+    document.getElementById('fmaPago').addEventListener('change', actualizarFmaPago);
+    document.getElementById('condicionPago').addEventListener('change', actualizarVencimiento);
+
+    function actualizarFmaPago() {
+      const fma = document.getElementById('fmaPago').value;
+      const condWrap = document.getElementById('condicionPagoWrap');
+      const fechaWrap = document.getElementById('fechaVencWrap');
+      if (fma === '2') {
+        condWrap.style.display = '';
+        actualizarVencimiento();
+      } else {
+        condWrap.style.display = 'none';
+        fechaWrap.style.display = 'none';
+      }
+    }
+
+    function actualizarVencimiento() {
+      const sel = document.getElementById('condicionPago').value;
+      const fechaWrap = document.getElementById('fechaVencWrap');
+      const fechaInput = document.getElementById('fechaVencimiento');
+      if (sel === 'custom') {
+        fechaWrap.style.display = '';
+      } else {
+        const dias = parseInt(sel);
+        const hoy = new Date();
+        hoy.setDate(hoy.getDate() + dias);
+        fechaInput.value = hoy.toISOString().split('T')[0];
+        fechaWrap.style.display = '';
+      }
+    }
+
+    // ══ Clientes: buscar / seleccionar / guardar ══
+    const clienteBuscarEl = document.getElementById('clienteBuscar');
+    const clienteResultsEl = document.getElementById('clienteResults');
+    const clienteInfoEl = document.getElementById('clienteInfo');
+
+    clienteBuscarEl.addEventListener('input', () => {
+      const q = clienteBuscarEl.value.trim();
+      if (!q || q.length < 2) {
+        clienteResultsEl.classList.remove('visible');
+        return;
+      }
+      clearTimeout(buscarTimeout);
+      buscarTimeout = setTimeout(() => buscarClientes(q), 300);
+    });
+
+    async function buscarClientes(q) {
+      try {
+        const res = await apiFetch('/api/clientes/?q=' + encodeURIComponent(q));
+        if (!res.ok) {
+          clienteResultsEl.classList.remove('visible');
+          return;
+        }
+        const clientes = await res.json();
+        if (!clientes || clientes.length === 0) {
+          clienteResultsEl.innerHTML = '<div class="empty">Sin resultados — podés ingresar los datos manualmente</div>';
+          clienteResultsEl.classList.add('visible');
+          return;
+        }
+        clienteResultsEl.innerHTML = clientes.map(c => {
+          const cond = c.condicion_pago == null ? '' :
+            (c.condicion_pago === 0 ? '<span class="cond">Contado</span>' :
+             `<span class="cond">${c.condicion_pago} días</span>`);
+          return `<div class="cliente-result-item" data-cliente-id="${c.id}">
+            <span class="rut">${escapeHtml(c.rut)}</span>${escapeHtml(c.razon_social)}
+            <span class="giro">${escapeHtml(c.giro || '')}</span>${cond}
+          </div>`;
+        }).join('');
+        clienteResultsEl.classList.add('visible');
+
+        // Handler: usamos dataset + lookup; evita pasar el JSON por el template.
+        clienteResultsEl.querySelectorAll('.cliente-result-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const id = item.dataset.clienteId;
+            const cliente = clientes.find(c => c.id === id);
+            if (cliente) seleccionarCliente(cliente);
+          });
+        });
+      } catch (e) {
+        clienteResultsEl.classList.remove('visible');
+      }
+    }
+
+    function seleccionarCliente(cliente) {
+      clienteSeleccionado = cliente;
+      document.getElementById('recRut').value = cliente.rut;
+      document.getElementById('recRazon').value = cliente.razon_social;
+      document.getElementById('recGiro').value = cliente.giro || '';
+      document.getElementById('recDir').value = cliente.direccion || '';
+      document.getElementById('recComuna').value = cliente.comuna || '';
+      document.getElementById('recCiudad').value = cliente.ciudad || '';
+      clienteBuscarEl.value = '';
+      clienteResultsEl.classList.remove('visible');
+      clienteInfoEl.textContent = 'Cliente cargado: ' + cliente.razon_social;
+      clienteInfoEl.classList.add('visible');
+
+      // Aplicar condición de pago del cliente.
+      if (cliente.condicion_pago != null) {
+        const fmaSel = document.getElementById('fmaPago');
+        if (cliente.condicion_pago === 0) {
+          fmaSel.value = '1';
+          actualizarFmaPago();
+        } else {
+          fmaSel.value = '2';
+          actualizarFmaPago();
+          const dias = cliente.condicion_pago;
+          const condSel = document.getElementById('condicionPago');
+          const opciones = ['15','20','30','45','60'];
+          condSel.value = opciones.includes(String(dias)) ? String(dias) : 'custom';
+          actualizarVencimiento();
+        }
+      }
+    }
+
+    document.getElementById('btnGuardarCliente').addEventListener('click', guardarCliente);
+
+    async function guardarCliente() {
+      const rut = formatRut(document.getElementById('recRut').value);
+      const razon = document.getElementById('recRazon').value.trim();
+      const giro = document.getElementById('recGiro').value.trim();
+      const dir = document.getElementById('recDir').value.trim();
+      const comuna = document.getElementById('recComuna').value.trim();
+      const ciudad = document.getElementById('recCiudad').value.trim();
+
+      if (!rut || !razon || !giro || !dir || !comuna) {
+        alert('Completá RUT, razón social, giro, dirección y comuna para guardar el cliente.');
+        return;
+      }
+
+      // Condición de pago del form actual.
+      let condPago = null;
+      const fma = document.getElementById('fmaPago').value;
+      if (fma === '1') {
+        condPago = 0;
+      } else if (fma === '2') {
+        const condSel = document.getElementById('condicionPago').value;
+        if (condSel !== 'custom') condPago = parseInt(condSel);
+      }
+
+      const body = {
+        rut, razon_social: razon, giro, direccion: dir, comuna,
+        ciudad: ciudad || null,
+        condicion_pago: condPago,
+      };
+
+      try {
+        let res = await apiFetch('/api/clientes/', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+
+        if (res.status === 400) {
+          // Ya existe — buscar por RUT y actualizar.
+          const buscarRes = await apiFetch('/api/clientes/buscar/rut/' + encodeURIComponent(rut));
+          const existente = await buscarRes.json();
+          if (existente && existente.id) {
+            const updateBody = {
+              razon_social: razon, giro, direccion: dir, comuna,
+              ciudad: ciudad || null, condicion_pago: condPago,
+            };
+            res = await apiFetch('/api/clientes/' + existente.id, {
+              method: 'PUT',
+              body: JSON.stringify(updateBody),
+            });
+            if (res.ok) {
+              clienteInfoEl.textContent = 'Cliente actualizado: ' + razon;
+              clienteInfoEl.classList.add('visible');
+              return;
+            }
+          }
+        }
+
+        if (res.ok) {
+          clienteInfoEl.textContent = 'Cliente guardado: ' + razon;
+          clienteInfoEl.classList.add('visible');
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert('Error guardando cliente: ' + (err.detail || JSON.stringify(err)));
+        }
+      } catch (e) {
+        alert('Error de conexión: ' + e.message);
+      }
+    }
+
+    // ══ Cerrar resultados al hacer click fuera ══
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#clienteBuscar') && !e.target.closest('#clienteResults')) {
+        clienteResultsEl.classList.remove('visible');
+      }
+    });
+
+    // ══ Emitir ══
+    document.getElementById('btnEmitir').addEventListener('click', emitirFactura);
+    document.getElementById('btnPdf').addEventListener('click', descargarPdf);
+    document.getElementById('btnNuevo').addEventListener('click', () => {
+      document.getElementById('resultado').classList.remove('visible');
+      ultimoPdfBase64 = null;
+      // Limpiamos solo el receptor e items; el tipo y emisor quedan.
+      ['recRut','recRazon','recGiro','recDir','recComuna','recCiudad','ocNumero',
+       'refFolio','refRazon'].forEach(id => { document.getElementById(id).value = ''; });
+      document.getElementById('itemsBody').innerHTML = `
+        <tr>
+          <td class="col-nombre"><input type="text" class="item-nombre" placeholder="Descripción del producto o servicio"></td>
+          <td class="col-cant"><input type="number" class="item-cant" value="1" min="1" step="1"></td>
+          <td class="col-precio"><input type="number" class="item-precio" placeholder="0" min="0"></td>
+          <td class="col-total right item-total">$0</td>
+          <td class="col-accion center"><button type="button" class="btn-remove" title="Quitar ítem">&times;</button></td>
+        </tr>`;
+      clienteSeleccionado = null;
+      clienteInfoEl.classList.remove('visible');
+      recalcular();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    async function emitirFactura() {
+      const btnEmitir = document.getElementById('btnEmitir');
+      const spinner = document.getElementById('spinner');
+      const resultado = document.getElementById('resultado');
+
+      // ── Validar receptor ──
+      const recRut = formatRut(document.getElementById('recRut').value);
+      const recRazon = document.getElementById('recRazon').value.trim();
+      const recGiro = document.getElementById('recGiro').value.trim();
+      const recDir = document.getElementById('recDir').value.trim();
+      const recComuna = document.getElementById('recComuna').value.trim();
+      const recCiudad = document.getElementById('recCiudad').value.trim();
+      if (!recRut || !recRazon || !recGiro || !recDir || !recComuna) {
+        alert('Completá todos los datos del receptor (RUT, razón social, giro, dirección y comuna).');
+        return;
+      }
+
+      // ── Ítems ──
+      const rows = document.querySelectorAll('#itemsBody tr');
+      const items = [];
+      for (const row of rows) {
+        const nombre = row.querySelector('.item-nombre').value.trim();
+        const cant = parseFloat(row.querySelector('.item-cant').value) || 0;
+        const precio = parseInt(row.querySelector('.item-precio').value) || 0;
+        if (!nombre || cant <= 0 || precio <= 0) {
+          alert('Completá todos los ítems (nombre, cantidad y precio).');
+          return;
+        }
+        items.push({ nombre, cantidad: cant, precio_unitario: precio });
+      }
+
+      // ── Referencias (NC / ND) ──
+      const referencias = [];
+      if (tipoDte === 61 || tipoDte === 56) {
+        const refFolio = document.getElementById('refFolio').value;
+        if (!refFolio) {
+          alert('Las notas de crédito y débito requieren un folio de referencia.');
+          return;
+        }
+        const ref = {
+          tipo_doc: parseInt(document.getElementById('refTipoDoc').value),
+          folio: parseInt(refFolio),
+          fecha: document.getElementById('refFecha').value || null,
+          razon: document.getElementById('refRazon').value || null,
+        };
+        const codigo = document.getElementById('refCodigo').value;
+        if (codigo) ref.codigo = parseInt(codigo);
+        referencias.push(ref);
+      }
+
+      // ── Condiciones de pago (solo facturas) ──
+      const esFactura = (tipoDte === 33 || tipoDte === 34);
+      const fmaPago = parseInt(document.getElementById('fmaPago').value);
+      let fechaVenc = null;
+      if (esFactura && fmaPago === 2) {
+        fechaVenc = document.getElementById('fechaVencimiento').value || null;
+      }
+
+      // ── OC (solo facturas) ──
+      const ocNumero = document.getElementById('ocNumero').value.trim() || null;
+      const ocFecha = document.getElementById('ocFecha').value || null;
+
+      const body = {
+        sucursal_id: sucursalActual || null,
+        tipo_dte: tipoDte,
+        receptor_rut: recRut,
+        receptor_razon: recRazon,
+        receptor_giro: recGiro,
+        receptor_dir: recDir,
+        receptor_comuna: recComuna,
+        receptor_ciudad: recCiudad || null,
+        items,
+        referencias,
+        fma_pago: esFactura ? fmaPago : null,
+        fecha_vencimiento: esFactura ? fechaVenc : null,
+        oc_numero: esFactura ? ocNumero : null,
+        oc_fecha: esFactura ? ocFecha : null,
+      };
+
+      btnEmitir.disabled = true;
+      spinner.classList.add('visible');
+      resultado.classList.remove('visible');
+      ultimoPdfBase64 = null;
+      document.getElementById('btnPdf').style.display = 'none';
+      document.getElementById('btnNuevo').style.display = 'none';
+
+      try {
+        const res = await apiFetch('/api/facturacion/emitir', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+
+        spinner.classList.remove('visible');
+        resultado.classList.add('visible');
+
+        const title = document.getElementById('resTitle');
+        const detail = document.getElementById('resDetail');
+
+        if (data.ok) {
+          resultado.className = 'card result visible success';
+          title.className = 'success';
+          title.textContent = 'Documento emitido correctamente';
+          detail.innerHTML =
+            `<p>Folio: <strong>${data.folio}</strong></p>` +
+            `<p>Track ID SII: <strong>${data.track_id || 'N/A'}</strong></p>` +
+            `<p>Neto: <strong>$${(data.monto_neto || 0).toLocaleString('es-CL')}</strong> · ` +
+            `IVA: <strong>$${(data.iva || 0).toLocaleString('es-CL')}</strong> · ` +
+            `Total: <strong>$${(data.monto_total || 0).toLocaleString('es-CL')}</strong></p>`;
+          if (data.pdf_base64) {
+            ultimoPdfBase64 = data.pdf_base64;
+            document.getElementById('btnPdf').style.display = '';
+          }
+          document.getElementById('btnNuevo').style.display = '';
+          // Refrescar folios en el header.
+          cargarInfoFacturacion();
+        } else {
+          resultado.className = 'card result visible error';
+          title.className = 'error';
+          title.textContent = 'Error al emitir';
+          detail.innerHTML =
+            `<p>${escapeHtml(data.error || 'Error desconocido')}</p>` +
+            (data.folio ? `<p>Folio asignado: <strong>${data.folio}</strong> (quemado)</p>` : '');
+        }
+
+        resultado.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) {
+        spinner.classList.remove('visible');
+        resultado.classList.add('visible');
+        resultado.className = 'card result visible error';
+        document.getElementById('resTitle').className = 'error';
+        document.getElementById('resTitle').textContent = 'Error de conexión';
+        document.getElementById('resDetail').innerHTML = `<p>${escapeHtml(e.message)}</p>`;
+      } finally {
+        btnEmitir.disabled = false;
+      }
+    }
+
+    function descargarPdf() {
+      if (!ultimoPdfBase64) return;
+      const bytes = atob(ultimoPdfBase64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      const blob = new Blob([arr], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+    }
+
+    // ══ Utils ══
+    function formatRut(rut) {
+      return (rut || '').replace(/\./g, '').replace(/\s/g, '').toUpperCase();
+    }
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    // ══ Init ══
+    document.addEventListener('DOMContentLoaded', async () => {
+      // Fechas por defecto.
+      const hoy = new Date().toISOString().split('T')[0];
+      document.getElementById('refFecha').value = hoy;
+      document.getElementById('ocFecha').value = hoy;
+
+      actualizarFmaPago();
+      recalcular();
+
+      await cargarEmpresa();
+      await cargarSucursales();
+      actualizarDireccionPreview();
+      await cargarInfoFacturacion();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Facturación · trestresPOS</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <!--
+    facturacion.html — índice del módulo "Facturación" del master cliente.
+
+    Ruta: /{empresa_rut}/facturacion
+
+    No emite — sirve de landing del módulo con:
+      · CTA primaria "Emitir documento" que navega a
+        /{empresa_rut}/facturacion/emision (pantalla real de emisión,
+        con toda la lógica del legacy /factura portado al tenant).
+      · Resumen del emisor: razón social, ambiente SII activo (cert/prod),
+        folios disponibles por tipo DTE.
+      · Tiles para sub-módulos del flujo de facturación:
+          - Documentos emitidos (historial)
+          - Facturas recibidas (DTEs de proveedores)
+          - Libros y RCOF
+        Todos "próximamente" hoy, quedan enumerados para que el usuario
+        sepa qué viene y como anclaje para futuras páginas.
+
+    Data:
+      GET /api/empresas/mi-empresa  — razón social + ambiente
+      GET /api/facturacion/info     — folios por tipo
+  -->
+  <style>
+    main { padding: 36px 24px 80px; max-width: 1040px; margin: 0 auto; }
+
+    /* ── Topnav (shared) ───────────────────────────────────── */
+    nav.topnav {
+      background: var(--color-text);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    nav.topnav img { height: 24px; }
+    nav.topnav .right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    nav.topnav span {
+      color: #fff;
+      font-size: var(--text-caption);
+      opacity: 0.85;
+    }
+
+    /* ── Breadcrumb + page title ───────────────────────────── */
+    .breadcrumb {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      text-decoration: none;
+      margin-bottom: 18px;
+      transition: color 150ms var(--ease);
+    }
+    .breadcrumb:hover { color: var(--color-accent); }
+    .breadcrumb svg { width: 14px; height: 14px; }
+
+    .page-title h1 {
+      font-size: var(--text-title);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      color: var(--color-text);
+      margin-bottom: 6px;
+    }
+    .page-title .subtitle {
+      color: var(--color-text-secondary);
+      font-size: var(--text-body);
+      margin-bottom: 28px;
+    }
+
+    /* ── Emisor bar (resumen compacto) ─────────────────────── */
+    .emisor-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 24px;
+      padding: 18px 22px;
+      background: var(--color-bg-alt);
+      border-radius: var(--radius-md);
+      margin-bottom: 28px;
+      flex-wrap: wrap;
+    }
+    .emisor-bar .left .razon {
+      font-size: var(--text-body-lg);
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--color-text);
+    }
+    .emisor-bar .left .meta {
+      margin-top: 4px;
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+    .ambiente-badge {
+      display: inline-block;
+      font-size: var(--text-small);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+    }
+    .ambiente-badge.cert {
+      background: var(--color-etapa-proceso-bg);
+      color: var(--color-etapa-proceso-fg);
+    }
+    .ambiente-badge.prod {
+      background: var(--color-etapa-produccion-bg);
+      color: var(--color-etapa-produccion-fg);
+    }
+
+    /* ── CTA principal ─────────────────────────────────────── */
+    .cta-emitir {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 32px 32px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      box-shadow: var(--shadow-card);
+    }
+    .cta-emitir .cta-text h2 {
+      font-size: var(--text-heading);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--color-text);
+      margin-bottom: 6px;
+    }
+    .cta-emitir .cta-text p {
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      max-width: 520px;
+    }
+    .cta-emitir .cta-text .folios-chip {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 4px 10px;
+      background: var(--color-bg-alt);
+      color: var(--color-text-secondary);
+      font-size: var(--text-small);
+      border-radius: var(--radius-pill);
+      font-variant-numeric: tabular-nums;
+    }
+    .cta-emitir .cta-text .folios-chip.warning {
+      background: var(--color-etapa-pendiente-bg);
+      color: var(--color-etapa-pendiente-fg);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 28px;
+      border-radius: var(--radius-pill);
+      font: inherit;
+      font-size: var(--text-body);
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      text-decoration: none;
+      transition: background 150ms var(--ease),
+                  color 150ms var(--ease),
+                  border-color 150ms var(--ease);
+      white-space: nowrap;
+    }
+    .btn-primary {
+      background: var(--color-accent);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--color-accent-hover); }
+    .btn .btn-icon {
+      width: 18px;
+      height: 18px;
+      margin-right: 8px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── Sub-módulos grid ──────────────────────────────────── */
+    .section-header {
+      margin: 36px 0 16px;
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--color-text);
+    }
+    .tiles {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .tile {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 24px 24px;
+      position: relative;
+      transition: all 200ms var(--ease);
+      cursor: pointer;
+      overflow: hidden;
+    }
+    .tile:hover {
+      border-color: var(--color-border);
+      box-shadow: var(--shadow-card-hover);
+      transform: translateY(-2px);
+    }
+    .tile.coming-soon {
+      cursor: default;
+      opacity: 0.55;
+    }
+    .tile.coming-soon:hover {
+      transform: none;
+      box-shadow: none;
+      border-color: var(--color-border-light);
+    }
+    .tile-icon {
+      margin-bottom: 14px;
+      line-height: 0;
+      color: var(--color-text-secondary);
+    }
+    .tile-icon svg {
+      width: 24px;
+      height: 24px;
+      stroke-width: 1.5;
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .tile-title {
+      font-size: var(--text-body-lg);
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      margin-bottom: 4px;
+      color: var(--color-text);
+    }
+    .tile-desc {
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      line-height: 1.45;
+    }
+    .coming-badge {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      font-size: var(--text-small);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text-tertiary);
+      background: var(--color-bg-alt);
+      padding: 3px 10px;
+      border-radius: var(--radius-pill);
+    }
+
+    /* ── Banner global (ej. cert faltante) ─────────────────── */
+    .banner {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: var(--text-caption);
+      margin-bottom: 16px;
+      display: none;
+    }
+    .banner.visible { display: block; }
+    .banner.info {
+      background: var(--color-etapa-proceso-bg);
+      color: var(--color-etapa-proceso-fg);
+    }
+    .banner.error {
+      background: var(--color-etapa-pendiente-bg);
+      color: var(--color-etapa-pendiente-fg);
+    }
+
+    @media (max-width: 600px) {
+      .cta-emitir { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+    <div class="right">
+      <span id="nav-razon">—</span>
+    </div>
+  </nav>
+
+  <main>
+    <a class="breadcrumb" id="back-link" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      Volver a la consola
+    </a>
+
+    <div class="page-title">
+      <h1>Facturación</h1>
+      <p class="subtitle">Emite y gestiona tus documentos tributarios electrónicos.</p>
+    </div>
+
+    <div class="banner" id="info-banner"></div>
+
+    <div class="emisor-bar">
+      <div class="left">
+        <div class="razon" id="bar-razon">—</div>
+        <div class="meta">
+          <span id="bar-rut">—</span>
+          <span style="margin: 0 8px;">·</span>
+          <span id="bar-giro">—</span>
+        </div>
+      </div>
+      <span class="ambiente-badge" id="ambiente-badge">—</span>
+    </div>
+
+    <!-- ── CTA: Emitir documento ─────────────────────────────── -->
+    <div class="cta-emitir">
+      <div class="cta-text">
+        <h2>Emitir documento</h2>
+        <p>
+          Factura electrónica, factura exenta, nota de crédito o nota de
+          débito. Elegís sucursal, cliente y condiciones de pago, y el
+          sistema firma y envía el DTE al SII.
+        </p>
+        <span class="folios-chip" id="folios-chip" style="display:none;"></span>
+      </div>
+      <a class="btn btn-primary" id="btn-emitir" href="#">
+        <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16m8-8H4"/></svg>
+        Emitir documento
+      </a>
+    </div>
+
+    <!-- ── Sub-módulos ───────────────────────────────────────── -->
+    <div class="section-header">Gestión</div>
+    <div class="tiles">
+      <!-- Documentos emitidos -->
+      <div class="tile coming-soon" data-slug="emitidos">
+        <span class="coming-badge">Próximamente</span>
+        <div class="tile-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+        </div>
+        <div class="tile-title">Documentos emitidos</div>
+        <div class="tile-desc">
+          Historial de DTEs enviados al SII, con su estado, track ID y PDF para descargar.
+        </div>
+      </div>
+
+      <!-- Facturas recibidas -->
+      <div class="tile coming-soon" data-slug="recibidas">
+        <span class="coming-badge">Próximamente</span>
+        <div class="tile-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.25 13.5A8.25 8.25 0 0110.5 5.25a8.25 8.25 0 018.25 8.25v.383a2.625 2.625 0 01-.817 1.905l-2.276 2.276a1.125 1.125 0 01-1.591 0l-2.44-2.44a1.125 1.125 0 00-1.592 0L7.595 17.84a1.125 1.125 0 01-1.59 0l-2.277-2.276a2.625 2.625 0 01-.818-1.905V13.5z"/><path d="M8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375"/></svg>
+        </div>
+        <div class="tile-title">Facturas recibidas</div>
+        <div class="tile-desc">
+          DTEs que tus proveedores te enviaron. Acuses de recibo, aceptación, reclamos.
+        </div>
+      </div>
+
+      <!-- Libros y RCOF -->
+      <div class="tile coming-soon" data-slug="libros">
+        <span class="coming-badge">Próximamente</span>
+        <div class="tile-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
+        </div>
+        <div class="tile-title">Libros y RCOF</div>
+        <div class="tile-desc">
+          Libro de compras y ventas (IECV) y RCOF de boletas. Envío mensual al SII.
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // ══ Sesión namespaced por RUT ══
+    const EMPRESA_RUT = window.location.pathname.split('/')[1];
+    const TOKEN_KEY = `ttpos_token_${EMPRESA_RUT}`;
+    const USER_KEY = `ttpos_user_${EMPRESA_RUT}`;
+
+    function requireAuth() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const raw = localStorage.getItem(USER_KEY);
+      if (!token || !raw) {
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        return null;
+      }
+      try {
+        const user = JSON.parse(raw);
+        if (!user || user.empresa_rut !== EMPRESA_RUT) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`);
+          return null;
+        }
+        if (user.rol === 'super_admin' && !user.shadow) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`);
+          return null;
+        }
+        return { token, user };
+      } catch {
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        return null;
+      }
+    }
+
+    const auth = requireAuth();
+    if (!auth) throw new Error('no-auth');
+
+    document.getElementById('back-link').href = `/${EMPRESA_RUT}/dashboard`;
+    document.getElementById('btn-emitir').href = `/${EMPRESA_RUT}/facturacion/emision`;
+
+    async function apiFetch(url, opts = {}) {
+      const headers = {
+        'Authorization': `Bearer ${auth.token}`,
+        'X-Empresa-Rut': EMPRESA_RUT,
+        ...(opts.headers || {}),
+      };
+      const res = await fetch(url, { ...opts, headers });
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        throw new Error('unauth');
+      }
+      return res;
+    }
+
+    function showBanner(kind, text) {
+      const el = document.getElementById('info-banner');
+      el.textContent = text;
+      el.className = `banner ${kind} visible`;
+    }
+
+    async function cargarEmpresa() {
+      try {
+        const res = await apiFetch('/api/empresas/mi-empresa');
+        if (!res.ok) throw new Error('No se pudo cargar la empresa');
+        const data = await res.json();
+        document.getElementById('nav-razon').textContent = data.razon_social;
+        document.getElementById('bar-razon').textContent = data.razon_social;
+        document.getElementById('bar-rut').textContent = `RUT ${data.rut}`;
+        document.getElementById('bar-giro').textContent = data.giro || '—';
+        document.title = `Facturación · ${data.razon_social}`;
+
+        const amb = (data.ambiente_sii || 'certificacion').toLowerCase();
+        const badge = document.getElementById('ambiente-badge');
+        if (amb === 'produccion') {
+          badge.textContent = 'Producción';
+          badge.className = 'ambiente-badge prod';
+        } else {
+          badge.textContent = 'Certificación';
+          badge.className = 'ambiente-badge cert';
+        }
+      } catch (e) {
+        showBanner('error', 'Error cargando la empresa: ' + e.message);
+      }
+    }
+
+    async function cargarInfoFolios() {
+      try {
+        const res = await apiFetch('/api/facturacion/info');
+        const data = await res.json();
+        const chip = document.getElementById('folios-chip');
+        if (data.error) {
+          chip.textContent = 'Faltan datos para emitir: ' + data.error;
+          chip.className = 'folios-chip warning';
+          chip.style.display = '';
+          return;
+        }
+        const folios = data.folios_actuales || {};
+        if (Object.keys(folios).length === 0) {
+          chip.textContent = 'Sin CAFs cargados';
+          chip.className = 'folios-chip warning';
+        } else {
+          chip.textContent = 'Folios: ' +
+            Object.entries(folios).map(([t, f]) => `T${t}→${f}`).join(' · ');
+          chip.className = 'folios-chip';
+        }
+        chip.style.display = '';
+      } catch (e) {
+        // Silencioso — no bloqueamos la landing por el chip.
+      }
+    }
+
+    // Click en tiles próximamente = toast inline (no bloqueante).
+    document.querySelectorAll('.tile.coming-soon').forEach(tile => {
+      tile.addEventListener('click', () => {
+        showBanner('info', `"${tile.querySelector('.tile-title').textContent}" todavía no está disponible. Está en el roadmap.`);
+      });
+    });
+
+    document.addEventListener('DOMContentLoaded', async () => {
+      await cargarEmpresa();
+      await cargarInfoFolios();
+    });
+  </script>
+</body>
+</html>

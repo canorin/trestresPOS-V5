@@ -129,3 +129,34 @@ async def info_publica_empresa(
     """
     reg = _validar_empresa_existe(empresa_rut, master_db)
     return {"rut": reg.rut, "razon_social": reg.razon_social}
+
+
+@router.get("/{empresa_rut}/facturacion", include_in_schema=False)
+async def facturacion_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Índice del módulo Facturación — CTA de emisión + tiles.
+
+    Landing del módulo: desde acá el master cliente ve el botón para
+    emitir un DTE nuevo y los sub-módulos pendientes (documentos
+    emitidos, facturas recibidas, libros/RCOF).
+    """
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("facturacion.html")
+
+
+@router.get("/{empresa_rut}/facturacion/emision", include_in_schema=False)
+async def facturacion_emision_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Pantalla de emisión de DTEs — factura, exenta, NC, ND.
+
+    Porta la UI legacy de ``/factura`` al namespace del tenant. Incluye
+    búsqueda y guardado de clientes, referencias para NC/ND, condiciones
+    de pago, orden de compra y selector de sucursal para sobreescribir
+    la dirección del emisor respecto de casa matriz.
+    """
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("facturacion_emision.html")
