@@ -26,12 +26,13 @@ from __future__ import annotations
 import base64
 import hashlib
 from datetime import date
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+
+from crumbpos.api.services.emision_dte import EmisorConfig
 
 from crumbpos.api.services import envio_sobre_cert
 from crumbpos.api.services.envio_sobre_cert import (
@@ -112,16 +113,24 @@ def servicio_fake():
 
     _cargar_firma() es un no-op; _firma expone firmar/verificar_firma_xml
     como MagicMocks controlables por test. _obtener_token devuelve un
-    string fijo. La config tiene rut/fecha_resolucion/numero_resolucion
-    como usaría _construir_caratula_multi.
+    string fijo. La config usa ``EmisorConfig`` real (dataclass del core)
+    en vez de ``SimpleNamespace``: si el contrato del dataclass cambia,
+    este fixture falla al importar con un ``TypeError`` claro en vez de
+    un ``AttributeError`` enterrado en runtime.
     """
     servicio = MagicMock()
-    servicio.config = SimpleNamespace(
+    servicio.config = EmisorConfig(
         rut="77051056-2",
         razon_social="Fixture SPA",
-        rut_firmante=None,
+        giro="SERVICIOS DE PRUEBA",
+        acteco=620200,
+        direccion="DIRECCION FIXTURE 123",
+        comuna="SANTIAGO",
+        ciudad="SANTIAGO",
         fecha_resolucion="2014-08-22",
         numero_resolucion=80,
+        cert_path="/tmp/fixture.pfx",
+        ambiente="certificacion",
     )
     servicio._cargar_firma = MagicMock()
 

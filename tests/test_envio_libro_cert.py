@@ -20,7 +20,6 @@ from __future__ import annotations
 import base64
 import hashlib
 from datetime import date, datetime
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,6 +27,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from crumbpos.api.services import envio_libro_cert
+from crumbpos.api.services.emision_dte import EmisorConfig
 from crumbpos.api.services.envio_libro_cert import (
     _derivar_periodo,
     _parsear_estado_sii,
@@ -102,14 +102,28 @@ def run(session, empresa):
 
 @pytest.fixture
 def servicio_fake():
-    """ServicioEmisionDTE simulado con firma mock."""
+    """ServicioEmisionDTE simulado con firma mock.
+
+    La ``config`` se construye con ``EmisorConfig`` real (no
+    ``SimpleNamespace``) para que el contrato del dataclass del core
+    esté vigente: si mañana se agrega un campo obligatorio a
+    ``EmisorConfig``, este fixture falla al importar con un ``TypeError``
+    claro, en vez de dejarlo explotar como ``AttributeError`` en runtime
+    cuando el servicio productivo intenta leer el campo.
+    """
     servicio = MagicMock()
-    servicio.config = SimpleNamespace(
+    servicio.config = EmisorConfig(
         rut="77051056-2",
         razon_social="Fixture SPA",
-        rut_firmante=None,
+        giro="SERVICIOS DE PRUEBA",
+        acteco=620200,
+        direccion="DIRECCION FIXTURE 123",
+        comuna="SANTIAGO",
+        ciudad="SANTIAGO",
         fecha_resolucion="2014-08-22",
         numero_resolucion=80,
+        cert_path="/tmp/fixture.pfx",
+        ambiente="certificacion",
     )
     servicio._cargar_firma = MagicMock()
 
