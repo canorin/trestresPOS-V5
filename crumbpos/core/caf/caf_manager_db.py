@@ -123,6 +123,11 @@ class CAFManagerDB:
                     "folio_actual": c.folio_actual,
                     "estado": c.estado,
                     "fecha_autorizacion": c.fecha_autorizacion or "",
+                    # Asignación a sucursal. `None` = pool del server (lo puede
+                    # consumir cualquier sucursal o una emisión desde el admin
+                    # sin sucursal). Cuando está seteado, el CAF "pertenece" a
+                    # esa sucursal y el POS debe respetarlo al pedir folio.
+                    "sucursal_id": c.sucursal_id,
                 })
 
             resultado.append({

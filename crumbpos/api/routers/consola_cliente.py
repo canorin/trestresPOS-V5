@@ -160,3 +160,19 @@ async def facturacion_emision_master_cliente(
     """
     _validar_empresa_existe(empresa_rut, master_db)
     return _servir_html("facturacion_emision.html")
+
+
+@router.get("/{empresa_rut}/caf", include_in_schema=False)
+async def caf_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Módulo de gestión de CAFs — upload, resumen y asignación por sucursal.
+
+    Única vista donde el master cliente sube los CAFs autorizados por el
+    SII, los asigna a una sucursal o los deja en el pool del server, y
+    ajusta manualmente el próximo folio cuando el sistema quedó fuera de
+    sincronía (por migración, reintento de certificación, etc.).
+    """
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("caf.html")

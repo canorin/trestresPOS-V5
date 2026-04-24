@@ -5,7 +5,7 @@ Los CAFs son por empresa (RUT emisor) y ambiente (certificacion/produccion).
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
-from crumbpos.db.models import CafFolio, Empresa
+from crumbpos.db.models import CafFolio, Empresa, Sucursal
 from crumbpos.core.caf.caf_manager_db import CAFManagerDB
 from crumbpos.api.dependencies import get_tenant, TenantContext
 
@@ -49,6 +49,20 @@ class ResumenOut(BaseModel):
     empresa_razon: str | None = None
     ambiente: str | None = None
     folios: list[EstadoFolioOut]
+
+
+class AsignarSucursalIn(BaseModel):
+    # `None` = mover al pool del server (sin dueño). Si se asigna a una
+    # sucursal, el CAF pasa a ser propiedad exclusiva de ella.
+    sucursal_id: str | None = None
+
+
+class AsignarSucursalOut(BaseModel):
+    ok: bool
+    caf_id: str
+    sucursal_id: str | None = None
+    sucursal_nombre: str | None = None
+    mensaje: str
 
 
 # ── Endpoints ──
@@ -172,5 +186,77 @@ async def upload_caf(
             "ambiente": tenant.ambiente,
             **info,
         }
+    finally:
+        tenant.close()
+
+
+@router.put("/caf/{caf_id}/sucursal", response_model=AsignarSucursalOut)
+def asignar_sucursal(
+    caf_id: str,
+    body: AsignarSucursalIn,
+    tenant: TenantContext = Depends(get_tenant),
+):
+    """Asigna un CAF a una sucursal o lo devuelve al pool del server.
+
+    Regla: cada CAF tiene un único dueño a la vez. ``sucursal_id=None``
+    lo libera al pool del server (lo puede consumir cualquier sucursal
+    o una emisión sin sucursal). Cuando se asigna a una sucursal, el
+    POS de esa sucursal debe respetar esa propiedad al pedir folio.
+
+    Validaciones:
+    - El CAF pertenece a la empresa del tenant (evita cross-tenant).
+    - La sucursal (si se especifica) pertenece a la misma empresa y
+      está activa.
+    """
+    try:
+        db = tenant.db
+
+        caf = db.query(CafFolio).filter(
+            CafFolio.id == caf_id,
+            CafFolio.empresa_id == tenant.empresa_id,
+        ).first()
+        if not caf:
+            raise HTTPException(404, "CAF no encontrado")
+
+        sucursal_nombre: str | None = None
+        if body.sucursal_id is None:
+            caf.sucursal_id = None
+            mensaje = (
+                f"CAF tipo {caf.tipo_dte} "
+                f"({caf.rango_desde}-{caf.rango_hasta}) "
+                f"liberado al pool del server."
+            )
+        else:
+            sucursal = db.query(Sucursal).filter(
+                Sucursal.id == body.sucursal_id,
+                Sucursal.empresa_id == tenant.empresa_id,
+            ).first()
+            if not sucursal:
+                raise HTTPException(
+                    404,
+                    "Sucursal no encontrada para esta empresa",
+                )
+            if not sucursal.activa:
+                raise HTTPException(
+                    400,
+                    "Sucursal inactiva: reactivarla antes de asignarle CAFs",
+                )
+            caf.sucursal_id = sucursal.id
+            sucursal_nombre = sucursal.nombre
+            mensaje = (
+                f"CAF tipo {caf.tipo_dte} "
+                f"({caf.rango_desde}-{caf.rango_hasta}) "
+                f"asignado a {sucursal.nombre}."
+            )
+
+        db.commit()
+
+        return AsignarSucursalOut(
+            ok=True,
+            caf_id=caf.id,
+            sucursal_id=caf.sucursal_id,
+            sucursal_nombre=sucursal_nombre,
+            mensaje=mensaje,
+        )
     finally:
         tenant.close()
