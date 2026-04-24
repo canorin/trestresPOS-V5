@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from crumbpos.core.roles import puede_gestionar_sucursal
 from crumbpos.db.models import Caja, Sucursal
 from crumbpos.api.dependencies import get_tenant, TenantContext
 
@@ -146,7 +147,7 @@ def obtener_caja(caja_id: str, tenant: TenantContext = Depends(get_tenant)):
 def crear_caja(body: CajaCreate, tenant: TenantContext = Depends(get_tenant)):
     """Crea una caja (valida que la sucursal pertenezca a la empresa)."""
     try:
-        if tenant.user.rol not in ("super_admin", "admin_empresa", "admin_sucursal"):
+        if not puede_gestionar_sucursal(tenant.user.rol):
             raise HTTPException(403, "No tiene permisos para crear cajas")
 
         _validate_sucursal(tenant.db, tenant.empresa_id, body.sucursal_id)
@@ -198,7 +199,7 @@ def actualizar_caja(
 def desactivar_caja(caja_id: str, tenant: TenantContext = Depends(get_tenant)):
     """Soft delete: desactiva la caja."""
     try:
-        if tenant.user.rol not in ("super_admin", "admin_empresa", "admin_sucursal"):
+        if not puede_gestionar_sucursal(tenant.user.rol):
             raise HTTPException(403, "No tiene permisos para desactivar cajas")
 
         caja = _query_cajas_empresa(tenant.db, tenant.empresa_id).filter(
@@ -257,7 +258,7 @@ def instalar_pos(body: InstalacionPOSIn, tenant: TenantContext = Depends(get_ten
     La sucursal no debe tener otro terminal activo asignado.
     """
     try:
-        if tenant.user.rol not in ("super_admin", "admin_empresa", "admin_sucursal"):
+        if not puede_gestionar_sucursal(tenant.user.rol):
             raise HTTPException(403, "No tiene permisos para instalar terminales")
 
         # Validar que la sucursal pertenece a la empresa

@@ -207,11 +207,12 @@ class UsuarioAuth(BaseMaster):
     "espacio" aislado que convive con el patrón ``data/{rut}/...`` del
     filesystem. El super_admin usa empresa_rut="SYSTEM".
 
-    Roles:
-      - super_admin: ve todas las empresas, gestiona el sistema
-      - admin_empresa: administra su empresa, ve solo su data (master cliente)
-      - admin_sucursal: administra sucursal(es) asignadas
-      - cajero: solo POS en sucursales asignadas
+    Roles (fuente única: ``crumbpos.core.roles.ROLES_JERARQUIA``):
+      - super_admin: staff trestresPOS — cross-empresa.
+      - master_client: dueño/representante legal de la empresa.
+      - administrador: admin general de la empresa (no dueño).
+      - administrador_tienda: admin de sucursal.
+      - cajero: solo POS en sucursales asignadas.
     """
     __tablename__ = "usuario_auth"
     __table_args__ = (
@@ -264,6 +265,30 @@ def _ensure_master():
         bind=_master_engine, autocommit=False, autoflush=False,
     )
     logger.info("Master DB initialized: %s", DATA_DIR / "master.db")
+
+
+def _rename_roles_sql(conn, tabla: str) -> None:
+    """Aplica los renames de rol viejos→canónicos en ``{tabla}.rol``.
+
+    Idempotente: los UPDATEs con ``WHERE rol=<viejo>`` no hacen nada
+    si ya no quedan filas con el string antiguo. Funciona tanto para
+    ``usuario_auth`` (master.db) como para ``usuario`` (tenant.db).
+
+    Ver ``crumbpos.core.roles.ROLES_ALIASES`` — la fuente canónica del
+    mapeo; esta función solo lo materializa en SQL.
+    """
+    from crumbpos.core.roles import ROLES_ALIASES
+
+    for viejo, canonico in ROLES_ALIASES.items():
+        result = conn.execute(
+            text(f"UPDATE {tabla} SET rol = :nuevo WHERE rol = :viejo"),
+            {"nuevo": canonico, "viejo": viejo},
+        )
+        if result.rowcount:
+            logger.info(
+                "Rol migrate en %s: %d fila(s) %r → %r",
+                tabla, result.rowcount, viejo, canonico,
+            )
 
 
 def _migrate_master_schema(engine):
@@ -482,6 +507,22 @@ def _migrate_master_schema(engine):
                 "Master migrate: columna 'rut_personal' agregada a usuario_auth",
             )
 
+        # ── Rename de valores de rol (idempotente) ──
+        #
+        # Antes solo había ``admin_empresa`` y ``admin_sucursal``. La
+        # taxonomía nueva (crumbpos.core.roles) introduce
+        # ``master_client`` y ``administrador_tienda``. Los dueños
+        # históricos (``admin_empresa``) pasan a ``master_client`` —
+        # todos los users que ya existían eran dueños, porque el form
+        # viejo era "admin inicial de la empresa".
+        #
+        # Los aliases siguen siendo válidos en código (``normalizar()``
+        # los traduce), pero queremos los canónicos en BD para que las
+        # queries no mezclen strings. Si alguien quiere un ``administrador``
+        # regular (no dueño), el master_client lo crea después con el
+        # rol canónico nuevo.
+        _rename_roles_sql(conn, "usuario_auth")
+
 
 def get_master_session() -> Session:
     """Get a raw master DB session (no FastAPI dependency)."""
@@ -645,6 +686,15 @@ def _migrate_empresa_schema(engine):
                         "ya enviados (para que los re-envíos usen TipoEnvio=AJUSTE)",
                         result.rowcount,
                     )
+
+        # ── Rename de valores de rol en la tabla usuario (tenant) ──
+        # Mismo criterio que en master.db: traducir strings viejos al
+        # canónico (master_client / administrador_tienda). Idempotente.
+        usuario_cols = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(usuario)"))
+        }
+        if "rol" in usuario_cols:
+            _rename_roles_sql(conn, "usuario")
 
 
 def get_empresa_engine(rut: str, ambiente: str):
@@ -862,7 +912,11 @@ def provision_empresa(
             nombre=admin_nombre,
             rut_personal=admin_rut_personal,
             password_hash=admin_password_hash,
-            rol="admin_empresa",
+            # El usuario creado junto con la empresa es SIEMPRE el
+            # dueño/representante legal: rol master_client. Sub-usuarios
+            # (administrador / administrador_tienda / cajero) se crean
+            # después desde la consola. Ver ``crumbpos.core.roles``.
+            rol="master_client",
         ))
         master.commit()
     except Exception:
@@ -891,14 +945,16 @@ def provision_empresa(
                 ambiente_sii=ambiente,
             ))
 
-            # Insertar admin user (para queries internas)
+            # Insertar master_client user (para queries internas del tenant).
+            # Mismo rol que en master.db — ver comentario en la inserción
+            # de UsuarioAuth más arriba.
             session.add(Usuario(
                 id=user_id,
                 empresa_id=empresa_id,
                 email=admin_email,
                 nombre=admin_nombre,
                 password_hash=admin_password_hash,
-                rol="admin_empresa",
+                rol="master_client",
             ))
 
             # Sucursal default: Casa Matriz (dirección de la empresa)

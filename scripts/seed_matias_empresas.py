@@ -11,7 +11,7 @@ Qué hace (todo es idempotente — re-ejecutable sin romper nada):
     1. Actualiza el super_admin con ``rut_personal=17586255-2``.
     2. Setea ``representante_legal_*`` en las 2 empresas (solo si está
        vacío; no sobrescribe datos ya capturados).
-    3. Si falta, crea ``admin_empresa`` en ``usuario_auth`` +
+    3. Si falta, crea ``master_client`` en ``usuario_auth`` +
        ``Usuario`` (tenant.db) con una password auto-generada que se
        imprime al final para que el super admin la guarde.
     4. Si el usuario ya existe, deja la password intacta (no la rota) —
@@ -96,7 +96,7 @@ def _set_representante_legal(master, reg: EmpresaRegistro) -> None:
         print("    = representante_legal ya estaba fijado")
 
 
-def _upsert_admin_empresa(
+def _upsert_master_client(
     master, reg: EmpresaRegistro,
 ) -> tuple[str | None, str]:
     """Devuelve (password_nueva_o_None, mensaje).
@@ -120,8 +120,8 @@ def _upsert_admin_empresa(
         if existente.nombre != NOMBRE_MATIAS:
             existente.nombre = NOMBRE_MATIAS
             touched.append("nombre")
-        if existente.rol != "admin_empresa":
-            existente.rol = "admin_empresa"
+        if existente.rol != "master_client":
+            existente.rol = "master_client"
             touched.append("rol")
         if not existente.activo:
             existente.activo = True
@@ -131,7 +131,7 @@ def _upsert_admin_empresa(
             return None, f"existente — campos actualizados: {', '.join(touched)}"
         return None, "existente sin cambios"
 
-    # Crear nuevo admin_empresa con password auto-generada.
+    # Crear nuevo master_client con password auto-generada.
     password = _gen_password()
     password_hash = _hash(password)
     user_id = str(uuid.uuid4())
@@ -143,7 +143,7 @@ def _upsert_admin_empresa(
         nombre=NOMBRE_MATIAS,
         rut_personal=RUT_MATIAS,
         password_hash=password_hash,
-        rol="admin_empresa",
+        rol="master_client",
     ))
     master.commit()
 
@@ -165,7 +165,7 @@ def _upsert_admin_empresa(
                     email=EMAIL_MATIAS,
                     nombre=NOMBRE_MATIAS,
                     password_hash=password_hash,
-                    rol="admin_empresa",
+                    rol="master_client",
                 ))
                 tenant.commit()
     finally:
@@ -197,8 +197,8 @@ def main() -> None:
             print(f"  → {reg.razon_social}")
 
             _set_representante_legal(master, reg)
-            password, msg = _upsert_admin_empresa(master, reg)
-            print(f"    admin_empresa: {msg}")
+            password, msg = _upsert_master_client(master, reg)
+            print(f"    master_client: {msg}")
             if password:
                 passwords_nuevas[rut] = password
             print()

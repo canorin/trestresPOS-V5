@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+from crumbpos.core.roles import puede_gestionar_sucursal
 from crumbpos.db.models import (
     Familia, FamiliaSucursal, Articulo, ArticuloSucursal,
     PrecioHistorial,
@@ -35,7 +36,7 @@ def crear_familia(
     tenant: TenantContext = Depends(get_tenant),
 ):
     try:
-        if tenant.user.rol not in ("super_admin", "admin_empresa", "admin_sucursal"):
+        if not puede_gestionar_sucursal(tenant.user.rol):
             raise HTTPException(403, "No tiene permisos para crear familias")
         familia = Familia(empresa_id=tenant.empresa_id, **body.model_dump())
         tenant.db.add(familia)
@@ -109,7 +110,7 @@ def crear_articulo(
     tenant: TenantContext = Depends(get_tenant),
 ):
     try:
-        if tenant.user.rol not in ("super_admin", "admin_empresa", "admin_sucursal"):
+        if not puede_gestionar_sucursal(tenant.user.rol):
             raise HTTPException(403, "No tiene permisos para crear artículos")
         articulo = Articulo(empresa_id=tenant.empresa_id, **body.model_dump())
         tenant.db.add(articulo)

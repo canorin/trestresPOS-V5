@@ -199,7 +199,7 @@ def crear_empresa(
       representante_legal_* = master cliente)
     - data/{rut}/certificacion.db con todas las tablas
     - data/{rut}/produccion.db con todas las tablas
-    - UsuarioAuth (master.db) + Usuario (tenant.db) con rol ``admin_empresa``
+    - UsuarioAuth (master.db) + Usuario (tenant.db) con rol ``master_client``
     - Sucursal default "Casa Matriz" en ambas BDs
 
     La password inicial se genera acá (``secrets.token_urlsafe(12)`` →

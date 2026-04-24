@@ -109,7 +109,9 @@ class Usuario(Base):
     nombre: Mapped[str] = mapped_column(String(80), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     rol: Mapped[str] = mapped_column(String(20), nullable=False)
-    # Roles: super_admin, admin_empresa, admin_sucursal, cajero
+    # Roles canónicos en crumbpos.core.roles.ROLES_JERARQUIA:
+    #   super_admin · master_client · administrador ·
+    #   administrador_tienda · cajero
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

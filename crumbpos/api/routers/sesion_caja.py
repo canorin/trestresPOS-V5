@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, and_
 from sqlalchemy.orm import Session
 
+from crumbpos.core.roles import puede_gestionar_empresa
 from crumbpos.db.models import (
     SesionCaja, ArqueoDetalle, Venta, Pago, Caja, Sucursal, UsuarioSucursal,
 )
@@ -68,8 +69,14 @@ class SesionCajaDetailOut(SesionCajaOut):
 # ══════════════════════════════════════════════════════════════════
 
 def _validar_acceso_sucursal(db: Session, user_id: str, user_rol: str, sucursal_id: str):
-    """Verifica que el usuario tenga acceso a la sucursal (admin o via UsuarioSucursal)."""
-    if user_rol in ("super_admin", "admin_empresa"):
+    """Verifica que el usuario tenga acceso a la sucursal.
+
+    Quien gestiona la empresa (super_admin / master_client / administrador)
+    tiene acceso automático a todas las sucursales. El resto
+    (administrador_tienda / cajero) debe tener una fila en
+    ``UsuarioSucursal`` para la sucursal pedida.
+    """
+    if puede_gestionar_empresa(user_rol):
         return
     acceso = db.query(UsuarioSucursal).filter(
         UsuarioSucursal.usuario_id == user_id,
@@ -221,8 +228,8 @@ def cerrar_sesion(
         if sesion.estado != "abierta":
             raise HTTPException(409, "La sesion ya esta cerrada")
 
-        # Solo el usuario que abrio o un admin puede cerrar
-        es_admin = tenant.user.rol in ("super_admin", "admin_empresa")
+        # Solo el usuario que abrio o un admin de empresa puede cerrar
+        es_admin = puede_gestionar_empresa(tenant.user.rol)
         if sesion.usuario_id != tenant.user.id and not es_admin:
             raise HTTPException(403, "Solo el usuario que abrio la sesion o un admin puede cerrarla")
 
@@ -370,8 +377,8 @@ def forzar_cierre(
     try:
         db = tenant.db
 
-        # Solo admin puede forzar cierre
-        if tenant.user.rol not in ("super_admin", "admin_empresa"):
+        # Solo admin de empresa puede forzar cierre
+        if not puede_gestionar_empresa(tenant.user.rol):
             raise HTTPException(403, "Solo un administrador puede forzar el cierre")
 
         sesion = (

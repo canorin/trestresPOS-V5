@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from crumbpos.core.roles import puede_gestionar_empresa
 from crumbpos.db.multi_tenant import (
     get_master_db, get_empresa_db_session, UsuarioAuth, EmpresaRegistro,
 )
@@ -161,7 +162,8 @@ def login(body: LoginRequest, master_db: Session = Depends(get_master_db)):
                         raise HTTPException(400, "Sucursal no encontrada o inactiva")
 
                     # Verificar acceso del usuario a esta sucursal
-                    if user.rol not in ("super_admin", "admin_empresa"):
+                    # (admin de empresa tiene acceso automático a todas).
+                    if not puede_gestionar_empresa(user.rol):
                         acceso = emp_db.query(UsuarioSucursal).filter(
                             UsuarioSucursal.usuario_id == user.id,
                             UsuarioSucursal.sucursal_id == body.sucursal_id,
@@ -246,3 +248,85 @@ def me(
         ambiente_activo=ambiente,
         sucursales=sucursales_info,
     )
+
+
+# ── Self-service: cambio de password del user autenticado ──
+
+class PasswordChangeIn(BaseModel):
+    """Todo rol puede cambiar su propia password — incluso ``cajero``.
+
+    Exige la password actual para confirmar identidad; el JWT no basta
+    porque podría venir de una sesión olvidada en un dispositivo
+    compartido.
+    """
+    password_actual: str
+    password_nueva: str
+
+
+@router.put("/me/password")
+def cambiar_mi_password(
+    body: PasswordChangeIn,
+    user: UsuarioAuth = Depends(get_current_user),
+    master_db: Session = Depends(get_master_db),
+):
+    """Cambia la contraseña del usuario autenticado.
+
+    Actualiza primero ``master.db`` (autoritativo para login). Si el
+    usuario pertenece a una empresa (no ``SYSTEM``), replica el nuevo
+    hash en la tabla ``usuario`` del tenant para que ambas bases queden
+    sincronizadas — el ``id`` es el mismo UUID entre master y tenant.
+    """
+    from crumbpos.db.models import Usuario as UsuarioTenant
+
+    # 1. Verificar password actual.
+    if not _verify_password(body.password_actual, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La contraseña actual es incorrecta",
+        )
+
+    if len(body.password_nueva) < 8:
+        raise HTTPException(400, "La contraseña nueva debe tener al menos 8 caracteres")
+    if body.password_nueva == body.password_actual:
+        raise HTTPException(400, "La contraseña nueva debe ser distinta de la actual")
+
+    # 2. Hashear y actualizar en master.db.
+    nuevo_hash = bcrypt.hashpw(
+        body.password_nueva.encode(), bcrypt.gensalt(),
+    ).decode()
+
+    user_master = master_db.query(UsuarioAuth).filter(
+        UsuarioAuth.id == user.id,
+    ).first()
+    if not user_master:
+        # Paranoia: el JWT validó pero el user desapareció.
+        raise HTTPException(404, "Usuario no encontrado")
+    user_master.password_hash = nuevo_hash
+    master_db.commit()
+
+    # 3. Replicar en tenant.db (solo si no es super_admin / SYSTEM).
+    if user.empresa_rut != "SYSTEM":
+        registro = master_db.query(EmpresaRegistro).filter(
+            EmpresaRegistro.rut == user.empresa_rut,
+        ).first()
+        if registro:
+            try:
+                emp_db = get_empresa_db_session(
+                    user.empresa_rut, registro.ambiente_activo,
+                )
+                try:
+                    user_tenant = emp_db.query(UsuarioTenant).filter(
+                        UsuarioTenant.id == user.id,
+                    ).first()
+                    if user_tenant:
+                        user_tenant.password_hash = nuevo_hash
+                        emp_db.commit()
+                finally:
+                    emp_db.close()
+            except Exception:
+                # master.db ya quedó al día; el tenant se re-sincroniza
+                # en el próximo login/acción si hiciera falta. No
+                # bloqueamos al usuario por un fallo de replicación.
+                pass
+
+    return {"ok": True, "detail": "Contraseña actualizada"}

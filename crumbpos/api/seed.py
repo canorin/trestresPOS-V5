@@ -75,7 +75,7 @@ def seed():
         email="admin@trestres.cl",
         nombre="Matías Bañados",
         password_hash=hash_password("admin123"),
-        rol="admin_empresa",
+        rol="master_client",
     )
     cajero1 = Usuario(
         empresa_id=empresa.id,

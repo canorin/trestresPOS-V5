@@ -115,7 +115,8 @@ def get_tenant(
 ) -> TenantContext:
     """FastAPI dependency: resuelve el tenant (empresa + ambiente + sucursal).
 
-    Para admin_empresa/cajero: usa empresa_rut del JWT.
+    Para master_client / administrador / administrador_tienda / cajero:
+    usa empresa_rut del JWT.
     Para super_admin: puede override con header X-Empresa-Rut.
 
     sucursal_id viene del JWT (establecido en login del POS).

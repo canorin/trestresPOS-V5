@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from crumbpos.core.roles import puede_gestionar_empresa
 from crumbpos.db.models import Sucursal
 from crumbpos.api.dependencies import get_tenant, TenantContext
 
@@ -80,9 +81,9 @@ def obtener_sucursal(sucursal_id: str, tenant: TenantContext = Depends(get_tenan
 
 @router.post("/", response_model=SucursalOut, status_code=201)
 def crear_sucursal(body: SucursalCreate, tenant: TenantContext = Depends(get_tenant)):
-    """Crea una sucursal (solo admin_empresa o super_admin)."""
+    """Crea una sucursal (master_client / administrador / super_admin)."""
     try:
-        if tenant.user.rol not in ("super_admin", "admin_empresa"):
+        if not puede_gestionar_empresa(tenant.user.rol):
             raise HTTPException(403, "No tiene permisos para crear sucursales")
 
         suc = Sucursal(
@@ -127,7 +128,7 @@ def actualizar_sucursal(
 def desactivar_sucursal(sucursal_id: str, tenant: TenantContext = Depends(get_tenant)):
     """Soft delete: desactiva la sucursal."""
     try:
-        if tenant.user.rol not in ("super_admin", "admin_empresa"):
+        if not puede_gestionar_empresa(tenant.user.rol):
             raise HTTPException(403, "No tiene permisos para desactivar sucursales")
 
         suc = tenant.db.query(Sucursal).filter(
