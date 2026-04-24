@@ -86,9 +86,18 @@
       border-color: var(--color-border-light);
     }
     .module-icon {
-      font-size: 28px;
       margin-bottom: 16px;
-      line-height: 1;
+      line-height: 0;
+      color: var(--color-text-secondary);
+    }
+    .module-icon svg {
+      width: 28px;
+      height: 28px;
+      stroke-width: 1.5;
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
     }
     .module-title {
       font-size: var(--text-subheading);
@@ -212,7 +221,9 @@
     <div class="modules" id="modules">
       <!-- 1. Información del negocio -->
       <div class="module-card" data-slug="negocio">
-        <div class="module-icon">🏢</div>
+        <div class="module-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
+        </div>
         <div class="module-title">Información del negocio</div>
         <div class="module-desc">
           Razón social, dirección casa matriz, logo, datos SII.
@@ -221,7 +232,9 @@
 
       <!-- 2. Sucursales -->
       <div class="module-card" data-slug="sucursales">
-        <div class="module-icon">📍</div>
+        <div class="module-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
+        </div>
         <div class="module-title">Sucursales</div>
         <div class="module-desc">
           Alta, edición y suspensión de sucursales. Cada una con su dirección fiscal.
@@ -230,7 +243,9 @@
 
       <!-- 3. Usuarios -->
       <div class="module-card" data-slug="usuarios">
-        <div class="module-icon">👥</div>
+        <div class="module-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
+        </div>
         <div class="module-title">Usuarios</div>
         <div class="module-desc">
           Crea administradores de tienda y vendedores. Asigna sucursales.
@@ -239,7 +254,9 @@
 
       <!-- 4. Facturación -->
       <div class="module-card" data-slug="facturacion">
-        <div class="module-icon">🧾</div>
+        <div class="module-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+        </div>
         <div class="module-title">Facturación</div>
         <div class="module-desc">
           DTEs emitidos, estados SII, RCOF de boletas y libros.
@@ -248,7 +265,9 @@
 
       <!-- 5. CAF -->
       <div class="module-card" data-slug="caf">
-        <div class="module-icon">📜</div>
+        <div class="module-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
+        </div>
         <div class="module-title">CAF</div>
         <div class="module-desc">
           Gestión de folios: upload, asignación a sucursales, alertas.
@@ -258,7 +277,9 @@
       <!-- 6. Inventario (proximamente) -->
       <div class="module-card coming-soon" data-slug="inventario">
         <span class="coming-badge">Próximamente</span>
-        <div class="module-icon">📦</div>
+        <div class="module-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/></svg>
+        </div>
         <div class="module-title">Inventario</div>
         <div class="module-desc">
           Stock por sucursal, entradas y salidas, alertas de quiebre.
