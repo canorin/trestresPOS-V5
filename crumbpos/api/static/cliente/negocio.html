@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Información del negocio · trestresPOS</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <!--
+    negocio.html — módulo "Información del negocio" del master cliente.
+
+    Cubre los datos que aparecen impresos en el DTE:
+      · Logo de la empresa (PNG/JPG; se guarda en data/{rut}/logo.png).
+      · Identidad: razón social, nombre fantasía, giro, ACTECO.
+      · Dirección casa matriz.
+      · Datos SII readonly (RUT, resolución).
+
+    Todas las operaciones van contra /api/empresas/mi-empresa y sus
+    variantes. El JWT del master cliente tiene el tenant en el claim
+    empresa_rut, así que los fetches no necesitan X-Empresa-Rut explícito.
+  -->
+  <style>
+    main { padding: 40px 24px 80px; max-width: 780px; margin: 0 auto; }
+    .breadcrumb {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      text-decoration: none;
+      margin-bottom: 18px;
+      transition: color 150ms var(--ease);
+    }
+    .breadcrumb:hover { color: var(--color-accent); }
+    .breadcrumb svg { width: 14px; height: 14px; }
+
+    .page-title h1 {
+      font-size: var(--text-title);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      color: var(--color-text);
+      margin-bottom: 6px;
+    }
+    .page-title .subtitle {
+      color: var(--color-text-secondary);
+      font-size: var(--text-body);
+      margin-bottom: 32px;
+    }
+
+    section.card {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 28px 28px;
+      margin-bottom: 20px;
+    }
+    section.card h2 {
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      letter-spacing: -0.015em;
+      color: var(--color-text);
+      margin-bottom: 4px;
+    }
+    section.card .section-hint {
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      margin-bottom: 22px;
+    }
+
+    /* ── Logo section ──────────────────────────────────────────── */
+    .logo-layout {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 560px) {
+      .logo-layout { grid-template-columns: 1fr; }
+    }
+    .logo-preview {
+      width: 160px;
+      height: 160px;
+      border-radius: var(--radius-md);
+      background: var(--color-bg-alt);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border: 1px solid var(--color-border-light);
+    }
+    .logo-preview img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .logo-preview .placeholder {
+      color: var(--color-text-tertiary);
+      font-size: var(--text-caption);
+      padding: 0 12px;
+      text-align: center;
+    }
+    .dropzone {
+      border: 1.5px dashed var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      text-align: center;
+      transition: all 150ms var(--ease);
+      cursor: pointer;
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+    }
+    .dropzone:hover,
+    .dropzone.dragover {
+      border-color: var(--color-accent);
+      background: rgba(0, 113, 227, 0.04);
+      color: var(--color-text);
+    }
+    .dropzone strong {
+      color: var(--color-accent);
+      font-weight: 600;
+    }
+    .dropzone .meta {
+      margin-top: 6px;
+      color: var(--color-text-tertiary);
+      font-size: var(--text-small);
+    }
+    .logo-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 14px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Form fields (compartido con Identidad y Dirección) ───── */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    .form-grid .full { grid-column: 1 / -1; }
+    @media (max-width: 560px) {
+      .form-grid { grid-template-columns: 1fr; }
+    }
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      font-weight: 500;
+    }
+    label.field input,
+    label.field select {
+      font: inherit;
+      font-size: var(--text-body);
+      color: var(--color-text);
+      padding: 10px 12px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+    }
+    label.field input:focus,
+    label.field select:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+    label.field input[readonly] {
+      background: var(--color-bg-alt);
+      color: var(--color-text-secondary);
+      cursor: default;
+    }
+    .form-actions {
+      margin-top: 22px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Botones ──────────────────────────────────────────────── */
+    .btn {
+      font: inherit;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      padding: 9px 18px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 150ms var(--ease);
+    }
+    .btn-primary {
+      background: var(--color-accent);
+      color: #fff;
+    }
+    .btn-primary:hover { background: var(--color-accent-hover); }
+    .btn-secondary {
+      background: var(--color-bg);
+      color: var(--color-text);
+      border-color: var(--color-border);
+    }
+    .btn-secondary:hover {
+      border-color: var(--color-text-secondary);
+    }
+    .btn-danger {
+      background: var(--color-bg);
+      color: var(--color-error);
+      border-color: var(--color-border);
+    }
+    .btn-danger:hover {
+      background: rgba(191, 72, 0, 0.06);
+    }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* ── Banners de feedback ──────────────────────────────────── */
+    .banner {
+      margin-top: 14px;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: var(--text-caption);
+      display: none;
+    }
+    .banner.visible { display: block; }
+    .banner.success {
+      background: var(--color-etapa-produccion-bg);
+      color: var(--color-etapa-produccion-fg);
+    }
+    .banner.error {
+      background: var(--color-etapa-pendiente-bg);
+      color: var(--color-etapa-pendiente-fg);
+    }
+
+    /* ── SII readonly section ─────────────────────────────────── */
+    dl.sii {
+      display: grid;
+      grid-template-columns: max-content 1fr;
+      gap: 8px 24px;
+      font-size: var(--text-body);
+    }
+    dl.sii dt {
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+    }
+    dl.sii dd {
+      color: var(--color-text);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ── Topnav (shared con dashboard) ────────────────────────── */
+    nav.topnav {
+      background: var(--color-text);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    nav.topnav img { height: 24px; }
+    nav.topnav .right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    nav.topnav span {
+      color: #fff;
+      font-size: var(--text-caption);
+      opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+    <div class="right">
+      <span id="nav-razon">—</span>
+    </div>
+  </nav>
+
+  <main>
+    <a class="breadcrumb" id="back-link" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      Volver a la consola
+    </a>
+
+    <div class="page-title">
+      <h1>Información del negocio</h1>
+      <p class="subtitle">Datos que aparecen impresos en tus documentos electrónicos.</p>
+    </div>
+
+    <!-- ── Logo ───────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Logo</h2>
+      <p class="section-hint">
+        Aparece en el encabezado de facturas, boletas y guías. Aceptamos
+        PNG o JPG hasta 2&nbsp;MB. Se normaliza a PNG y se reescala a
+        máximo 800&nbsp;px por lado.
+      </p>
+      <div class="logo-layout">
+        <div class="logo-preview" id="logo-preview">
+          <div class="placeholder" id="logo-placeholder">Sin logo cargado</div>
+          <img id="logo-img" alt="Logo de la empresa" style="display:none;">
+        </div>
+        <div>
+          <div class="dropzone" id="logo-dropzone">
+            <div>Arrastrá una imagen acá o <strong>elegí un archivo</strong></div>
+            <div class="meta">PNG o JPG · máx 2&nbsp;MB</div>
+          </div>
+          <input type="file" id="logo-input" hidden accept="image/png,image/jpeg">
+          <div class="logo-actions">
+            <button class="btn btn-danger" id="logo-delete-btn" disabled>Eliminar logo</button>
+          </div>
+          <div class="banner" id="logo-banner"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Identidad ──────────────────────────────────────── -->
+    <section class="card">
+      <h2>Identidad</h2>
+      <p class="section-hint">Cómo se identifica la empresa ante el SII y en el DTE.</p>
+      <form id="form-identidad">
+        <div class="form-grid">
+          <label class="field full">
+            Razón social
+            <input type="text" name="razon_social" required maxlength="100">
+          </label>
+          <label class="field">
+            Nombre fantasía
+            <input type="text" name="nombre_fantasia" maxlength="100" placeholder="Opcional">
+          </label>
+          <label class="field">
+            Código ACTECO
+            <input type="number" name="acteco" min="1" step="1">
+          </label>
+          <label class="field full">
+            Giro
+            <input type="text" name="giro" required maxlength="80">
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Guardar identidad</button>
+        </div>
+        <div class="banner" id="identidad-banner"></div>
+      </form>
+    </section>
+
+    <!-- ── Dirección casa matriz ──────────────────────────── -->
+    <section class="card">
+      <h2>Dirección casa matriz</h2>
+      <p class="section-hint">
+        Esta es la dirección fiscal que se imprime en los DTEs emitidos
+        desde la sucursal principal. Las sucursales adicionales se
+        configuran en el módulo &ldquo;Sucursales&rdquo;.
+      </p>
+      <form id="form-direccion">
+        <div class="form-grid">
+          <label class="field full">
+            Dirección
+            <input type="text" name="direccion" required maxlength="120">
+          </label>
+          <label class="field">
+            Comuna
+            <input type="text" name="comuna" required maxlength="50">
+          </label>
+          <label class="field">
+            Ciudad
+            <input type="text" name="ciudad" required maxlength="50">
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">Guardar dirección</button>
+        </div>
+        <div class="banner" id="direccion-banner"></div>
+      </form>
+    </section>
+
+    <!-- ── Datos SII (readonly) ───────────────────────────── -->
+    <section class="card">
+      <h2>Datos SII</h2>
+      <p class="section-hint">
+        Estos datos los asigna el SII al autorizar la resolución de
+        emisión. No se editan desde la consola — si necesitás
+        actualizarlos, contactá a soporte.
+      </p>
+      <dl class="sii">
+        <dt>RUT</dt><dd id="sii-rut">—</dd>
+        <dt>Número de resolución</dt><dd id="sii-nres">—</dd>
+        <dt>Fecha de resolución</dt><dd id="sii-fres">—</dd>
+        <dt>Ambiente activo</dt><dd id="sii-amb">—</dd>
+      </dl>
+    </section>
+  </main>
+
+  <script>
+    // ══ Sesión namespaced por RUT (igual patrón que dashboard) ══
+    const EMPRESA_RUT = window.location.pathname.split('/')[1];
+    const TOKEN_KEY = `ttpos_token_${EMPRESA_RUT}`;
+    const USER_KEY = `ttpos_user_${EMPRESA_RUT}`;
+
+    function requireAuth() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const raw = localStorage.getItem(USER_KEY);
+      if (!token || !raw) {
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        return null;
+      }
+      try {
+        const user = JSON.parse(raw);
+        if (!user || user.empresa_rut !== EMPRESA_RUT) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`);
+          return null;
+        }
+        // super_admin solo acepta shadow session.
+        if (user.rol === 'super_admin' && !user.shadow) {
+          localStorage.removeItem(TOKEN_KEY);
+          localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`);
+          return null;
+        }
+        return { token, user };
+      } catch {
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        return null;
+      }
+    }
+
+    const auth = requireAuth();
+    if (!auth) throw new Error('no-auth');
+
+    document.getElementById('back-link').href = `/${EMPRESA_RUT}/dashboard`;
+
+    // ══ Helpers ══
+    function showBanner(id, kind, text) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = `banner ${kind} visible`;
+      // Auto-hide en éxito a los 4s; errores se quedan.
+      if (kind === 'success') {
+        setTimeout(() => el.classList.remove('visible'), 4000);
+      }
+    }
+    function hideBanner(id) {
+      document.getElementById(id).classList.remove('visible');
+    }
+    async function apiFetch(path, options = {}) {
+      const resp = await fetch(path, {
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${auth.token}`,
+          ...(options.headers || {}),
+        },
+      });
+      if (resp.status === 401) {
+        // Token vencido o inválido — patea al login.
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(USER_KEY);
+        window.location.replace(`/${EMPRESA_RUT}/login`);
+        throw new Error('unauthorized');
+      }
+      return resp;
+    }
+
+    // ══ Carga inicial: GET /mi-empresa y pueblo todo ══
+    async function cargarEmpresa() {
+      try {
+        const resp = await apiFetch('/api/empresas/mi-empresa');
+        if (!resp.ok) {
+          showBanner('identidad-banner', 'error',
+            `No se pudo cargar la empresa (HTTP ${resp.status}).`);
+          return;
+        }
+        const data = await resp.json();
+
+        // Topnav
+        document.getElementById('nav-razon').textContent = data.razon_social || '';
+        document.title = `${data.razon_social} · Información del negocio`;
+
+        // Identidad
+        const fi = document.getElementById('form-identidad');
+        fi.razon_social.value = data.razon_social || '';
+        fi.nombre_fantasia.value = data.nombre_fantasia || '';
+        fi.giro.value = data.giro || '';
+        fi.acteco.value = data.acteco || '';
+
+        // Dirección
+        const fd = document.getElementById('form-direccion');
+        fd.direccion.value = data.direccion || '';
+        fd.comuna.value = data.comuna || '';
+        fd.ciudad.value = data.ciudad || '';
+
+        // SII readonly
+        document.getElementById('sii-rut').textContent = data.rut || '—';
+        document.getElementById('sii-nres').textContent =
+          data.numero_resolucion ? String(data.numero_resolucion) : '—';
+        document.getElementById('sii-fres').textContent = data.fecha_resolucion || '—';
+        const ambLabel = data.ambiente_activo === 'produccion'
+          ? 'Producción'
+          : (data.ambiente_activo === 'certificacion' ? 'Certificación' : '—');
+        document.getElementById('sii-amb').textContent = ambLabel;
+
+        // Logo preview
+        pintarLogo(!!data.logo_url);
+      } catch (err) {
+        if (err.message !== 'unauthorized') {
+          showBanner('identidad-banner', 'error', `Error de red: ${err.message}`);
+        }
+      }
+    }
+
+    function pintarLogo(tieneLogo) {
+      const img = document.getElementById('logo-img');
+      const ph = document.getElementById('logo-placeholder');
+      const delBtn = document.getElementById('logo-delete-btn');
+      if (tieneLogo) {
+        // Cache bust para que el browser refresque tras re-upload.
+        img.src = `/api/empresas/mi-empresa/logo?v=${Date.now()}`;
+        img.style.display = 'block';
+        ph.style.display = 'none';
+        delBtn.disabled = false;
+      } else {
+        img.style.display = 'none';
+        ph.style.display = 'block';
+        delBtn.disabled = true;
+      }
+    }
+
+    // ══ Logo: upload ══
+    async function subirLogo(file) {
+      hideBanner('logo-banner');
+      if (!file) return;
+      if (file.size > 2 * 1024 * 1024) {
+        showBanner('logo-banner', 'error',
+          `El archivo pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Máximo 2 MB.`);
+        return;
+      }
+      const fd = new FormData();
+      fd.append('archivo', file);
+      try {
+        const resp = await apiFetch('/api/empresas/mi-empresa/logo', {
+          method: 'POST',
+          body: fd,
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          showBanner('logo-banner', 'error', data.detail || 'Error al subir el logo.');
+          return;
+        }
+        pintarLogo(true);
+        showBanner('logo-banner', 'success', 'Logo actualizado.');
+        // Permite subir el mismo archivo dos veces (reset input).
+        document.getElementById('logo-input').value = '';
+      } catch (err) {
+        if (err.message !== 'unauthorized') {
+          showBanner('logo-banner', 'error', `Error de red: ${err.message}`);
+        }
+      }
+    }
+
+    // Drag & drop + click → file input.
+    const dropzone = document.getElementById('logo-dropzone');
+    const logoInput = document.getElementById('logo-input');
+    dropzone.addEventListener('click', () => logoInput.click());
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) subirLogo(file);
+    });
+    logoInput.addEventListener('change', () => {
+      const file = logoInput.files[0];
+      if (file) subirLogo(file);
+    });
+
+    // ══ Logo: delete ══
+    document.getElementById('logo-delete-btn').addEventListener('click', async () => {
+      if (!confirm('¿Eliminar el logo? Los próximos DTEs van a usar el logo default.')) return;
+      hideBanner('logo-banner');
+      try {
+        const resp = await apiFetch('/api/empresas/mi-empresa/logo', {
+          method: 'DELETE',
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          showBanner('logo-banner', 'error', data.detail || 'No se pudo eliminar.');
+          return;
+        }
+        pintarLogo(false);
+        showBanner('logo-banner', 'success', 'Logo eliminado.');
+      } catch (err) {
+        if (err.message !== 'unauthorized') {
+          showBanner('logo-banner', 'error', `Error de red: ${err.message}`);
+        }
+      }
+    });
+
+    // ══ Forms: PUT /mi-empresa con subset de campos ══
+    async function guardarFormulario(formEl, bannerId, camposPermitidos) {
+      const body = {};
+      for (const campo of camposPermitidos) {
+        const input = formEl.elements[campo];
+        if (!input) continue;
+        let val = input.value;
+        if (input.type === 'number') {
+          val = val === '' ? null : parseInt(val, 10);
+        } else {
+          val = val.trim();
+        }
+        body[campo] = val === '' ? null : val;
+      }
+      hideBanner(bannerId);
+      try {
+        const resp = await apiFetch('/api/empresas/mi-empresa', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          showBanner(bannerId, 'error', data.detail || 'No se pudo guardar.');
+          return;
+        }
+        showBanner(bannerId, 'success', 'Cambios guardados.');
+        // Refrescar el topnav por si cambió la razón social.
+        if (camposPermitidos.includes('razon_social')) {
+          document.getElementById('nav-razon').textContent = data.razon_social || '';
+          document.title = `${data.razon_social} · Información del negocio`;
+        }
+      } catch (err) {
+        if (err.message !== 'unauthorized') {
+          showBanner(bannerId, 'error', `Error de red: ${err.message}`);
+        }
+      }
+    }
+
+    document.getElementById('form-identidad').addEventListener('submit', (e) => {
+      e.preventDefault();
+      guardarFormulario(e.target, 'identidad-banner',
+        ['razon_social', 'nombre_fantasia', 'giro', 'acteco']);
+    });
+    document.getElementById('form-direccion').addEventListener('submit', (e) => {
+      e.preventDefault();
+      guardarFormulario(e.target, 'direccion-banner',
+        ['direccion', 'comuna', 'ciudad']);
+    });
+
+    // ══ Arranque ══
+    cargarEmpresa();
+  </script>
+</body>
+</html>

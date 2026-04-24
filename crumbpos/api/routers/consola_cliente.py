@@ -100,6 +100,22 @@ async def dashboard_master_cliente(
     return _servir_html("dashboard.html")
 
 
+@router.get("/{empresa_rut}/negocio", include_in_schema=False)
+async def negocio_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Módulo "Información del negocio" — logo, identidad, dirección.
+
+    Primer módulo de la consola del master cliente. Permite subir el
+    logo que sale impreso en los DTEs, editar razón social / giro /
+    ACTECO / nombre fantasía y la dirección de casa matriz. Los datos
+    SII (RUT, resolución) son readonly.
+    """
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("negocio.html")
+
+
 @router.get("/{empresa_rut}/info-publica", include_in_schema=False)
 async def info_publica_empresa(
     empresa_rut: str = Path(..., pattern=_RUT_PATTERN),

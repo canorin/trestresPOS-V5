@@ -369,11 +369,24 @@
       window.location.replace(`/${EMPRESA_RUT}/login`);
     });
 
-    // Stub de navegación a módulos — aún no implementados.
+    // Navegación a módulos. Los implementados apuntan a su página; los
+    // pendientes caen al alert-stub (hasta que se implementen).
+    const MODULOS_IMPLEMENTADOS = {
+      negocio: 'negocio',
+      // sucursales: 'sucursales',  // pendiente
+      // usuarios: 'usuarios',       // pendiente
+      // facturacion: 'facturacion', // pendiente
+      // caf: 'caf',                 // pendiente
+    };
     document.querySelectorAll('.module-card').forEach(card => {
       card.addEventListener('click', () => {
         if (card.classList.contains('coming-soon')) return;
         const slug = card.dataset.slug;
+        const ruta = MODULOS_IMPLEMENTADOS[slug];
+        if (ruta) {
+          window.location.href = `/${EMPRESA_RUT}/${ruta}`;
+          return;
+        }
         alert(
           `Módulo "${slug}" todavía no implementado.\n\n` +
           `Pendiente: conectar a los endpoints existentes en /api/... y ` +
