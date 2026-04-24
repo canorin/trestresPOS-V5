@@ -8,9 +8,17 @@ import logging
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from crumbpos.api.services.logo_empresa import (
+    LogoValidationError,
+    MIME_ALLOWED,
+    eliminar_logo,
+    guardar_logo,
+    path_absoluto_logo,
+)
 from crumbpos.db.multi_tenant import (
     get_master_db,
     provision_empresa,
@@ -109,6 +117,11 @@ class EmpresaOut(BaseModel):
     numero_resolucion: int = 0
     cert_rut_firmante: str | None = None
     tiene_certificado: bool = False
+    # Path relativo a DATA_DIR (``{rut}/logo.png``) si la empresa subió
+    # logo. ``None`` significa que usa el logo default del sistema al
+    # imprimir DTEs. El front usa la presencia para decidir si muestra
+    # preview o prompt de upload.
+    logo_url: str | None = None
     activa: bool = True
 
 
@@ -182,6 +195,7 @@ def listar_empresas(
             numero_resolucion=empresa.numero_resolucion if empresa else 0,
             cert_rut_firmante=empresa.cert_rut_firmante if empresa else None,
             tiene_certificado=bool(empresa.cert_data or empresa.cert_path) if empresa else False,
+            logo_url=empresa.logo_url if empresa else None,
             activa=reg.activa,
         ))
     return result
@@ -341,6 +355,7 @@ def mi_empresa(tenant: TenantContext = Depends(get_tenant)):
             numero_resolucion=empresa.numero_resolucion,
             cert_rut_firmante=empresa.cert_rut_firmante,
             tiene_certificado=bool(empresa.cert_data or empresa.cert_path),
+            logo_url=empresa.logo_url,
             activa=empresa.activa,
         )
     finally:
@@ -398,6 +413,7 @@ def actualizar_mi_empresa(
             numero_resolucion=empresa.numero_resolucion,
             cert_rut_firmante=empresa.cert_rut_firmante,
             tiene_certificado=bool(empresa.cert_data or empresa.cert_path),
+            logo_url=empresa.logo_url,
             activa=empresa.activa,
         )
     finally:
@@ -465,6 +481,124 @@ async def subir_certificado(
         tenant.close()
 
 
+# ── Logo de la empresa ──────────────────────────────────────────────
+#
+# El logo se imprime en la representación visual de los DTEs (factura,
+# boleta, guía). Se guarda en ``DATA_DIR/{rut}/logo.png`` y la columna
+# ``empresa.logo_url`` apunta al path relativo. Las tres operaciones
+# (subir, descargar, eliminar) sincronizan la columna en ambos
+# ambientes — certificación y producción — porque el archivo físico es
+# compartido y queremos que el valor en DB refleje la realidad del
+# filesystem sin importar desde qué ambiente esté navegando el usuario.
+
+
+class LogoOut(BaseModel):
+    """Respuesta común de POST/DELETE del logo."""
+    ok: bool
+    logo_url: str | None
+    mensaje: str
+
+
+def _persistir_logo_url_ambos_ambientes(rut: str, nuevo_valor: str | None) -> None:
+    """Escribe ``empresa.logo_url`` en certificación y producción.
+
+    ``nuevo_valor=None`` limpia la referencia (borrado). No toca el
+    archivo físico — eso lo hace el caller. Errores de un ambiente no
+    abortan el otro, solo se loguean. El mismo patrón que
+    ``subir_certificado`` usa para el cert digital.
+    """
+    for ambiente in ("certificacion", "produccion"):
+        try:
+            db = get_empresa_db_session(rut, ambiente)
+            try:
+                empresa = db.query(Empresa).filter(Empresa.rut == rut).first()
+                if empresa:
+                    empresa.logo_url = nuevo_valor
+                    db.commit()
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error("Error actualizando logo_url en %s: %s", ambiente, e)
+
+
+@router.post("/mi-empresa/logo", response_model=LogoOut)
+async def subir_logo(
+    archivo: UploadFile = File(...),
+    tenant: TenantContext = Depends(get_tenant),
+):
+    """Sube el logo de la empresa (PNG o JPG, máx 2 MB).
+
+    Normaliza a PNG ≤ 800 px por lado con PIL — así el renderer consume
+    siempre el mismo formato y tamaño. Sobrescribe el logo anterior si
+    existía. Devuelve el nuevo ``logo_url`` para que el front refresque
+    la preview.
+    """
+    try:
+        # La heurística por content-type es orientativa (cualquiera
+        # puede falsificarlo); la validación real la hace PIL al abrir.
+        if archivo.content_type and archivo.content_type not in MIME_ALLOWED:
+            raise HTTPException(
+                400,
+                f"Tipo no permitido: {archivo.content_type}. "
+                f"Aceptados: {', '.join(sorted(MIME_ALLOWED))}.",
+            )
+
+        contenido = await archivo.read()
+        try:
+            logo_url = guardar_logo(tenant.empresa_rut, contenido)
+        except LogoValidationError as e:
+            raise HTTPException(400, str(e))
+
+        _persistir_logo_url_ambos_ambientes(tenant.empresa_rut, logo_url)
+
+        return LogoOut(
+            ok=True,
+            logo_url=logo_url,
+            mensaje=f"Logo subido para {tenant.empresa_rut}",
+        )
+    finally:
+        tenant.close()
+
+
+@router.get("/mi-empresa/logo", include_in_schema=False)
+def descargar_logo(tenant: TenantContext = Depends(get_tenant)):
+    """Devuelve el archivo PNG del logo, o 404 si aún no subió.
+
+    Usado por el front de la consola para mostrar la preview y por el
+    módulo de sync al cliente Windows para replicar el logo localmente.
+    """
+    try:
+        destino = path_absoluto_logo(tenant.empresa_rut)
+        if not destino.exists():
+            raise HTTPException(404, "La empresa no tiene logo cargado")
+        return FileResponse(
+            path=str(destino),
+            media_type="image/png",
+            filename="logo.png",
+        )
+    finally:
+        tenant.close()
+
+
+@router.delete("/mi-empresa/logo", response_model=LogoOut)
+def borrar_logo(tenant: TenantContext = Depends(get_tenant)):
+    """Elimina el logo de la empresa (archivo + referencia en DB).
+
+    Operación idempotente: si no había logo, devuelve ok=True igual.
+    Tras borrar, los DTEs siguientes caen al logo default del sistema.
+    """
+    try:
+        eliminar_logo(tenant.empresa_rut)
+        _persistir_logo_url_ambos_ambientes(tenant.empresa_rut, None)
+        return LogoOut(
+            ok=True,
+            logo_url=None,
+            mensaje=f"Logo eliminado para {tenant.empresa_rut}",
+        )
+    finally:
+        tenant.close()
+
+
 @router.get("/{rut}", response_model=EmpresaOut)
 def obtener_empresa(
     rut: str,
@@ -516,6 +650,7 @@ def obtener_empresa(
         numero_resolucion=empresa.numero_resolucion if empresa else 0,
         cert_rut_firmante=empresa.cert_rut_firmante if empresa else None,
         tiene_certificado=bool(empresa.cert_data or empresa.cert_path) if empresa else False,
+        logo_url=empresa.logo_url if empresa else None,
         activa=reg.activa,
     )
 
