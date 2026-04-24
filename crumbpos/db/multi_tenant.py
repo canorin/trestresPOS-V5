@@ -742,6 +742,7 @@ def get_empresa_engine(rut: str, ambiente: str):
         Base.metadata.create_all(bind=engine)
         _migrate_empresa_schema(engine)
         _ensure_empresa_row_seeded(engine, rut, ambiente)
+        _ensure_casa_matriz_seeded(engine, rut, ambiente)
         _empresa_engines[key] = engine
     return _empresa_engines[key]
 
@@ -802,6 +803,65 @@ def _ensure_empresa_row_seeded(engine, rut: str, ambiente: str) -> None:
         # Silenciamos el error — el self-heal es best-effort; si falla,
         # el caller verá el 500 original y al menos sabemos que este path
         # se intentó. Logs de SQLAlchemy quedan capturados igual.
+    finally:
+        session.close()
+
+
+def _ensure_casa_matriz_seeded(engine, rut: str, ambiente: str) -> None:
+    """Defensa en profundidad: garantiza que la empresa tenga ≥1 sucursal.
+
+    Toda empresa debe tener al menos una sucursal para que:
+      · el módulo de CAFs pueda asignar folios a una sucursal real
+        (además del "pool del server"),
+      · las emisiones de DTE lleven dirección de emisor válida
+        (``Sucursal.direccion`` override la de la Empresa),
+      · el POS de caja pueda loguearse contra una sucursal concreta.
+
+    Si la BD de la empresa quedó sin sucursales (caso observado en
+    77829149-5 tras el reinicio de certificación: la Casa Matriz se
+    perdió en el flujo de reset), insertamos una "Casa Matriz" con los
+    datos actuales de la Empresa. Si esos datos están vacíos (empresa
+    recién seedeada por ``_ensure_empresa_row_seeded``), Casa Matriz
+    nace con strings vacíos y se rellena más adelante cuando el master
+    los complete desde su consola.
+    """
+    from crumbpos.db.models import Empresa, Sucursal
+
+    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    session = SessionLocal()
+    try:
+        empresa = session.query(Empresa).filter(Empresa.rut == rut).first()
+        if empresa is None:
+            # La fila Empresa aún no existe — la función hermana
+            # (_ensure_empresa_row_seeded) la crea. En un próximo acceso
+            # este seed correrá. No hay nada que hacer ahora.
+            return
+
+        existente = session.query(Sucursal).filter(
+            Sucursal.empresa_id == empresa.id,
+        ).first()
+        if existente is not None:
+            return  # ya hay al menos una sucursal, nada que hacer
+
+        session.add(Sucursal(
+            empresa_id=empresa.id,
+            nombre="Casa Matriz",
+            codigo="001",
+            direccion=empresa.direccion or "",
+            comuna=empresa.comuna or "",
+            ciudad=empresa.ciudad or "",
+        ))
+        session.commit()
+        logger.info(
+            "Self-heal: Casa Matriz creada para %s/%s (empresa sin sucursales)",
+            rut, ambiente,
+        )
+    except Exception:
+        session.rollback()
+        # Best-effort como su función hermana. Si falla, el dropdown
+        # sigue mostrando solo "Pool del server" pero nada operativo
+        # se rompe — el master puede crear sucursales desde su consola
+        # cuando el módulo exista.
     finally:
         session.close()
 
