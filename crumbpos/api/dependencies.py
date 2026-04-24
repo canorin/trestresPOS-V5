@@ -129,11 +129,21 @@ def get_tenant(
 
     # Determinar empresa_rut
     if user.rol == "super_admin":
-        empresa_rut = x_empresa_rut
+        # Prioridad: header X-Empresa-Rut (override explícito desde la
+        # consola super admin) > claim ``empresa_rut`` del JWT (shadow
+        # session creada por POST /api/admin/empresas/{rut}/entrar).
+        # El JWT de login normal del super admin trae "SYSTEM" en ese
+        # claim, que es un sentinel interno y no un RUT real; lo
+        # ignoramos y exigimos header.
+        jwt_rut = payload.get("empresa_rut")
+        if jwt_rut == "SYSTEM":
+            jwt_rut = None
+        empresa_rut = x_empresa_rut or jwt_rut
         if not empresa_rut:
             raise HTTPException(
                 400,
-                "Super admin debe especificar header X-Empresa-Rut",
+                "Super admin debe especificar header X-Empresa-Rut o "
+                "usar una shadow session (POST /api/admin/empresas/{rut}/entrar)",
             )
     else:
         empresa_rut = user.empresa_rut

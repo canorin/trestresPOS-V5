@@ -402,8 +402,12 @@
           : 'Certificar';
         principal = `<a class="btn btn-secondary btn-small" href="${href}">${label}</a>`;
       }
+      // Shadow login: abre /{rut}/dashboard con un JWT short-lived que
+      // mantiene al super admin con privilegios elevados pero ruteando
+      // contra el tenant. El backend loguea la sesión.
+      const entrar = `<button class="btn btn-secondary btn-small" data-rut="${rutAttr}" data-razon="${razonAttr}" data-action="entrar-consola">Consola</button>`;
       const baja = `<button class="btn-danger-outline" data-rut="${rutAttr}" data-razon="${razonAttr}" data-action="dar-baja">Dar de baja</button>`;
-      return `<div class="cell-actions-multi">${principal}${baja}</div>`;
+      return `<div class="cell-actions-multi">${principal}${entrar}${baja}</div>`;
     }
 
     function renderTable(empresas) {
@@ -551,6 +555,43 @@
       } catch (err) {
         if (err.message === 'auth') return;
         showAlert('error', err.message);
+      }
+    }
+
+    // ── Shadow login: entrar a /{rut}/dashboard como super admin ─────
+    async function entrarConsolaCliente(rut, razonSocial) {
+      try {
+        const resp = await fetchJson(
+          `/api/admin/empresas/${encodeURIComponent(rut)}/entrar`,
+          { method: 'POST' },
+        );
+        // El dashboard del master cliente lee token y user desde claves
+        // namespaceadas por RUT — ver static/cliente/dashboard.html.
+        const tokenKey = `ttpos_token_${rut}`;
+        const userKey = `ttpos_user_${rut}`;
+        localStorage.setItem(tokenKey, resp.access_token);
+        localStorage.setItem(userKey, JSON.stringify({
+          empresa_rut: rut,
+          email: auth.user.email,
+          nombre: auth.user.nombre,
+          rol: 'super_admin',
+          shadow: true,
+          ambiente_activo: resp.ambiente_activo,
+          empresa_razon_social: resp.empresa_razon_social,
+        }));
+        // Mensaje visible antes de redirigir: útil por si la nav tarda.
+        showAlert(
+          'success',
+          `Entrando a la consola de ${resp.empresa_razon_social} ` +
+          `(${rut}) · sesión shadow de ${resp.expires_in_minutes} min.`,
+        );
+        window.location.assign(resp.dashboard_url);
+      } catch (err) {
+        if (err.message === 'auth') return;
+        showAlert(
+          'error',
+          `No se pudo entrar a la consola de ${razonSocial}: ${err.message}`,
+        );
       }
     }
 
@@ -825,6 +866,8 @@
         restaurarEmpresa(rut);
       } else if (action === 'eliminar-def') {
         abrirModalEliminarDefinitivo(rut, razon);
+      } else if (action === 'entrar-consola') {
+        entrarConsolaCliente(rut, razon);
       }
     });
 

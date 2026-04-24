@@ -1,30 +1,52 @@
-"""Router de baja de empresas — super admin, destructivo.
+"""Router de operaciones super-admin sobre empresas.
 
-Expone la Fase 7: exportar ZIP con el archivo tributario, mover a papelera,
-restaurar desde papelera y (tras 30 días de gracia) eliminar definitivamente.
+Cubre:
+  - Baja de empresa (Fase 7): exportar ZIP, mover a papelera, restaurar
+    desde papelera y (tras 30 días de gracia) eliminar definitivamente.
+  - Shadow login: emitir un JWT short-lived para que el super admin
+    entre a ``/{rut}/dashboard`` como si fuera el master cliente.
+
+El nombre del archivo es histórico (``baja_empresas.py``); cuando se
+refactorize debería renombrarse a ``admin_empresas.py``.
 
 EXCEPCIÓN A R4
 ══════════════
-Este router es un wrapper delgado sobre `crumbpos.admin.eliminacion_empresa`.
-Toda la lógica destructiva vive en ese módulo — acá solo traducimos HTTP a
-llamadas Python y de vuelta. El router en sí no toca `data/` directamente.
+La sección de baja es un wrapper delgado sobre
+``crumbpos.admin.eliminacion_empresa``. Toda la lógica destructiva
+vive en ese módulo — acá solo traducimos HTTP a llamadas Python y de
+vuelta. El router en sí no toca ``data/`` directamente.
 
-Las operaciones son todas super_admin-only vía `require_super_admin`.
+Todas las operaciones son super_admin-only vía ``require_super_admin``.
 """
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from jose import jwt
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from crumbpos.admin import eliminacion_empresa
-from crumbpos.api.dependencies import require_super_admin
-from crumbpos.db.multi_tenant import UsuarioAuth
+from crumbpos.api.dependencies import (
+    ALGORITHM,
+    SECRET_KEY,
+    require_super_admin,
+)
+from crumbpos.db.multi_tenant import (
+    EmpresaRegistro,
+    UsuarioAuth,
+    get_master_db,
+)
 
 logger = logging.getLogger(__name__)
+
+# TTL del JWT shadow — mucho más corto que el login normal (480 min)
+# porque es una sesión elevada de super admin operando en el tenant.
+SHADOW_TOKEN_EXPIRE_MINUTES = 60
 
 router = APIRouter(
     prefix="/api/admin/empresas",
@@ -55,6 +77,17 @@ class EliminarDefinitivoIn(BaseModel):
 class RutQuery(BaseModel):
     """Query schema de uso libre — placeholder."""
     pass
+
+
+class EntrarConsolaOut(BaseModel):
+    """Respuesta de POST /{rut}/entrar — shadow session."""
+    access_token: str
+    token_type: str = "bearer"
+    empresa_rut: str
+    empresa_razon_social: str
+    ambiente_activo: str
+    expires_in_minutes: int
+    dashboard_url: str
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -239,3 +272,81 @@ def eliminar_definitivo(
     except Exception as exc:
         logger.exception("eliminar_definitivo %s", rut)
         raise HTTPException(500, f"Error eliminando definitivamente: {exc}")
+
+
+# ══════════════════════════════════════════════════════════════════
+# Shadow login — super admin entra a la consola del master cliente
+# ══════════════════════════════════════════════════════════════════
+
+@router.post("/{rut}/entrar", response_model=EntrarConsolaOut)
+def entrar_consola_cliente(
+    rut: str,
+    admin: UsuarioAuth = Depends(require_super_admin),
+    master_db: Session = Depends(get_master_db),
+) -> EntrarConsolaOut:
+    """Acuña un JWT shadow para que el super admin entre a /{rut}/dashboard.
+
+    El token resultante:
+
+    - ``sub`` = id del super admin (preserva la identidad real; logs
+      siguen mostrando quién ejecutó la acción).
+    - ``empresa_rut`` = RUT del tenant destino (reemplaza el ``SYSTEM``
+      del login original; ``get_tenant`` lo detecta y rutea al tenant
+      sin exigir el header ``X-Empresa-Rut``).
+    - ``rol`` = ``"super_admin"`` (mantiene privilegios elevados).
+    - ``shadow`` = ``True`` (bandera auditable).
+    - ``sucursal_id`` = ``None``.
+    - TTL = :data:`SHADOW_TOKEN_EXPIRE_MINUTES` minutos (mucho más corto
+      que el login normal de 480 min, porque es una sesión elevada
+      contra un tenant ajeno).
+
+    El consumidor típico es el botón "Consola" de ``/admin/clientes``:
+    el super admin hace click, el navegador guarda el token bajo
+    ``ttpos_token_{rut}`` y redirige a ``/{rut}/dashboard`` que pasa a
+    comportarse igual que con cualquier JWT de master cliente.
+
+    Errores:
+
+    - 404 si la empresa no está registrada.
+    - 410 si la empresa está en papelera o eliminada (``estado`` distinto
+      de ``activa``).
+    """
+    registro = master_db.query(EmpresaRegistro).filter(
+        EmpresaRegistro.rut == rut,
+    ).first()
+    if not registro:
+        raise HTTPException(404, f"Empresa {rut} no registrada")
+    if registro.estado != "activa":
+        raise HTTPException(
+            410,
+            f"Empresa {rut} está dada de baja (estado: "
+            f"{registro.estado}). No se puede abrir su consola.",
+        )
+
+    expire = datetime.utcnow() + timedelta(minutes=SHADOW_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": admin.id,
+        "empresa_rut": rut,
+        "rol": "super_admin",
+        "shadow": True,
+        "sucursal_id": None,
+        "exp": expire,
+    }
+    token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+    logger.info(
+        "shadow session creada: super_admin=%s (id=%s) → empresa=%s "
+        "(razón=%s, ambiente=%s, ttl=%d min)",
+        admin.email, admin.id, rut,
+        registro.razon_social, registro.ambiente_activo,
+        SHADOW_TOKEN_EXPIRE_MINUTES,
+    )
+
+    return EntrarConsolaOut(
+        access_token=token,
+        empresa_rut=rut,
+        empresa_razon_social=registro.razon_social,
+        ambiente_activo=registro.ambiente_activo,
+        expires_in_minutes=SHADOW_TOKEN_EXPIRE_MINUTES,
+        dashboard_url=f"/{rut}/dashboard",
+    )
