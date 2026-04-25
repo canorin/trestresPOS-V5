@@ -15,19 +15,25 @@
     Un CAF (Código de Autorización de Folios) es el archivo XML firmado
     por el SII que autoriza a la empresa a emitir N folios de un tipo
     de DTE específico. Aquí se:
-      · sube un CAF nuevo (drag-drop o file picker),
+      · sube un CAF nuevo (drag-drop o file picker; entra al pool),
+      · subdivide un CAF en tramos asignados a sucursales o al pool
+        del server (modal "Configurar destinos"),
       · ajusta manualmente el próximo folio cuando el sistema quedó
-        fuera de sincronía (migración, reintento de certificación),
-      · asigna cada CAF a una sucursal o lo deja en el pool del
-        server (regla de proyecto: un CAF, un dueño).
+        fuera de sincronía (migración, reintento de certificación).
+
+    Modelo: el CAF se descompone en uno o más **tramos** (rangos
+    contiguos sin solapes que cubren todo el rango del CAF). Cada tramo
+    pertenece a una sucursal o al pool del server (sucursal_id=null).
+    Folios ya emitidos quedan inmutables — no se pueden mover de dueño.
 
     Data:
-      GET  /api/empresas/mi-empresa        — razón social + ambiente
-      GET  /api/folios/estado              — lista de CAFs con rangos
-      GET  /api/sucursales/                — sucursales activas (dropdown)
-      POST /api/folios/upload              — subir CAF nuevo
-      PUT  /api/folios/caf/{id}/sucursal   — reasignar sucursal
-      POST /api/folios/set                 — ajustar próximo folio
+      GET  /api/empresas/mi-empresa                — razón social + ambiente
+      GET  /api/folios/estado                      — CAFs + tramos
+      GET  /api/sucursales/                        — sucursales activas
+      POST /api/folios/upload                      — subir CAF nuevo
+      GET  /api/folios/caf/{id}/asignaciones       — tramos del CAF
+      PUT  /api/folios/caf/{id}/asignaciones       — reescribir tramos
+      POST /api/folios/set                         — ajustar próximo folio
   -->
   <style>
     main { padding: 36px 24px 80px; max-width: 1080px; margin: 0 auto; }
@@ -394,48 +400,40 @@
     }
     .rango-row {
       display: grid;
-      grid-template-columns: 1.4fr 1fr 1.4fr auto;
-      align-items: center;
-      gap: 12px;
-      padding: 12px 0;
+      grid-template-columns: 1fr auto;
+      align-items: start;
+      gap: 16px;
+      padding: 14px 0;
       border-bottom: 1px solid var(--color-border-light);
     }
     .rango-row:last-child { border-bottom: 0; }
-    .rango-row .folios {
+    .rango-row .info-col {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+    }
+    .rango-row .meta-line {
       font-variant-numeric: tabular-nums;
       font-size: var(--text-caption);
       color: var(--color-text);
     }
-    .rango-row .folios .sub {
+    .rango-row .meta-line .sub {
       display: block;
       font-size: var(--text-small);
       color: var(--color-text-tertiary);
       margin-top: 2px;
     }
-    .rango-row .uso {
-      font-size: var(--text-caption);
-      color: var(--color-text-secondary);
-      font-variant-numeric: tabular-nums;
-    }
-    .rango-row .sucursal-pick {
+    .rango-row .tramos-line {
       display: flex;
-      align-items: center;
+      flex-wrap: wrap;
       gap: 6px;
-    }
-    .rango-row .sucursal-pick select {
-      flex: 1;
-      padding: 6px 10px;
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-sm);
-      background: var(--color-bg);
-      font: inherit;
-      font-size: var(--text-caption);
-      color: var(--color-text);
-      cursor: pointer;
     }
     .rango-row .actions {
       display: flex;
+      flex-direction: column;
       gap: 6px;
+      align-items: flex-end;
     }
     .chip-estado {
       display: inline-block;
@@ -448,6 +446,31 @@
     .chip-estado.agotado {
       background: #fdecea;
       color: #b71c1c;
+    }
+    .tramo-chip {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 6px;
+      font-size: var(--text-small);
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      background: var(--color-bg-alt);
+      color: var(--color-text);
+      border: 1px solid var(--color-border-light);
+    }
+    .tramo-chip.pool {
+      background: transparent;
+      color: var(--color-text-tertiary);
+      border-style: dashed;
+    }
+    .tramo-chip.agotado {
+      background: #fdecea;
+      color: #b71c1c;
+      border-color: transparent;
+    }
+    .tramo-chip .rango {
+      font-variant-numeric: tabular-nums;
+      opacity: 0.85;
     }
 
     /* ── Modal ajustar folio ────────────────────────────────── */
@@ -503,6 +526,98 @@
       display: flex;
       justify-content: flex-end;
       gap: 8px;
+    }
+    .modal-card-wide { max-width: 760px; }
+
+    /* ── Modal Configurar destinos ─────────────────────────── */
+    .cfg-error {
+      display: none;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      background: #fdecea;
+      color: #b71c1c;
+      font-size: var(--text-caption);
+      margin-bottom: 12px;
+    }
+    .cfg-error.visible { display: block; }
+    .tramos-table {
+      margin-top: 4px;
+      margin-bottom: 12px;
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .tramos-table-head {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1.1fr 36px;
+      gap: 8px;
+      padding: 8px 12px;
+      font-size: var(--text-small);
+      color: var(--color-text-secondary);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      background: var(--color-bg-alt);
+      border-bottom: 1px solid var(--color-border-light);
+    }
+    .tramo-row-edit {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1.1fr 36px;
+      gap: 8px;
+      padding: 10px 12px;
+      align-items: center;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+    .tramo-row-edit:last-child { border-bottom: none; }
+    .tramo-row-edit select,
+    .tramo-row-edit input {
+      width: 100%;
+      padding: 6px 8px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      font-size: var(--text-caption);
+      font-variant-numeric: tabular-nums;
+      background: var(--color-bg);
+      color: var(--color-text);
+    }
+    .tramo-row-edit input:disabled,
+    .tramo-row-edit select:disabled {
+      background: var(--color-bg-alt);
+      color: var(--color-text-tertiary);
+      cursor: not-allowed;
+    }
+    .tramo-row-edit .estado-cell {
+      font-size: var(--text-small);
+      color: var(--color-text-secondary);
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+    .tramo-row-edit .estado-cell.agotado { color: #b71c1c; }
+    .tramo-row-edit .btn-icon-only {
+      width: 28px;
+      height: 28px;
+      border: none;
+      background: transparent;
+      color: var(--color-text-tertiary);
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      font-size: 18px;
+      line-height: 1;
+    }
+    .tramo-row-edit .btn-icon-only:hover {
+      background: var(--color-bg-alt);
+      color: #d32f2f;
+    }
+    .tramo-row-edit .btn-icon-only:disabled {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+    .cfg-hint {
+      font-size: var(--text-small);
+      color: var(--color-text-tertiary);
+      margin-top: 12px;
+      line-height: 1.5;
     }
 
     /* Empty state */
@@ -628,6 +743,36 @@
       <div class="actions">
         <button class="btn btn-ghost" id="modal-cancelar">Cancelar</button>
         <button class="btn btn-primary" id="modal-guardar">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal configurar destinos -->
+  <div class="modal-backdrop" id="modal-configurar">
+    <div class="modal-card modal-card-wide">
+      <h3 id="cfg-title">Configurar destinos del CAF</h3>
+      <p id="cfg-desc">—</p>
+      <div class="cfg-error" id="cfg-error"></div>
+      <div class="tramos-table">
+        <div class="tramos-table-head">
+          <span>Destino</span>
+          <span>Desde</span>
+          <span>Hasta</span>
+          <span>Próximo / Estado</span>
+          <span></span>
+        </div>
+        <div id="cfg-tramos-rows"></div>
+      </div>
+      <button class="btn btn-ghost" id="cfg-agregar-tramo">+ Agregar tramo</button>
+      <p class="cfg-hint">
+        Los rangos no cubiertos quedan automáticamente en el pool del
+        servidor. Los folios ya emitidos no se pueden mover entre
+        sucursales — sus tramos vienen bloqueados para preservar la
+        trazabilidad.
+      </p>
+      <div class="actions">
+        <button class="btn btn-ghost" id="cfg-cancelar">Cancelar</button>
+        <button class="btn btn-primary" id="cfg-guardar">Guardar</button>
       </div>
     </div>
   </div>
@@ -786,9 +931,9 @@
       const container = document.getElementById('tipos-container');
       container.innerHTML = folios.map(f => renderTipo(f)).join('');
 
-      // Wire: selects de sucursal → PUT
-      container.querySelectorAll('select.sucursal-select').forEach(sel => {
-        sel.addEventListener('change', () => reasignarSucursal(sel));
+      // Wire: botones "Configurar destinos"
+      container.querySelectorAll('[data-action="configurar"]').forEach(btn => {
+        btn.addEventListener('click', () => abrirModalConfigurar(btn.dataset.cafId));
       });
       // Wire: botones "Ajustar folio"
       container.querySelectorAll('[data-action="ajustar-folio"]').forEach(btn => {
@@ -838,21 +983,34 @@
       `;
     }
 
+    function renderTramoChip(t) {
+      const nombre = t.sucursal_id
+        ? escapeHtml(t.sucursal_nombre || 'Sucursal')
+        : 'Pool del server';
+      const cls = t.estado === 'agotado' ? 'agotado'
+        : (t.sucursal_id ? '' : 'pool');
+      const rango = `${t.rango_desde.toLocaleString('es-CL')}–${t.rango_hasta.toLocaleString('es-CL')}`;
+      const sufijo = t.estado === 'agotado' ? ' · agotado' : '';
+      return `
+        <span class="tramo-chip ${cls}">
+          ${nombre}
+          <span class="rango">${rango}${sufijo}</span>
+        </span>`;
+    }
+
     function renderRango(f, r) {
-      const asignado = r.sucursal_id || '';
-      const opciones = [
-        `<option value=""${!asignado ? ' selected' : ''}>Pool del server</option>`,
-        ...SUCURSALES.map(s =>
-          `<option value="${escapeHtml(s.id)}"${s.id === asignado ? ' selected' : ''}>
-             ${escapeHtml(s.nombre)}
-           </option>`),
-      ].join('');
+      const tramos = Array.isArray(r.tramos) ? r.tramos : [];
+      const subdividido = tramos.length > 1;
 
       const estadoChip = r.estado === 'agotado'
         ? '<span class="chip-estado agotado">Agotado</span>'
         : '<span class="chip-estado">Activo</span>';
 
-      const btnAjustar = r.estado === 'activo' ? `
+      // El botón Ajustar folio solo tiene sentido cuando el CAF NO está
+      // subdividido en sucursales. Si lo está, el master debe consolidar
+      // primero al pool desde el modal Configurar destinos.
+      const tramosEnSucursal = tramos.some(t => t.sucursal_id);
+      const btnAjustar = (r.estado === 'activo' && !tramosEnSucursal) ? `
         <button class="btn btn-outline"
                 data-action="ajustar-folio"
                 data-tipo="${f.tipo_dte}"
@@ -861,24 +1019,33 @@
           Ajustar folio
         </button>` : '';
 
+      const tramosLine = tramos.length > 0
+        ? tramos.map(renderTramoChip).join('')
+        : '<span class="tramo-chip pool">Pool del server <span class="rango">' +
+          `${r.desde.toLocaleString('es-CL')}–${r.hasta.toLocaleString('es-CL')}</span></span>`;
+
       return `
         <div class="rango-row">
-          <div class="folios">
-            ${r.desde.toLocaleString('es-CL')}–${r.hasta.toLocaleString('es-CL')}
-            ${estadoChip}
-            <span class="sub">
-              Autorizado: ${r.fecha_autorizacion || '—'}
-            </span>
-          </div>
-          <div class="uso">
-            ${r.usados.toLocaleString('es-CL')} / ${r.total.toLocaleString('es-CL')} usados
-          </div>
-          <div class="sucursal-pick">
-            <select class="sucursal-select" data-caf-id="${escapeHtml(r.id)}">
-              ${opciones}
-            </select>
+          <div class="info-col">
+            <div class="meta-line">
+              CAF ${r.desde.toLocaleString('es-CL')}–${r.hasta.toLocaleString('es-CL')}
+              ${estadoChip}
+              <span class="sub">
+                Autorizado: ${r.fecha_autorizacion || '—'} ·
+                ${r.usados.toLocaleString('es-CL')} / ${r.total.toLocaleString('es-CL')} usados
+                ${subdividido ? ' · ' + tramos.length + ' tramos' : ''}
+              </span>
+            </div>
+            <div class="tramos-line">
+              ${tramosLine}
+            </div>
           </div>
           <div class="actions">
+            <button class="btn btn-outline"
+                    data-action="configurar"
+                    data-caf-id="${escapeHtml(r.id)}">
+              Configurar destinos
+            </button>
             ${btnAjustar}
           </div>
         </div>
@@ -967,35 +1134,255 @@
       }
     });
 
-    // ══ Reasignar sucursal ══
-    async function reasignarSucursal(sel) {
-      const cafId = sel.dataset.cafId;
-      const nuevoSucId = sel.value || null;
-      sel.disabled = true;
+    // ══ Modal Configurar destinos ══
+    // Reemplaza al dropdown legacy: el master carga los tramos del CAF,
+    // los edita en una tabla (puede agregar / borrar tramos, cambiar
+    // sucursal, achicar rango) y guarda con un PUT atómico al endpoint
+    // nuevo `/api/folios/caf/{id}/asignaciones`. Los huecos no cubiertos
+    // los rellena el backend con tramos pool.
+    const cfgModal = document.getElementById('modal-configurar');
+    const cfgTitle = document.getElementById('cfg-title');
+    const cfgDesc = document.getElementById('cfg-desc');
+    const cfgError = document.getElementById('cfg-error');
+    const cfgRowsContainer = document.getElementById('cfg-tramos-rows');
+    const cfgAgregarBtn = document.getElementById('cfg-agregar-tramo');
+    const cfgCancelarBtn = document.getElementById('cfg-cancelar');
+    const cfgGuardarBtn = document.getElementById('cfg-guardar');
+
+    let cfgState = {
+      cafId: null,
+      tipoDte: null,
+      rangoDesde: null,
+      rangoHasta: null,
+      tramos: [],
+    };
+
+    function showCfgError(msg) {
+      cfgError.textContent = msg;
+      cfgError.classList.add('visible');
+    }
+
+    function clearCfgError() {
+      cfgError.textContent = '';
+      cfgError.classList.remove('visible');
+    }
+
+    async function abrirModalConfigurar(cafId) {
+      clearCfgError();
+      cfgRowsContainer.innerHTML =
+        '<div style="padding: 16px; color: var(--color-text-secondary);">Cargando…</div>';
+      cfgGuardarBtn.disabled = true;
+      cfgGuardarBtn.textContent = 'Cargando…';
+      cfgModal.classList.add('visible');
+
       try {
         const res = await apiFetch(
-          `/api/folios/caf/${encodeURIComponent(cafId)}/sucursal`,
+          `/api/folios/caf/${encodeURIComponent(cafId)}/asignaciones`
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          showCfgError(data.detail || 'No se pudo cargar el CAF.');
+          return;
+        }
+        cfgState = {
+          cafId: data.caf_id,
+          tipoDte: data.tipo_dte,
+          rangoDesde: data.rango_desde,
+          rangoHasta: data.rango_hasta,
+          tramos: data.tramos.map(t => ({
+            sucursal_id: t.sucursal_id,
+            sucursal_nombre: t.sucursal_nombre,
+            rango_desde: t.rango_desde,
+            rango_hasta: t.rango_hasta,
+            folio_actual: t.folio_actual,
+            estado: t.estado,
+          })),
+        };
+        cfgTitle.textContent =
+          `Configurar destinos · CAF tipo ${cfgState.tipoDte}`;
+        cfgDesc.textContent =
+          `Rango ${cfgState.rangoDesde.toLocaleString('es-CL')}–` +
+          `${cfgState.rangoHasta.toLocaleString('es-CL')}. Asigna ` +
+          `tramos a sucursales o déjalos en el pool del servidor.`;
+        pintarTramosCfg();
+      } catch (err) {
+        showCfgError('Error de red al cargar el CAF.');
+      } finally {
+        cfgGuardarBtn.disabled = false;
+        cfgGuardarBtn.textContent = 'Guardar';
+      }
+    }
+
+    function pintarTramosCfg() {
+      cfgRowsContainer.innerHTML = cfgState.tramos.map((t, idx) => {
+        const sucOpts = [
+          `<option value=""${!t.sucursal_id ? ' selected' : ''}>Pool del server</option>`,
+          ...SUCURSALES.map(s =>
+            `<option value="${escapeHtml(s.id)}"${s.id === t.sucursal_id ? ' selected' : ''}>` +
+            `${escapeHtml(s.nombre)}</option>`
+          ),
+        ].join('');
+        // Tramo con folios consumidos: rango_desde queda bloqueado y no
+        // se puede borrar (movería folios consumidos entre dueños). El
+        // backend rechazaría, pero lo prevenimos en cliente para feedback
+        // inmediato.
+        const consumido = (t.folio_actual || t.rango_desde) > t.rango_desde;
+        const estadoLabel = t.estado === 'agotado'
+          ? 'Agotado'
+          : `Próx: ${(t.folio_actual ?? t.rango_desde).toLocaleString('es-CL')}`;
+        const estadoCls = t.estado === 'agotado' ? 'agotado' : '';
+        return `
+          <div class="tramo-row-edit" data-idx="${idx}">
+            <select class="cfg-select" data-field="sucursal_id">${sucOpts}</select>
+            <input type="number" class="cfg-input" data-field="rango_desde"
+                   min="${cfgState.rangoDesde}" max="${cfgState.rangoHasta}"
+                   value="${t.rango_desde}"${consumido ? ' disabled' : ''}>
+            <input type="number" class="cfg-input" data-field="rango_hasta"
+                   min="${cfgState.rangoDesde}" max="${cfgState.rangoHasta}"
+                   value="${t.rango_hasta}">
+            <span class="estado-cell ${estadoCls}">${estadoLabel}</span>
+            <button class="btn-icon-only cfg-eliminar" title="Eliminar tramo"
+                    ${consumido ? 'disabled' : ''}>×</button>
+          </div>
+        `;
+      }).join('');
+
+      // Wire de cada fila
+      cfgRowsContainer.querySelectorAll('.tramo-row-edit').forEach(row => {
+        const idx = parseInt(row.dataset.idx, 10);
+        row.querySelectorAll('.cfg-select, .cfg-input').forEach(input => {
+          input.addEventListener('change', () => {
+            const field = input.dataset.field;
+            let value = input.value;
+            if (field === 'rango_desde' || field === 'rango_hasta') {
+              const n = parseInt(value, 10);
+              value = isNaN(n) ? null : n;
+            }
+            if (field === 'sucursal_id' && value === '') value = null;
+            cfgState.tramos[idx][field] = value;
+          });
+        });
+        const btnDel = row.querySelector('.cfg-eliminar');
+        if (btnDel && !btnDel.disabled) {
+          btnDel.addEventListener('click', () => {
+            cfgState.tramos.splice(idx, 1);
+            pintarTramosCfg();
+          });
+        }
+      });
+    }
+
+    cfgAgregarBtn.addEventListener('click', () => {
+      clearCfgError();
+      // Buscar el primer hueco en el rango.
+      const ordenados = [...cfgState.tramos]
+        .filter(t => Number.isInteger(t.rango_desde) && Number.isInteger(t.rango_hasta))
+        .sort((a, b) => a.rango_desde - b.rango_desde);
+      let cursor = cfgState.rangoDesde;
+      let nuevoDesde = null;
+      let nuevoHasta = null;
+      for (const t of ordenados) {
+        if (t.rango_desde > cursor) {
+          nuevoDesde = cursor;
+          nuevoHasta = t.rango_desde - 1;
+          break;
+        }
+        cursor = Math.max(cursor, t.rango_hasta + 1);
+      }
+      if (nuevoDesde === null && cursor <= cfgState.rangoHasta) {
+        nuevoDesde = cursor;
+        nuevoHasta = cfgState.rangoHasta;
+      }
+      if (nuevoDesde === null) {
+        showCfgError(
+          'No hay rangos libres para agregar otro tramo. Ajusta los rangos ' +
+          'existentes o elimina alguno antes de agregar uno nuevo.'
+        );
+        return;
+      }
+      cfgState.tramos.push({
+        sucursal_id: null,
+        sucursal_nombre: null,
+        rango_desde: nuevoDesde,
+        rango_hasta: nuevoHasta,
+        folio_actual: nuevoDesde,
+        estado: 'activo',
+      });
+      pintarTramosCfg();
+    });
+
+    function cerrarCfg() {
+      cfgModal.classList.remove('visible');
+      cfgState = {
+        cafId: null, tipoDte: null,
+        rangoDesde: null, rangoHasta: null,
+        tramos: [],
+      };
+      clearCfgError();
+    }
+
+    cfgCancelarBtn.addEventListener('click', cerrarCfg);
+    cfgModal.addEventListener('click', (e) => {
+      if (e.target === cfgModal) cerrarCfg();
+    });
+
+    cfgGuardarBtn.addEventListener('click', async () => {
+      clearCfgError();
+
+      const tramos = cfgState.tramos.map(t => ({
+        sucursal_id: t.sucursal_id || null,
+        rango_desde: parseInt(t.rango_desde, 10),
+        rango_hasta: parseInt(t.rango_hasta, 10),
+      }));
+
+      // Validación cliente — atajo para errores triviales antes del round-trip.
+      for (const t of tramos) {
+        if (!Number.isInteger(t.rango_desde) || !Number.isInteger(t.rango_hasta)) {
+          showCfgError('Hay un tramo con rangos vacíos o no numéricos.');
+          return;
+        }
+        if (t.rango_desde > t.rango_hasta) {
+          showCfgError(
+            `Tramo inválido: ${t.rango_desde} > ${t.rango_hasta}.`
+          );
+          return;
+        }
+        if (t.rango_desde < cfgState.rangoDesde ||
+            t.rango_hasta > cfgState.rangoHasta) {
+          showCfgError(
+            `Tramo ${t.rango_desde}–${t.rango_hasta} fuera del rango ` +
+            `del CAF (${cfgState.rangoDesde}–${cfgState.rangoHasta}).`
+          );
+          return;
+        }
+      }
+
+      cfgGuardarBtn.disabled = true;
+      cfgGuardarBtn.textContent = 'Guardando…';
+      try {
+        const res = await apiFetch(
+          `/api/folios/caf/${encodeURIComponent(cfgState.cafId)}/asignaciones`,
           {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sucursal_id: nuevoSucId }),
+            body: JSON.stringify({ tramos }),
           }
         );
         const data = await res.json();
         if (!res.ok) {
-          showBanner('error', data.detail || 'No se pudo reasignar el CAF');
-          // Restaurar selección previa desde ULTIMO_ESTADO
-          await cargarEstado();
+          showCfgError(data.detail || 'No se pudo guardar la configuración.');
           return;
         }
-        showBanner('success', data.mensaje, 3500);
-      } catch (err) {
-        showBanner('error', 'Error de red al reasignar el CAF');
+        showBanner('success', data.mensaje || 'Configuración guardada.', 3500);
+        cerrarCfg();
         await cargarEstado();
+      } catch (err) {
+        showCfgError('Error de red al guardar.');
       } finally {
-        sel.disabled = false;
+        cfgGuardarBtn.disabled = false;
+        cfgGuardarBtn.textContent = 'Guardar';
       }
-    }
+    });
 
     // ══ Modal ajustar folio ══
     const modal = document.getElementById('modal-ajustar');

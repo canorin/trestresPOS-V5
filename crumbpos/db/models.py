@@ -401,9 +401,27 @@ class Pago(Base):
 class CafFolio(Base):
     """CAFs cargados por empresa y tipo DTE.
 
-    Cada registro es un rango de folios autorizado por el SII.
-    folio_actual avanza monotónicamente (nunca retrocede).
-    Cuando folio_actual > rango_hasta → estado='agotado'.
+    Cada registro es un rango de folios autorizado por el SII (XML firmado
+    por el SII + llave privada para el TED). El rango global vive aquí y es
+    inmutable: nunca se mueve ni se reescribe. Lo que sí muta es el set de
+    asignaciones (``caf_asignacion``): el master cliente puede subdividir
+    el CAF en N tramos y asignar cada tramo a una sucursal o al pool del
+    server (``sucursal_id IS NULL``).
+
+    Campos legados:
+      - ``sucursal_id`` y ``folio_actual`` siguen existiendo en la tabla por
+        compatibilidad con DBs preexistentes y para el self-heal del
+        bootstrap, pero el motor de consumo nuevo ignora ambos. La fuente
+        de verdad para "qué folio consumir" es ``CafAsignacion.folio_actual``
+        del tramo correspondiente. Una migración idempotente
+        (``_migrate_empresa_schema``) genera una asignación por cada CAF
+        existente con su ``sucursal_id`` previo y ``folio_actual`` previo,
+        para que la transición sea cero-disruptiva.
+
+    Estado:
+      - ``activo``  → al menos una asignación con folios disponibles.
+      - ``agotado`` → todas las asignaciones consumidas. Lo recalcula
+        ``CAFManagerDB`` cuando un consumo deja sin folios al CAF entero.
     """
     __tablename__ = "caf_folio"
 
@@ -412,12 +430,17 @@ class CafFolio(Base):
     sucursal_id: Mapped[str | None] = mapped_column(
         ForeignKey("sucursal.id"), nullable=True,
     )
-    # NULL = pool del servidor (emisiones desde admin web).
-    # NOT NULL = asignado a esa sucursal específica.
+    # DEPRECADO: se mantiene por compatibilidad. La asignación real vive
+    # en ``caf_asignacion``. Cuando una migración corre por primera vez,
+    # este valor se copia a la asignación inicial del CAF y luego deja
+    # de mutar (queda como tombstone del valor histórico).
     tipo_dte: Mapped[int] = mapped_column(Integer, nullable=False)
     rango_desde: Mapped[int] = mapped_column(Integer, nullable=False)
     rango_hasta: Mapped[int] = mapped_column(Integer, nullable=False)
     folio_actual: Mapped[int] = mapped_column(Integer, nullable=False)
+    # DEPRECADO: la fuente de verdad del próximo folio es
+    # ``caf_asignacion.folio_actual`` del tramo activo en uso. Esta columna
+    # queda con el último valor que tuvo antes de la migración a tramos.
     caf_xml_raw: Mapped[bytes] = mapped_column(Text, nullable=False)  # XML completo del CAF
     rut_emisor: Mapped[str | None] = mapped_column(String(12))
     fecha_autorizacion: Mapped[str | None] = mapped_column(String(10))
@@ -425,11 +448,122 @@ class CafFolio(Base):
     # Estados: activo, agotado
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    asignaciones: Mapped[list["CafAsignacion"]] = relationship(
+        back_populates="caf", cascade="all, delete-orphan",
+    )
+
     __table_args__ = (
         Index(
             "ix_caf_empresa_tipo_sucursal",
             "empresa_id", "tipo_dte", "sucursal_id", "estado",
         ),
+    )
+
+
+class CafAsignacion(Base):
+    """Tramo de asignación de un CAF a una sucursal o al pool del server.
+
+    Un ``CafFolio`` se subdivide en uno o más tramos contiguos, sin solape,
+    cubriendo todo el rango del CAF. Cada tramo es la unidad atómica de
+    consumo: ``CAFManagerDB.siguiente_folio(tipo_dte, sucursal_id)``
+    selecciona un tramo activo cuyo ``sucursal_id`` matchee el solicitado
+    y avanza ``folio_actual`` del tramo (no del CAF padre).
+
+    Reglas:
+      · ``sucursal_id IS NULL`` = pool del server. Lo consume el master
+        cliente cuando emite desde la consola (sin POS). Cualquier folio
+        no asignado explícitamente cae aquí.
+      · ``sucursal_id`` seteado = pertenece a esa sucursal. Su POS es el
+        único que puede consumirlo en operación normal. El master puede
+        consumirlo desde el server con confirmación explícita cuando el
+        pool está vacío (gatilla ``CafEventoSync`` para invalidar la
+        cache del POS).
+      · Tramos de un mismo CAF no se solapan y cubren todo el rango
+        ``[caf.rango_desde, caf.rango_hasta]`` (cobertura total).
+      · ``rango_desde <= folio_actual <= rango_hasta + 1``. Cuando
+        ``folio_actual > rango_hasta``, el tramo pasa a ``estado='agotado'``.
+      · Reasignación admite mover folios sin consumir entre tramos
+        (incluido devolver al pool); folios ya consumidos no se mueven.
+    """
+    __tablename__ = "caf_asignacion"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    caf_id: Mapped[str] = mapped_column(
+        ForeignKey("caf_folio.id", ondelete="CASCADE"), nullable=False,
+    )
+    sucursal_id: Mapped[str | None] = mapped_column(
+        ForeignKey("sucursal.id"), nullable=True,
+    )
+    # NULL = pool del server. NOT NULL = sucursal específica.
+    rango_desde: Mapped[int] = mapped_column(Integer, nullable=False)
+    rango_hasta: Mapped[int] = mapped_column(Integer, nullable=False)
+    folio_actual: Mapped[int] = mapped_column(Integer, nullable=False)
+    estado: Mapped[str] = mapped_column(String(10), default="activo")
+    # Estados: activo, agotado
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+    )
+
+    caf: Mapped["CafFolio"] = relationship(back_populates="asignaciones")
+    sucursal: Mapped["Sucursal | None"] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("caf_id", "rango_desde", name="uq_caf_asig_caf_desde"),
+        Index("ix_caf_asig_caf", "caf_id"),
+        Index("ix_caf_asig_sucursal_estado", "sucursal_id", "estado"),
+    )
+
+
+class CafEventoSync(Base):
+    """Append-only log de eventos para sincronizar la cache del POS de sucursal.
+
+    Cuando algo cambia el set de folios disponibles para una sucursal —ya sea
+    porque el master cliente reasignó tramos desde la consola, o porque una
+    emisión desde el server consumió un folio del slice de la sucursal— se
+    deja una fila aquí. El POS de la sucursal hace polling (o long-poll)
+    contra ``/api/pos/caf-sync`` y aplica los eventos pendientes a su
+    cache local.
+
+    Implementación de la pieza "cache invalidation" del modelo offline-aware:
+    aunque el cliente del POS aún no se construye, la tabla se crea desde
+    ya para que cualquier consumo desde el server que toque un slice ajeno
+    deje el evento listo. El día que el cliente offline arranque, este es
+    el feed que consume.
+
+    Append-only por diseño: ningún evento se modifica ni se borra. Una
+    tarea de housekeeping puede truncar eventos más antiguos que N días
+    una vez que todas las sucursales los hayan acuseado.
+    """
+    __tablename__ = "caf_evento_sync"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True,
+    )
+    sucursal_id: Mapped[str] = mapped_column(
+        ForeignKey("sucursal.id"), nullable=False,
+    )
+    caf_id: Mapped[str | None] = mapped_column(
+        ForeignKey("caf_folio.id"), nullable=True,
+    )
+    asignacion_id: Mapped[str | None] = mapped_column(String(36))
+    tipo_evento: Mapped[str] = mapped_column(String(30), nullable=False)
+    # Eventos canónicos:
+    #   folio_consumido_servidor  → master emitió desde el server contra
+    #                               este slice (pool vacío con confirmación)
+    #   asignacion_creada         → master asignó folios nuevos
+    #   asignacion_modificada     → cambió rango o sucursal_id (reasignación)
+    #   asignacion_eliminada      → folios devueltos al pool
+    payload: Mapped[dict | None] = mapped_column(JSON)
+    # Contexto del evento. Ej.:
+    #   {"tipo_dte": 39, "folio": 124}
+    #   {"rango_desde": 89, "rango_hasta": 98, "folio_actual": 89}
+    timestamp: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        Index("ix_caf_evento_sucursal_id", "sucursal_id", "id"),
     )
 
 

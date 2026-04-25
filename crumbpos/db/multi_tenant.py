@@ -567,7 +567,7 @@ def _migrate_empresa_schema(engine):
     registrarse aquí para que las DBs viejas la reciban al primer acceso.
     """
     with engine.begin() as conn:
-        # ── caf_folio: sucursal_id (asignación CAF→sucursal) ──
+        # ── caf_folio: sucursal_id (asignación CAF→sucursal, legacy) ──
         caf_cols = {
             row[1] for row in conn.execute(text("PRAGMA table_info(caf_folio)"))
         }
@@ -582,6 +582,51 @@ def _migrate_empresa_schema(engine):
                 "ON caf_folio (empresa_id, tipo_dte, sucursal_id, estado)"
             ))
             logger.info("Empresa migrate: caf_folio.sucursal_id agregada")
+
+        # ── caf_asignacion: backfill desde caf_folio (legacy → tramos) ──
+        #
+        # ``Base.metadata.create_all`` ya creó la tabla ``caf_asignacion``
+        # vacía. La migración funcional es: por cada ``caf_folio`` existente
+        # que aún no tenga ninguna asignación, generar UN tramo único
+        # cubriendo todo el rango con el ``sucursal_id`` y ``folio_actual``
+        # del CAF padre. Esto preserva el comportamiento previo al cambio
+        # (un CAF = un dueño, todo el rango) sin que el master tenga que
+        # tocar nada.
+        #
+        # Idempotente: si ya existe al menos una asignación para un caf_id,
+        # no se crea nada. El uso de ``INSERT ... WHERE NOT EXISTS`` lo
+        # garantiza incluso si la migración corre N veces (cada arranque
+        # del proceso).
+        asig_exists = conn.execute(text(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='caf_asignacion'"
+        )).first()
+        if caf_cols and asig_exists:
+            result = conn.execute(text(
+                "INSERT INTO caf_asignacion ("
+                "id, caf_id, sucursal_id, rango_desde, rango_hasta, "
+                "folio_actual, estado, created_at, updated_at) "
+                "SELECT "
+                "  lower(hex(randomblob(4))) || '-' || "
+                "  lower(hex(randomblob(2))) || '-4' || "
+                "  substr(lower(hex(randomblob(2))), 2) || '-' || "
+                "  substr('89ab', abs(random()) % 4 + 1, 1) || "
+                "  substr(lower(hex(randomblob(2))), 2) || '-' || "
+                "  lower(hex(randomblob(6))), "
+                "  c.id, c.sucursal_id, c.rango_desde, c.rango_hasta, "
+                "  c.folio_actual, c.estado, "
+                "  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP "
+                "FROM caf_folio c "
+                "WHERE NOT EXISTS ("
+                "  SELECT 1 FROM caf_asignacion a WHERE a.caf_id = c.id"
+                ")"
+            ))
+            if result.rowcount:
+                logger.info(
+                    "Empresa migrate: caf_asignacion backfill — %d tramo(s) "
+                    "creado(s) desde caf_folio existentes",
+                    result.rowcount,
+                )
 
         # ── certificacion_caso: substates EPR / declarar avance / aprobado ──
         caso_cols = {
