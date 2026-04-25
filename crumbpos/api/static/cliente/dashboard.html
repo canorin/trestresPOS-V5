@@ -182,6 +182,192 @@
       text-decoration: none;
       opacity: 0.85;
     }
+
+    /* ── Chip actions ────────────────────────────────────────────── */
+    .chip-btn {
+      background: none;
+      border: 0;
+      color: var(--color-accent);
+      cursor: pointer;
+      font: inherit;
+      font-size: var(--text-caption);
+      padding: 0 0 0 6px;
+      border-left: 1px solid var(--color-border);
+      margin-left: 6px;
+      height: 16px;
+      line-height: 16px;
+      transition: color 150ms var(--ease);
+    }
+    .chip-btn:hover { color: var(--color-accent-hover); }
+    .chip-btn:first-of-type {
+      border-left: 0;
+      margin-left: 0;
+      padding-left: 6px;
+    }
+
+    /* ── Modal (apple-style) ─────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    .modal-backdrop.visible { display: flex; }
+    .modal-card {
+      background: var(--color-bg);
+      border-radius: var(--radius-lg);
+      padding: 32px 32px 28px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: var(--text-heading);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--color-text);
+      margin-bottom: 4px;
+    }
+    .modal-subtitle {
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      margin-bottom: 24px;
+    }
+    .modal-section {
+      border-top: 1px solid var(--color-border-light);
+      padding-top: 20px;
+      margin-top: 20px;
+    }
+    .modal-section:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
+    .modal-section-title {
+      font-size: var(--text-caption);
+      font-weight: 600;
+      color: var(--color-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 14px;
+    }
+
+    /* Perfil — grid de datos readonly */
+    .perfil-grid {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      row-gap: 10px;
+      column-gap: 16px;
+      font-size: var(--text-caption);
+    }
+    .perfil-grid dt {
+      color: var(--color-text-tertiary);
+      font-weight: 400;
+    }
+    .perfil-grid dd {
+      color: var(--color-text);
+      font-weight: 500;
+    }
+
+    /* Form de password */
+    .form-row { margin-bottom: 14px; }
+    .form-row:last-of-type { margin-bottom: 0; }
+    .form-label {
+      display: block;
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      margin-bottom: 6px;
+    }
+    .form-input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      font: inherit;
+      font-size: var(--text-body);
+      color: var(--color-text);
+      background: var(--color-bg);
+      transition: border-color 150ms var(--ease),
+                  box-shadow 150ms var(--ease);
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+    .form-hint {
+      font-size: var(--text-small);
+      color: var(--color-text-tertiary);
+      margin-top: 4px;
+    }
+    .form-error {
+      font-size: var(--text-small);
+      color: var(--color-error);
+      margin-top: 4px;
+      display: none;
+    }
+    .form-error.visible { display: block; }
+
+    /* Banner de mensajes */
+    .form-banner {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: var(--text-caption);
+      margin-bottom: 16px;
+      display: none;
+    }
+    .form-banner.visible { display: block; }
+    .form-banner.success {
+      background: var(--color-etapa-produccion-bg);
+      color: var(--color-etapa-produccion-fg);
+    }
+    .form-banner.error {
+      background: var(--color-etapa-pendiente-bg);
+      color: var(--color-etapa-pendiente-fg);
+    }
+
+    /* Botones pill (apple-style) */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 22px;
+      border-radius: var(--radius-pill);
+      font: inherit;
+      font-size: var(--text-caption);
+      font-weight: 400;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 150ms var(--ease),
+                  color 150ms var(--ease),
+                  border-color 150ms var(--ease);
+    }
+    .btn-primary {
+      background: var(--color-accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--color-accent-hover); }
+    .btn-primary:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: transparent;
+      color: var(--color-accent);
+      border-color: var(--color-accent);
+    }
+    .btn-secondary:hover { background: rgba(0, 113, 227, 0.08); }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
   </style>
 </head>
 <body>
@@ -202,7 +388,8 @@
         <strong id="chip-nombre">—</strong>
         <span class="sep">·</span>
         <span id="chip-email">—</span>
-        <button class="logout" id="btn-logout">Cerrar sesión</button>
+        <button class="chip-btn" id="btn-mi-cuenta">Mi cuenta</button>
+        <button class="chip-btn" id="btn-logout">Cerrar sesión</button>
       </div>
     </div>
 
@@ -219,7 +406,7 @@
     </div>
 
     <div class="modules" id="modules">
-      <!-- 1. Información del negocio -->
+      <!-- 1. Información del negocio — office-building -->
       <div class="module-card" data-slug="negocio">
         <div class="module-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21"/></svg>
@@ -230,7 +417,7 @@
         </div>
       </div>
 
-      <!-- 2. Sucursales -->
+      <!-- 2. Sucursales — map-pin -->
       <div class="module-card" data-slug="sucursales">
         <div class="module-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
@@ -241,7 +428,7 @@
         </div>
       </div>
 
-      <!-- 3. Usuarios -->
+      <!-- 3. Usuarios — users -->
       <div class="module-card" data-slug="usuarios">
         <div class="module-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
@@ -252,7 +439,7 @@
         </div>
       </div>
 
-      <!-- 4. Facturación -->
+      <!-- 4. Facturación — document-text -->
       <div class="module-card" data-slug="facturacion">
         <div class="module-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
@@ -263,7 +450,7 @@
         </div>
       </div>
 
-      <!-- 5. CAF -->
+      <!-- 5. CAF — document-stack -->
       <div class="module-card" data-slug="caf">
         <div class="module-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75"/></svg>
@@ -274,7 +461,7 @@
         </div>
       </div>
 
-      <!-- 6. Inventario (proximamente) -->
+      <!-- 6. Inventario — cube -->
       <div class="module-card coming-soon" data-slug="inventario">
         <span class="coming-badge">Próximamente</span>
         <div class="module-icon">
@@ -287,6 +474,76 @@
       </div>
     </div>
   </main>
+
+  <!-- ── Modal: Mi cuenta ───────────────────────────────────────── -->
+  <div id="modal-mi-cuenta" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-mc-title">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-mc-title">Mi cuenta</div>
+      <div class="modal-subtitle">
+        Tu información personal y la contraseña de acceso a la consola.
+      </div>
+
+      <div id="mc-banner" class="form-banner"></div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Perfil</div>
+        <dl class="perfil-grid">
+          <dt>Nombre</dt>
+          <dd id="mc-nombre">—</dd>
+          <dt>Email</dt>
+          <dd id="mc-email">—</dd>
+          <dt>Rol</dt>
+          <dd id="mc-rol">—</dd>
+        </dl>
+      </div>
+
+      <div class="modal-section">
+        <div class="modal-section-title">Cambiar contraseña</div>
+
+        <form id="form-password" autocomplete="off" novalidate>
+          <div class="form-row">
+            <label class="form-label" for="mc-pwd-actual">Contraseña actual</label>
+            <input
+              type="password"
+              id="mc-pwd-actual"
+              class="form-input"
+              autocomplete="current-password"
+              required>
+            <div class="form-error" id="err-actual"></div>
+          </div>
+
+          <div class="form-row">
+            <label class="form-label" for="mc-pwd-nueva">Nueva contraseña</label>
+            <input
+              type="password"
+              id="mc-pwd-nueva"
+              class="form-input"
+              autocomplete="new-password"
+              minlength="8"
+              required>
+            <div class="form-hint">Mínimo 8 caracteres, distinta de la actual.</div>
+            <div class="form-error" id="err-nueva"></div>
+          </div>
+
+          <div class="form-row">
+            <label class="form-label" for="mc-pwd-repetir">Repetir nueva contraseña</label>
+            <input
+              type="password"
+              id="mc-pwd-repetir"
+              class="form-input"
+              autocomplete="new-password"
+              required>
+            <div class="form-error" id="err-repetir"></div>
+          </div>
+        </form>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-mc-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-mc-guardar">Guardar</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     // Sesión namespaced por RUT empresa (igual patrón que login.html).
