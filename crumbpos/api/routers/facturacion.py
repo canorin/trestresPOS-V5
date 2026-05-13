@@ -22,7 +22,7 @@ from crumbpos.api.services.emision_dte import (
 )
 from crumbpos.config import settings
 from crumbpos.db.models import Empresa, CafFolio, DteEmitido, Sucursal
-from crumbpos.core.caf.caf_manager_db import CAFManagerDB
+from crumbpos.core.caf.caf_manager_db import CAFManagerDB, FoliosAgotadosError
 from crumbpos.api.dependencies import get_tenant, TenantContext
 
 logger = logging.getLogger(__name__)
@@ -307,12 +307,26 @@ def emitir_factura(body: EmitirFacturaIn, tenant: TenantContext = Depends(get_te
         # NC/ND que modifican monto leen los ítems originales desde el
         # DteEmitido referenciado. Un solo core procesa documentos tanto en
         # producción como en certificación — mismo fix sirve a ambos.
-        resultado = servicio.emitir_factura(
-            req,
-            enviar_sii=body.enviar_sii,
-            session=tenant.db,
-            empresa_id=empresa.id,
-        )
+        try:
+            resultado = servicio.emitir_factura(
+                req,
+                enviar_sii=body.enviar_sii,
+                session=tenant.db,
+                empresa_id=empresa.id,
+            )
+        except FoliosAgotadosError as e:
+            # Sin folios en el slice solicitado — 409 con datos estructurados
+            # para que el frontend ofrezca mover folios de otra sucursal/pool.
+            raise HTTPException(
+                409,
+                detail={
+                    "error": "folios_agotados",
+                    "tipo_dte": e.tipo_dte,
+                    "sucursal_id": e.sucursal_id,
+                    "sucursales_con_stock": e.sucursales_con_stock,
+                    "mensaje": str(e),
+                },
+            )
 
         # Persist DteEmitido
         try:
@@ -389,11 +403,23 @@ def emitir_factura_pdf(body: EmitirFacturaIn, tenant: TenantContext = Depends(ge
 
         # Igual que /emitir: session+empresa_id habilitan enriquecimiento
         # CodRef=3 en el core para NC/ND que modifican monto.
-        resultado = servicio.emitir_factura(
-            req,
-            session=tenant.db,
-            empresa_id=empresa.id,
-        )
+        try:
+            resultado = servicio.emitir_factura(
+                req,
+                session=tenant.db,
+                empresa_id=empresa.id,
+            )
+        except FoliosAgotadosError as e:
+            raise HTTPException(
+                409,
+                detail={
+                    "error": "folios_agotados",
+                    "tipo_dte": e.tipo_dte,
+                    "sucursal_id": e.sucursal_id,
+                    "sucursales_con_stock": e.sucursales_con_stock,
+                    "mensaje": str(e),
+                },
+            )
 
         try:
             _persist_dte_emitido(tenant.db, empresa, body, resultado, sucursal_id=sucursal_id)

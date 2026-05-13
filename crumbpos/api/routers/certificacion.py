@@ -43,7 +43,7 @@ from crumbpos.certificacion.parser_set_sii import (
     SetParseado,
     parse_set_sii_content,
 )
-from crumbpos.core.caf.caf_manager_db import CAFManagerDB
+from crumbpos.core.caf.caf_manager_db import CAFManagerDB, FoliosAgotadosError
 from crumbpos.db.models import (
     CafFolio,
     CertificacionCaso,
@@ -581,6 +581,20 @@ def emitir_caso(
                 folio_override=caso.folio,
                 session=session,
                 empresa_id=empresa.id,
+            )
+        except FoliosAgotadosError as e:
+            # Sin folios disponibles — 409 con datos estructurados para que
+            # el wizard muestre al operador qué sucursales tienen stock y
+            # pueda redirigir la emisión o subir un nuevo CAF.
+            raise HTTPException(
+                409,
+                detail={
+                    "error": "folios_agotados",
+                    "tipo_dte": e.tipo_dte,
+                    "sucursal_id": e.sucursal_id,
+                    "sucursales_con_stock": e.sucursales_con_stock,
+                    "mensaje": str(e),
+                },
             )
         except Exception as exc:
             logger.error(

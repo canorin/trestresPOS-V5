@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from crumbpos.core.roles import puede_gestionar_empresa
 from crumbpos.db.models import Sucursal
+from crumbpos.core.caf.caf_manager_db import CAFManagerDB
 from crumbpos.api.dependencies import get_tenant, TenantContext
 
 
@@ -139,6 +140,12 @@ def desactivar_sucursal(sucursal_id: str, tenant: TenantContext = Depends(get_te
             raise HTTPException(404, "Sucursal no encontrada")
 
         suc.activa = False
+
+        # Devolver tramos de CAF de esta sucursal al pool del server,
+        # para que sus folios sin consumir queden disponibles para reasignación.
+        mgr = CAFManagerDB(tenant.db, tenant.empresa_id)
+        mgr.devolver_folios_de_sucursal_al_pool(sucursal_id)
+
         tenant.db.commit()
         return {"ok": True, "detail": f"Sucursal '{suc.nombre}' desactivada"}
     finally:
