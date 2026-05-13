@@ -16,7 +16,6 @@ import base64
 import re
 import requests
 from datetime import datetime, date
-from pathlib import Path
 
 from cryptography.hazmat.primitives.serialization import (
     pkcs12, Encoding, PrivateFormat, NoEncryption,
@@ -147,28 +146,19 @@ class ServicioRCOF:
                 sec_envio=sec_envio,
             )
 
-            # 4. Firmar con type="consu"
+            # 4. Firmar con type="consu" (ConsumoFolios — validación XSD local
+            # desactivada con verify=False en _cargar_firma; el SII valida
+            # contra sus propios schemas al recibir el documento).
             signed = self._firma.firmar(xml_str, rcof_id, type="consu")
             if not signed:
-                # Fallback: intentar con type="libro_boleta"
-                logger.warning(
-                    "Firma con type='consu' fallo (%s), reintentando con 'libro_boleta'",
-                    self._firma.errores,
-                )
-                signed = self._firma.firmar(xml_str, rcof_id, type="libro_boleta")
-                if not signed:
-                    return {
-                        "ok": False,
-                        "error": f"Error firmando RCOF: {self._firma.errores}",
-                    }
+                return {
+                    "ok": False,
+                    "error": f"Error firmando RCOF (type=consu): {self._firma.errores}",
+                }
 
             # 5. Preparar XML final
             xml_final = '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + signed
             xml_bytes = xml_final.encode("ISO-8859-1")
-
-            # Debug: guardar en /tmp
-            Path("/tmp/ultimo_rcof.xml").write_bytes(xml_bytes)
-            logger.info("RCOF XML guardado en /tmp/ultimo_rcof.xml")
 
             # 6. Construir resumen para DB
             resumen = self._build_resumen(boletas)

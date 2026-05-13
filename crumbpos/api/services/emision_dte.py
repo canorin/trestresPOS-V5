@@ -1096,13 +1096,8 @@ class ServicioEmisionDTE:
                 logger.info("VALIDACIÓN: XML generado y firmado sin enviar al SII (folio=%s)", folio)
 
             # 5. Generar PDF
-            tipo_nombres = {
-                33: "FACTURA ELECTRONICA",
-                34: "FACTURA NO AFECTA O EXENTA ELECTRONICA",
-                56: "NOTA DE DEBITO ELECTRONICA",
-                61: "NOTA DE CREDITO ELECTRONICA",
-                52: "GUIA DE DESPACHO ELECTRONICA",
-            }
+            # El renderer usa TIPO_NOMBRE de crumbpos/core/impresion/base.py,
+            # que cubre todos los tipos soportados (33, 34, 39, 41, 52, 56, 61).
             print_data = DTEPrintData(
                 tipo_dte=req.tipo_dte,
                 folio=folio,
