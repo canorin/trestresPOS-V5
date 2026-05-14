@@ -438,7 +438,7 @@ class TestArmarSobre:
         # Estructura del resultado.
         assert set(resultado.keys()) == {
             "xml_bytes", "sha256", "resumen_por_tipo", "folios",
-            "casos_ids", "url_sii",
+            "casos_ids", "url_sii", "es_boleta",
         }
         assert isinstance(resultado["xml_bytes"], bytes)
         assert resultado["sha256"] == hashlib.sha256(resultado["xml_bytes"]).hexdigest()

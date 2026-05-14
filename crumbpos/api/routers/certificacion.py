@@ -43,6 +43,12 @@ from crumbpos.certificacion.parser_set_sii import (
     SetParseado,
     parse_set_sii_content,
 )
+from crumbpos.certificacion.simulacion.generador_boletas import (
+    SET_BOLETAS_NOMBRE,
+    FOLIOS_REQUERIDOS as BOLETAS_FOLIOS_REQUERIDOS,
+    TIPO_BOLETA_AFECTA,
+    armar_dtes_boletas,
+)
 from crumbpos.core.caf.caf_manager_db import CAFManagerDB, FoliosAgotadosError
 from crumbpos.db.models import (
     CafFolio,
@@ -1374,6 +1380,105 @@ SIMULACION_SET_NOMBRE = "SIMULACION"
 # (~4M) y hace evidente en la UI que es simulación.
 _NUM_ATENCION_BASE_SIMULACION = 80_000
 
+# ── Set de Boletas ──────────────────────────────────────────────────
+# numero_atencion ficticio para los 5 casos del set de boletas.
+# 90000+ para distinguirlos de los otros sets.
+_NUM_ATENCION_BOLETAS = 90_000
+
+
+@router.post("/boletas/{rut}/{run_id}/inicializar")
+def inicializar_set_boletas(rut: str, run_id: str) -> dict:
+    """Crea (o re-crea) los 5 casos fijos del Set de Pruebas de Boleta Electrónica.
+
+    El set de boletas no viene en el SIISetDePruebas{RUT}.txt — el SII
+    lo entrega por separado. Los 5 casos son fijos para todos los
+    postulantes (CASO-1 … CASO-5, todos T39) y se crean aquí a partir
+    del instructivo oficial.
+
+    Precondición: la BD de certificación debe tener al menos 5 folios T39
+    disponibles en el pool (subir un CAF T39 antes de llamar a este endpoint).
+
+    Si ya existen casos del set BOLETAS en la run, se eliminan y se crean
+    de nuevo (útil si se subió un nuevo CAF T39 con folios distintos).
+
+    Returns:
+        dict con ``ok``, ``casos`` creados, ``folios_t39`` asignados.
+    """
+    registro = get_empresa_registro(rut)
+    if not registro:
+        raise HTTPException(404, f"Empresa {rut} no encontrada")
+
+    session = get_empresa_db_session(rut, "certificacion")
+    try:
+        run = _cargar_run_por_id(session, rut, run_id)
+        _, empresa = _get_servicio_for_certificacion(session, rut)
+
+        # Reservar folios T39 del pool (sin sucursal — certificación usa el pool)
+        mgr = CAFManagerDB(session, empresa.id)
+        try:
+            folios_t39 = [
+                mgr.siguiente_folio(TIPO_BOLETA_AFECTA, sucursal_id=None)
+                for _ in range(BOLETAS_FOLIOS_REQUERIDOS)
+            ]
+        except FoliosAgotadosError as e:
+            raise HTTPException(
+                409,
+                detail={
+                    "error": "folios_agotados",
+                    "tipo_dte": TIPO_BOLETA_AFECTA,
+                    "mensaje": (
+                        f"Se necesitan {BOLETAS_FOLIOS_REQUERIDOS} folios T39 para el set "
+                        f"de boletas pero no hay suficientes. Sube un CAF T39 primero. "
+                        f"({e})"
+                    ),
+                },
+            )
+
+        # Eliminar casos previos del set BOLETAS si existen
+        session.query(CertificacionCaso).filter(
+            CertificacionCaso.run_id == run.id,
+            CertificacionCaso.set_nombre == SET_BOLETAS_NOMBRE,
+        ).delete()
+
+        # Armar los 5 casos con los folios asignados
+        dtes = armar_dtes_boletas(folios_t39)
+        casos_creados = []
+        for dte in dtes:
+            caso = CertificacionCaso(
+                run_id=run.id,
+                set_nombre=SET_BOLETAS_NOMBRE,
+                numero_caso=dte["numero_caso"],
+                numero_atencion=_NUM_ATENCION_BOLETAS,
+                tipo_dte=dte["tipo_dte"],
+                datos=dte,
+                # Pre-asignar folio: el set de boletas tiene folios fijos desde el inicio
+                folio=dte["folio"],
+            )
+            session.add(caso)
+            casos_creados.append({
+                "numero_caso": dte["numero_caso"],
+                "tipo_dte": dte["tipo_dte"],
+                "folio": dte["folio"],
+            })
+
+        session.commit()
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "set_nombre": SET_BOLETAS_NOMBRE,
+            "casos": casos_creados,
+            "folios_t39": folios_t39,
+        }
+    except HTTPException:
+        session.rollback()
+        raise
+    except Exception as e:
+        session.rollback()
+        logger.error("Error inicializando set boletas (rut=%s): %s", rut, e, exc_info=True)
+        raise HTTPException(500, f"Error inicializando set boletas: {e}")
+    finally:
+        session.close()
+
 
 @router.post("/simulacion/{rut}/{run_id}/configurar")
 def configurar_simulacion(
@@ -2185,6 +2290,15 @@ def _caso_a_factura_request(
     ):
         tipo_despacho_val = None
 
+    # Para boletas (T39/T41) el número de caso YA es "CASO-N" (ej: "CASO-1").
+    # El SII pide <RazonRef>CASO-1</RazonRef> — sin prefijo redundante.
+    # Para facturas/guías/NC/ND el número es "NNNNNNN-N" y el set lo
+    # identifica como "CASO NNNNNNN-N".
+    if caso.tipo_dte in (39, 41):
+        razon_caso_set = caso.numero_caso
+    else:
+        razon_caso_set = f"CASO {caso.numero_caso}"
+
     return FacturaRequest(
         tipo_dte=caso.tipo_dte,
         receptor_rut=empresa.rut,
@@ -2198,7 +2312,7 @@ def _caso_a_factura_request(
         descuentos_globales=descuentos_globales,
         ind_traslado=ind_traslado_val,
         tipo_despacho=tipo_despacho_val,
-        caso_set=f"CASO {caso.numero_caso}",
+        caso_set=razon_caso_set,
     )
 
 

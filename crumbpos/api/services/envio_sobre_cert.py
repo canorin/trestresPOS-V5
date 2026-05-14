@@ -49,7 +49,9 @@ from crumbpos.api.services.emision_dte import ServicioEmisionDTE
 from crumbpos.config.settings import get_sii_url
 from crumbpos.core.dte.ordenamiento_sobre import ordenar_por_dependencias
 from crumbpos.core.sii_client.envio import (
+    consultar_estado_boleta,
     consultar_estado_envio,
+    enviar_boleta,
     enviar_dte,
 )
 from crumbpos.db.models import (
@@ -370,22 +372,34 @@ def armar_sobre(
 
     caratula = _construir_caratula_multi(servicio, subtotales)
 
+    # Boletas (T39/T41): sobre EnvioBOLETA + type="env_boleta".
+    # Facturas/guías/notas: EnvioDTE + type="env".
+    es_set_boletas = all(t in (39, 41) for t in subtotales)
+    if es_set_boletas:
+        schema_loc = f"{SII_NS} EnvioBOLETA_v11.xsd"
+        env_tag = "EnvioBOLETA"
+        firma_type = "env_boleta"
+    else:
+        schema_loc = f"{SII_NS} EnvioDTE_v10.xsd"
+        env_tag = "EnvioDTE"
+        firma_type = "env"
+
     env_str = (
-        f'<EnvioDTE xmlns="{SII_NS}" '
+        f'<{env_tag} xmlns="{SII_NS}" '
         f'xmlns:xsi="{XSI_NS}" '
-        f'xsi:schemaLocation="{SII_NS} EnvioDTE_v10.xsd" '
+        f'xsi:schemaLocation="{schema_loc}" '
         f'version="1.0">'
         f'<SetDTE ID="SetDoc">'
         f"{caratula}"
         f'{"".join(dtes_inner)}'
         f"</SetDTE>"
-        f"</EnvioDTE>"
+        f"</{env_tag}>"
     )
 
-    signed_env = firma.firmar(env_str, "SetDoc", type="env")
+    signed_env = firma.firmar(env_str, "SetDoc", type=firma_type)
     if not signed_env:
         raise RuntimeError(
-            "Error firmando el sobre EnvioDTE multi-DTE "
+            f"Error firmando el sobre {env_tag} multi-DTE "
             f"(set '{set_nombre}')",
         )
 
@@ -410,13 +424,15 @@ def armar_sobre(
     xml_final = '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + signed_env
     xml_bytes = xml_final.encode("ISO-8859-1")
 
+    url_key = "boleta_upload" if es_set_boletas else "upload"
     return {
         "xml_bytes": xml_bytes,
         "sha256": _sha256_hex(xml_bytes),
         "resumen_por_tipo": subtotales,
         "folios": folios_ordenados,
         "casos_ids": [c.id for c in casos_set],
-        "url_sii": get_sii_url("upload", servicio.config.ambiente),
+        "url_sii": get_sii_url(url_key, servicio.config.ambiente),
+        "es_boleta": es_set_boletas,
     }
 
 
@@ -455,21 +471,35 @@ def enviar_sobre(
     casos_ids = resultado_arma["casos_ids"]
     sha256 = resultado_arma["sha256"]
     resumen = resultado_arma["resumen_por_tipo"]
+    es_boleta = resultado_arma.get("es_boleta", False)
 
-    token = servicio._obtener_token()
     rut_envia = servicio.config.rut_firmante or servicio.config.rut
 
     logger.info(
-        "Enviando sobre cert: set=%s, rut=%s, casos=%d, sha256=%s",
-        set_nombre, servicio.config.rut, len(casos_ids), sha256[:16],
+        "Enviando sobre cert: set=%s, rut=%s, casos=%d, sha256=%s, boleta=%s",
+        set_nombre, servicio.config.rut, len(casos_ids), sha256[:16], es_boleta,
     )
-    resp = enviar_dte(
-        xml_bytes=xml_bytes,
-        token=token,
-        rut_emisor=servicio.config.rut,
-        ambiente=servicio.config.ambiente,
-        rut_envia=rut_envia,
-    )
+
+    if es_boleta:
+        # EnvioBOLETA → REST API con token separado (pangal/rahue)
+        token = servicio._obtener_token_boleta()
+        resp = enviar_boleta(
+            xml_bytes=xml_bytes,
+            token=token,
+            rut_emisor=servicio.config.rut,
+            ambiente=servicio.config.ambiente,
+            rut_envia=rut_envia,
+        )
+    else:
+        # EnvioDTE → SOAP tradicional (maullin/palena)
+        token = servicio._obtener_token()
+        resp = enviar_dte(
+            xml_bytes=xml_bytes,
+            token=token,
+            rut_emisor=servicio.config.rut,
+            ambiente=servicio.config.ambiente,
+            rut_envia=rut_envia,
+        )
 
     trackid = resp.get("track_id")
     status = resp.get("status")
@@ -587,17 +617,41 @@ def consultar_estado(
         )
     trackid = next(iter(trackids))
 
-    token = servicio._obtener_token()
-    resp = consultar_estado_envio(
-        track_id=trackid,
-        token=token,
-        rut_emisor=servicio.config.rut,
-        ambiente=servicio.config.ambiente,
-    )
-    raw_xml = resp.get("raw", "") or ""
+    # Detectar si el set es de boletas por los tipos de sus casos
+    tipos_set = {c.tipo_dte for c in casos_set}
+    es_boleta = bool(tipos_set) and all(t in (39, 41) for t in tipos_set)
 
-    estado_sii = _parsear_estado_sii(raw_xml)
-    glosa = _parsear_glosa_sii(raw_xml)
+    estado_sii: str | None = None
+    glosa: str | None = None
+    raw_xml: str = ""
+
+    if es_boleta:
+        # Boletas: REST API → devuelve JSON con campos estado/estadistica
+        token = servicio._obtener_token_boleta()
+        resp_json = consultar_estado_boleta(
+            track_id=trackid,
+            token=token,
+            rut_emisor=servicio.config.rut,
+            ambiente=servicio.config.ambiente,
+        )
+        raw_xml = str(resp_json)[:4000]
+        # El campo 'estado' del JSON de boletas es análogo a estado_sii de DTEs
+        estado_sii = str(resp_json.get("estado") or "")
+        # Mapeo defensivo: boletas usan valores distintos a DTEs
+        if not estado_sii:
+            estado_sii = None
+        glosa = str(resp_json.get("glosa") or "").strip() or None
+    else:
+        token = servicio._obtener_token()
+        resp = consultar_estado_envio(
+            track_id=trackid,
+            token=token,
+            rut_emisor=servicio.config.rut,
+            ambiente=servicio.config.ambiente,
+        )
+        raw_xml = resp.get("raw", "") or ""
+        estado_sii = _parsear_estado_sii(raw_xml)
+        glosa = _parsear_glosa_sii(raw_xml)
 
     # Estados del SII que indican rechazo — guardar la glosa como error
     # para que el wizard la muestre.
@@ -613,8 +667,8 @@ def consultar_estado(
     session.commit()
 
     logger.info(
-        "Consulta estado SII: set=%s, trackid=%s, estado=%s",
-        set_nombre, trackid, estado_sii,
+        "Consulta estado SII: set=%s, trackid=%s, estado=%s, boleta=%s",
+        set_nombre, trackid, estado_sii, es_boleta,
     )
     return {
         "trackid": trackid,

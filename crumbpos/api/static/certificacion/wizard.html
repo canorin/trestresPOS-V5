@@ -2992,6 +2992,7 @@
       BASICO: 'Set Básico',
       GUIAS: 'Set Guía de Despacho',
       EXENTA: 'Set Factura Exenta',
+      BOLETAS: 'Set Boletas Electrónicas',
       SIMULACION: 'Set de Simulación',
     };
 
@@ -3007,16 +3008,24 @@
       if (!list) return;
 
       const grupos = agruparCasosPorSet(state.casos || []);
-      const ordenSets = ['BASICO', 'GUIAS', 'EXENTA'];
+      const ordenSets = ['BASICO', 'GUIAS', 'EXENTA', 'BOLETAS'];
 
       const setBlocks = ordenSets
         .filter(set => grupos[set] && grupos[set].length)
         .map(set => renderGrupoSet(set, grupos[set]))
         .join('');
 
+      // Botón de inicialización del set de boletas — aparece cuando la empresa
+      // tiene sets regulares pero aún no inicializó el set de boletas.
+      const tieneRegulares = ['BASICO', 'GUIAS', 'EXENTA'].some(s => grupos[s]?.length);
+      const tieneBoletasInit = Boolean(grupos['BOLETAS']?.length);
+      const boletasInitBlock = (tieneRegulares && !tieneBoletasInit)
+        ? renderBoletasInitCard()
+        : '';
+
       const librosBlock = renderLibrosTasks();
 
-      list.innerHTML = setBlocks + librosBlock;
+      list.innerHTML = setBlocks + boletasInitBlock + librosBlock;
 
       list.querySelectorAll('button[data-action="emitir-caso"]').forEach(btn => {
         btn.addEventListener('click', () => emitirCaso(btn.dataset.casoId));
@@ -3380,6 +3389,59 @@
           </div>
         </div>
       `;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Set de Boletas Electrónicas — card de inicialización
+    // ──────────────────────────────────────────────────────────────
+    function renderBoletasInitCard() {
+      return `
+        <div class="set-group" style="margin-top:24px;" id="card-boletas-init">
+          <div class="set-group-header">
+            <div>
+              <div class="set-group-title">Set Boletas Electrónicas</div>
+              <div class="set-group-meta">5 casos T39 fijos — Set de Prueba BE</div>
+            </div>
+          </div>
+          <div style="padding:16px 20px;">
+            <p style="font-size:14px;color:var(--text-secondary,#6e6e73);margin:0 0 12px;">
+              El set de boletas electrónicas contiene 5 casos fijos definidos por el SII.
+              Requiere al menos 5 folios T39 disponibles (sube un CAF T39 antes de inicializar).
+            </p>
+            <button class="btn btn-secondary" id="btn-init-boletas"
+                    onclick="inicializarBoletas()">
+              Inicializar Set Boletas
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    async function inicializarBoletas() {
+      const btn = document.getElementById('btn-init-boletas');
+      if (btn) { btn.disabled = true; btn.textContent = 'Inicializando…'; }
+
+      try {
+        const base = `/api/certificacion/boletas/${state.rut}/${state.runId}`;
+        const resp = await fetch(`${base}/inicializar`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${state.authToken}` },
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          const msg = data?.detail?.mensaje || data?.detail || JSON.stringify(data);
+          showAlert('error', `Error inicializando set boletas: ${msg}`);
+          if (btn) { btn.disabled = false; btn.textContent = 'Inicializar Set Boletas'; }
+          return;
+        }
+        showAlert('ok',
+          `Set Boletas inicializado: ${data.casos?.length ?? 5} casos T39 creados.`,
+        );
+        await refrescarRun();
+      } catch (e) {
+        showAlert('error', `Error de red: ${e.message}`);
+        if (btn) { btn.disabled = false; btn.textContent = 'Inicializar Set Boletas'; }
+      }
     }
 
     function renderLibrosTasks() {

@@ -881,15 +881,20 @@ class ServicioEmisionDTE:
 
             referencias_dte = []
             ref_counter = 1
-            # Referencia SET para certificación (caso del set de pruebas)
+            # Referencia SET para certificación (caso del set de pruebas).
+            # Boletas (T39/T41): el schema solo acepta NroLinRef + CodRef + RazonRef;
+            # TpoDocRef/FolioRef/FchRef se omiten (generador_xml.py ya lo maneja).
+            # El SII exige <CodRef>SET</CodRef> en el set de boletas — para facturas
+            # no se emite CodRef (valor None → campo omitido).
             if req.caso_set:
+                es_boleta_req = req.tipo_dte in (39, 41)
                 referencias_dte.append(Referencia(
                     nro_linea=ref_counter,
                     tipo_doc_ref="SET",
                     folio_ref="0",
                     fecha_ref=fecha_hoy,
                     razon_ref=req.caso_set,
-                    codigo_ref=None,
+                    codigo_ref="SET" if es_boleta_req else None,
                 ))
                 ref_counter += 1
             # OC como referencia tipo 801 (si se proporcionó)
