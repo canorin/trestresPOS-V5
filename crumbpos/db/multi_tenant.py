@@ -858,6 +858,61 @@ def _migrate_empresa_schema(engine):
                 conn.execute(text("ALTER TABLE dte_emitido ADD COLUMN timestamp_envio DATETIME"))
                 logger.info("Empresa migrate: dte_emitido.timestamp_envio agregada")
 
+        # ── B2: WORM — trigger que bloquea DELETE en dte_emitido < 6 años ──
+        # La Resolución Exenta SII N°74 (2017) obliga a conservar los DTEs
+        # electrónicos por 6 años desde su emisión. Este trigger es la
+        # última barrera: bloquea DELETE a nivel de motor SQLite antes de
+        # que ningún código de aplicación pueda eliminar un DTE reciente.
+        #
+        # Idempotente: CREATE TRIGGER IF NOT EXISTS.
+        # Cálculo: julianday('now') − julianday(OLD.fecha_emision) < 2191.5
+        # (6 * 365.25 días).
+        conn.execute(text(
+            "CREATE TRIGGER IF NOT EXISTS trg_dte_emitido_worm "
+            "BEFORE DELETE ON dte_emitido "
+            "BEGIN "
+            "  SELECT CASE "
+            "    WHEN julianday('now') - julianday(OLD.fecha_emision) < 2191.5 "
+            "    THEN RAISE(ABORT, "
+            "      'B2-WORM: No se puede eliminar un DTE con menos de 6 anios "
+            "de antiguedad (Resolucion SII N74/2017)') "
+            "  END; "
+            "END"
+        ))
+
+        # ── B1: auditoria_evento — triggers append-only ──────────────────
+        # La tabla es de solo-inserción. Estos triggers bloquean UPDATE y
+        # DELETE a nivel de motor SQLite, impidiendo que ningún proceso
+        # (incluyendo acceso directo a la DB) modifique o elimine un
+        # registro de auditoría ya escrito.
+        audit_table_exists = conn.execute(text(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='auditoria_evento'"
+        )).first()
+        if audit_table_exists:
+            conn.execute(text(
+                "CREATE TRIGGER IF NOT EXISTS trg_auditoria_no_update "
+                "BEFORE UPDATE ON auditoria_evento "
+                "BEGIN "
+                "  SELECT RAISE(ABORT, "
+                "    'B1: La tabla auditoria_evento es append-only. "
+                "UPDATE no permitido.'); "
+                "END"
+            ))
+            conn.execute(text(
+                "CREATE TRIGGER IF NOT EXISTS trg_auditoria_no_delete "
+                "BEFORE DELETE ON auditoria_evento "
+                "BEGIN "
+                "  SELECT RAISE(ABORT, "
+                "    'B1: La tabla auditoria_evento es append-only. "
+                "DELETE no permitido.'); "
+                "END"
+            ))
+            logger.info(
+                "Empresa migrate: triggers B1 (auditoria append-only) "
+                "+ B2 (dte_emitido WORM 6 años) instalados"
+            )
+
 
 def get_empresa_engine(rut: str, ambiente: str):
     """Get or create SQLAlchemy engine for empresa/ambiente.

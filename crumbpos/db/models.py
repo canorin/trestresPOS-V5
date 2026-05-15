@@ -10,11 +10,14 @@ Estructura multi-tenant:
 import uuid
 from datetime import datetime, date
 
+import hashlib
+import json as _json
+
 from sqlalchemy import (
     String, Integer, BigInteger, Boolean, Float, Text, Date, DateTime,
-    ForeignKey, UniqueConstraint, Index, JSON,
+    ForeignKey, UniqueConstraint, Index, JSON, CHAR,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, Session
 
 from .database import Base
 from .types import EncryptedString, EncryptedText
@@ -909,3 +912,119 @@ class CertificacionLibro(Base):
     __table_args__ = (
         Index("ix_cert_libro_run_tipo", "run_id", "tipo_libro"),
     )
+
+
+# ═══════════════════════════════════════════════════════════════
+# AUDITORÍA / COMPLIANCE
+# ═══════════════════════════════════════════════════════════════
+
+class AuditoriaEvento(Base):
+    """Registro de auditoría append-only con cadena de hash.
+
+    B1: cada fila es inmutable una vez escrita. SQLite triggers instalados
+    por ``_migrate_empresa_schema`` bloquean UPDATE y DELETE a nivel de
+    motor, antes de que lleguen a la capa de aplicación.
+
+    La cadena de hash vincula cada fila con su predecesora:
+      hash_row = SHA256(hash_prev_or_genesis || id || tipo || payload_canon || created_at_iso)
+
+    Esto permite detectar manipulación fuera de la aplicación (borrar una
+    fila, modificar un payload) sin firma criptográfica externa.
+
+    Tipos de evento sugeridos (no exhaustivos):
+      - "DTE_EMITIDO"       → emisión exitosa de cualquier DTE
+      - "DTE_ENVIADO_SII"   → envío al SII con track_id
+      - "DTE_ACEPTADO"      → polling confirma aceptación
+      - "DTE_RECHAZADO"     → rechazo SII persistido
+      - "RCOF_ENVIADO"      → RCOF enviado
+      - "LOGIN_USUARIO"     → inicio de sesión
+      - "CAF_SUBIDO"        → upload de nuevo CAF
+      - "NC_EMITIDA"        → nota de crédito (anulación)
+    """
+    __tablename__ = "auditoria_evento"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    empresa_id: Mapped[str] = mapped_column(
+        ForeignKey("empresa.id"), nullable=False,
+    )
+    tipo: Mapped[str] = mapped_column(String(60), nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    usuario_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Cadena de hash SHA-256
+    hash_prev: Mapped[str | None] = mapped_column(CHAR(64), nullable=True)
+    # NULL solo en el primer evento de la empresa (génesis).
+    hash_row: Mapped[str] = mapped_column(CHAR(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        Index("ix_auditoria_empresa_tipo", "empresa_id", "tipo"),
+        Index("ix_auditoria_created_at", "empresa_id", "created_at"),
+    )
+
+
+def _hash_evento(
+    hash_prev: str | None,
+    event_id: str,
+    tipo: str,
+    payload: dict | None,
+    created_at_iso: str,
+) -> str:
+    """Calcula el hash SHA-256 de un evento de auditoría.
+
+    La cadena garantiza integridad: modificar cualquier campo o eliminar
+    una fila rompe la cadena a partir de ese punto.
+    """
+    genesis = "GENESIS_CRUMBPOS_AUDITORIA_V1"
+    payload_canon = _json.dumps(payload or {}, sort_keys=True, ensure_ascii=False)
+    data = f"{hash_prev or genesis}|{event_id}|{tipo}|{payload_canon}|{created_at_iso}"
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()
+
+
+def registrar_evento(
+    db: Session,
+    empresa_id: str,
+    tipo: str,
+    payload: dict | None = None,
+    usuario_id: str | None = None,
+    *,
+    flush: bool = True,
+) -> AuditoriaEvento:
+    """Agrega un evento de auditoría encadenado al registro más reciente.
+
+    Llama a ``db.flush()`` por defecto para que el id quede disponible
+    antes del commit. Pasa ``flush=False`` si gestionas la transacción
+    tú mismo.
+
+    No lanza excepciones de negocio: si la cadena no puede completarse
+    (tabla vacía = primer evento), usa ``hash_prev=None`` (génesis).
+    """
+    # Último evento de la empresa para continuar la cadena
+    ultimo = (
+        db.query(AuditoriaEvento)
+        .filter(AuditoriaEvento.empresa_id == empresa_id)
+        .order_by(AuditoriaEvento.created_at.desc(), AuditoriaEvento.id.desc())
+        .first()
+    )
+    hash_prev = ultimo.hash_row if ultimo else None
+    event_id = new_uuid()
+    now = datetime.utcnow()
+    now_iso = now.isoformat()
+
+    hash_row = _hash_evento(hash_prev, event_id, tipo, payload, now_iso)
+
+    evento = AuditoriaEvento(
+        id=event_id,
+        empresa_id=empresa_id,
+        tipo=tipo,
+        payload=payload,
+        usuario_id=usuario_id,
+        hash_prev=hash_prev,
+        hash_row=hash_row,
+        created_at=now,
+    )
+    db.add(evento)
+    if flush:
+        db.flush()
+    return evento
