@@ -23,6 +23,8 @@ from pathlib import Path
 
 from lxml import etree
 
+from crumbpos.core.security.xml_safe import fromstring_safe
+
 
 SII_NS = "http://www.sii.cl/SiiDte"
 _NSMAP = {"s": SII_NS}
@@ -89,8 +91,9 @@ def parsear_envio_dte_sii(
     if not xml_bytes.strip():
         raise ValueError("XML vacío")
 
+    # XML viene de fuente externa (set SII, proveedor): parser endurecido.
     try:
-        root = etree.fromstring(xml_bytes)
+        root = fromstring_safe(xml_bytes)
     except etree.XMLSyntaxError as exc:
         raise ValueError(f"XML inválido: {exc}") from exc
 

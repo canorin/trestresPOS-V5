@@ -1,9 +1,11 @@
 """Endpoints de autenticación — usa master.db para auth centralizado."""
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+
+from crumbpos.core.security.rate_limit import login_limiter
 
 from crumbpos.core.roles import puede_gestionar_empresa
 from crumbpos.db.multi_tenant import (
@@ -65,6 +67,10 @@ class UsuarioOut(BaseModel):
     sucursal_id: str | None = None
     sucursal_nombre: str | None = None
     sucursales: list[SucursalInfo] = []
+    # Si True, el frontend debe forzar el cambio de password antes de
+    # permitir cualquier acción operativa. Lo emite el endpoint /login y
+    # se limpia tras /cambiar-password exitoso.
+    must_change_password: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -88,13 +94,21 @@ def _create_access_token(data: dict) -> str:
 # ── Endpoints ──
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, master_db: Session = Depends(get_master_db)):
+def login(
+    body: LoginRequest,
+    request: Request,
+    master_db: Session = Depends(get_master_db),
+):
     """Login contra master.db — devuelve JWT con empresa_rut, rol y sucursal.
 
     Flujo POS: envía sucursal_id → queda en JWT → todos los documentos
     usan automáticamente la dirección de esa sucursal.
 
     Flujo Admin: no envía sucursal_id → puede elegir después por request.
+
+    Rate limiting: 5 intentos fallidos en 60s → lockout exponencial
+    (60s, 120s, 240s, ..., cap 1 hora). Clave del rate limiter:
+    `IP:empresa_rut:email`.
     """
     from crumbpos.db.models import Sucursal, UsuarioSucursal
 
@@ -104,20 +118,39 @@ def login(body: LoginRequest, master_db: Session = Depends(get_master_db)):
     # ``/{rut}/login``.
     empresa_rut_scope = (body.empresa_rut or "SYSTEM").strip() or "SYSTEM"
 
+    # Rate limiting: clave = IP + scope + email para evitar:
+    #   - brute force por IP única
+    #   - brute force por email/scope desde IPs rotativas (mitigado parcialmente)
+    client_ip = request.client.host if request.client else "unknown"
+    rate_key = f"{client_ip}:{empresa_rut_scope}:{body.email.lower()}"
+    retry_after = login_limiter.check(rate_key)
+    if retry_after > 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Demasiados intentos fallidos. Reintenta en {retry_after} segundos.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = master_db.query(UsuarioAuth).filter(
         UsuarioAuth.empresa_rut == empresa_rut_scope,
         UsuarioAuth.email == body.email,
     ).first()
     if not user or not _verify_password(body.password, user.password_hash):
+        # Registrar intento fallido para rate limiting
+        login_limiter.fail(rate_key)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email o contraseña incorrectos",
         )
     if not user.activo:
+        # No registrar como rate limit (no es brute force de password)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Usuario desactivado",
         )
+
+    # Login exitoso: limpiar el contador de rate limit
+    login_limiter.success(rate_key)
 
     # Get ambiente activo de la empresa
     ambiente = None
@@ -199,6 +232,7 @@ def login(body: LoginRequest, master_db: Session = Depends(get_master_db)):
             sucursal_id=sucursal_id,
             sucursal_nombre=sucursal_nombre,
             sucursales=sucursales_info,
+            must_change_password=bool(getattr(user, "must_change_password", False)),
         ),
     )
 
@@ -302,6 +336,9 @@ def cambiar_mi_password(
         # Paranoia: el JWT validó pero el user desapareció.
         raise HTTPException(404, "Usuario no encontrado")
     user_master.password_hash = nuevo_hash
+    # Cambio exitoso: limpiar flag y registrar timestamp.
+    user_master.must_change_password = False
+    user_master.password_changed_at = datetime.utcnow()
     master_db.commit()
 
     # 3. Replicar en tenant.db (solo si no es super_admin / SYSTEM).

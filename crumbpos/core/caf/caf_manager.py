@@ -21,6 +21,8 @@ from lxml import etree
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes
+
+from crumbpos.core.security.xml_safe import parse_safe
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.serialization import (
     load_pem_private_key,
@@ -36,7 +38,9 @@ class CAF:
 
     def __init__(self, xml_path: str | Path):
         self.xml_path = Path(xml_path)
-        self._tree = etree.parse(str(self.xml_path))
+        # CAF viene del SII pero pasa por el usuario (upload): parser endurecido
+        # contra XXE / billion laughs.
+        self._tree = parse_safe(str(self.xml_path))
         self._root = self._tree.getroot()
         self._parse()
 

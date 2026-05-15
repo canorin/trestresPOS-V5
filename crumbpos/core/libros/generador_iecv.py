@@ -9,14 +9,36 @@ Reglas SII críticas:
 4. NC (T61) and ND (T56) with references must include TpoDocRef/FolioDocRef
 5. IVA = (neto * 19 + 50) // 100
 """
+import logging
 import re
 from collections import OrderedDict
 from datetime import datetime
 
 from lxml import etree
 
+logger = logging.getLogger(__name__)
+
 SII_NS = "http://www.sii.cl/SiiDte"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
+
+# Regex para validar PeriodoTributario en formato YYYY-MM.
+# Tipos XSD del SII: xs:gYearMonth ⇒ YYYY-MM con año 1900-2100 razonable.
+_PERIODO_REGEX = re.compile(r"^(19|20|21)\d{2}-(0[1-9]|1[0-2])$")
+
+
+def _validar_periodo(periodo: str) -> None:
+    """Valida que periodo cumpla formato YYYY-MM exigido por el XSD del SII.
+
+    Defensa en profundidad: el router HTTP ya valida con regex en el endpoint,
+    pero los generadores también se usan desde scripts de certificación y CLI.
+    Fail fast con ValueError descriptivo si el formato no cuadra.
+    """
+    if not isinstance(periodo, str) or not _PERIODO_REGEX.match(periodo):
+        raise ValueError(
+            f"Periodo inválido: {periodo!r}. Debe ser formato YYYY-MM "
+            f"(ej: '2026-05'). El SII rechaza con esquema inválido si "
+            f"PeriodoTributario no cumple xs:gYearMonth."
+        )
 
 # Tipos DTE afectos a IVA (llevan TasaImp=19)
 TIPOS_AFECTOS = {33, 56, 61, 52, 46, 30, 60}
@@ -132,6 +154,7 @@ def generar_libro_ventas(
         (xml_string, libro_id) — xml_string is unsigned, caller must sign it.
     """
     _validar_tipo_envio(tipo_envio)
+    _validar_periodo(periodo)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     # Sort DTEs by tipo_dte, then folio
@@ -144,6 +167,20 @@ def generar_libro_ventas(
         mnt_neto = dte.monto_neto or 0
         mnt_iva = dte.iva or 0
         mnt_total = dte.monto_total or 0
+
+        # NC (T61) reduce el libro de ventas → montos deben ser negativos.
+        # La BD almacena valores absolutos (positivos). Si vienen positivos,
+        # se niegan aquí para que ResumenPeriodo reste correctamente.
+        # SII rechaza con LIBN-*: "Monto Neto de NC debe ser negativo".
+        if dte.tipo_dte == 61:
+            if mnt_exe > 0:
+                mnt_exe = -mnt_exe
+            if mnt_neto > 0:
+                mnt_neto = -mnt_neto
+            if mnt_iva > 0:
+                mnt_iva = -mnt_iva
+            if mnt_total > 0:
+                mnt_total = -mnt_total
 
         entry = {
             "TpoDoc": dte.tipo_dte,
@@ -263,16 +300,26 @@ def generar_libro_ventas(
 
 
 # ── Mapping IndTraslado → TpoOper para Libro de Guías ──
-_IND_TRASLADO_TO_TPO_OPER = {
-    1: 1,  # operación constituye venta
-    2: 2,  # ventas por efectuar
-    3: 3,  # consignaciones
-    4: 4,  # entrega gratuita
-    5: 5,  # traslado interno
-    6: 6,  # otros traslados no venta
-    7: 7,  # guía de devolución
-    8: 8,  # traslado para exportación
-    9: 9,  # venta para exportación
+#
+# LibroGuia_v10.xsd:
+#   - <TpoOper> en <Detalle>: enum acepta solo valores 1-7 (minOccurs=0).
+#   - <TpoTraslado> en <TotTraslado>: enum acepta 2-9.
+#
+# Para IndTraslado ∈ {8, 9} (exportación), el <TpoOper> del Detalle se OMITE
+# (valor None → no se emite el elemento). El total sí va en <TotTraslado>
+# con <TpoTraslado>=8 o 9. Esto cumple el esquema sin perder información.
+#
+# Si el SII algún día agrega 8/9 al enum de TpoOper, basta cambiar este mapping.
+_IND_TRASLADO_TO_TPO_OPER: dict[int, int | None] = {
+    1: 1,     # operación constituye venta
+    2: 2,     # ventas por efectuar
+    3: 3,     # consignaciones
+    4: 4,     # entrega gratuita
+    5: 5,     # traslado interno
+    6: 6,     # otros traslados no venta
+    7: 7,     # guía de devolución
+    8: None,  # traslado para exportación — NO emitir TpoOper en Detalle
+    9: None,  # venta para exportación — NO emitir TpoOper en Detalle
 }
 
 
@@ -364,7 +411,7 @@ def generar_libro_guias(
     empresa,
     periodo: str,
     rut_envia: str,
-    folio_notificacion: int = 0,
+    folio_notificacion: int,
     folios_anulados: set[int] | None = None,
     tipo_envio: str = "TOTAL",
 ) -> tuple[str, str]:
@@ -375,12 +422,20 @@ def generar_libro_guias(
     - Usa <Detalle> con Folio (no NroDoc), TpoOper, y campos propios
     - Root element es <LibroGuia> (no <LibroCompraVenta>)
 
+    **IMPORTANTE — TipoLibro siempre ESPECIAL:**
+    ``LibroGuia_v10.xsd`` solo define ``TipoLibro="ESPECIAL"`` como valor
+    válido (enum de un único elemento). A diferencia de ``LibroCV_v10.xsd``,
+    que acepta ``MENSUAL`` y ``ESPECIAL``, el libro de guías siempre requiere
+    un ``FolioNotificacion`` (número de atención obtenido del SII).
+
     Args:
         dtes: list of DteEmitido records (tipo_dte=52) from DB
         empresa: Empresa model instance
         periodo: "YYYY-MM"
         rut_envia: RUT of person sending (from cert)
-        folio_notificacion: 0 for production (MENSUAL), >0 for certification (ESPECIAL)
+        folio_notificacion: Número de atención del SII (obligatorio, > 0).
+            Obtenerlo en https://zeus.sii.cl/AUT2/AS/accAut.html antes
+            de enviar el libro de guías.
         folios_anulados: set opcional de folios que deben marcarse con
             ``<Anulado>2</Anulado>`` y contarse en ``TotGuiaAnulada``
             en vez de los totales de venta. Útil cuando el set de
@@ -394,16 +449,30 @@ def generar_libro_guias(
 
     Returns:
         (xml_string, libro_id) -- xml_string is unsigned, caller must sign it.
+
+    Raises:
+        ValueError: si ``folio_notificacion`` no es positivo.
     """
     _validar_tipo_envio(tipo_envio)
+    _validar_periodo(periodo)
+
+    # LibroGuia_v10.xsd: TipoLibro solo acepta "ESPECIAL" — FolioNotificacion obligatorio.
+    if not isinstance(folio_notificacion, int) or folio_notificacion <= 0:
+        raise ValueError(
+            f"generar_libro_guias: folio_notificacion debe ser un entero > 0 "
+            f"(recibido: {folio_notificacion!r}). "
+            f"LibroGuia_v10.xsd solo acepta TipoLibro='ESPECIAL', que requiere "
+            f"un número de atención válido del SII."
+        )
+
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     folios_anulados = folios_anulados or set()
 
     # Sort by folio
     dtes_sorted = sorted(dtes, key=lambda d: d.folio)
 
-    # Determine TipoLibro
-    tipo_libro = "ESPECIAL" if folio_notificacion > 0 else "MENSUAL"
+    # TipoLibro siempre ESPECIAL — es el único valor válido en LibroGuia_v10.xsd.
+    tipo_libro = "ESPECIAL"
 
     # Build Caratula (LibroGuia has different fields than LibroCompraVenta)
     # IMPORTANTE — ``TipoOperacion`` NO va en la carátula del LibroGuia.
@@ -425,8 +494,8 @@ def generar_libro_guias(
     caratula += f"<NroResol>{empresa.numero_resolucion}</NroResol>\n"
     caratula += f"<TipoLibro>{tipo_libro}</TipoLibro>\n"
     caratula += f"<TipoEnvio>{tipo_envio}</TipoEnvio>\n"
-    if tipo_libro == "ESPECIAL":
-        caratula += f"<FolioNotificacion>{folio_notificacion}</FolioNotificacion>\n"
+    # FolioNotificacion siempre obligatorio (TipoLibro es siempre ESPECIAL)
+    caratula += f"<FolioNotificacion>{folio_notificacion}</FolioNotificacion>\n"
     caratula += "</Caratula>"
 
     # Build Detalle entries and collect data for ResumenPeriodo
@@ -446,9 +515,29 @@ def generar_libro_guias(
         mnt_iva = dte.iva or 0
         mnt_total = dte.monto_total or 0
 
-        # Determine TpoOper from IndTraslado
+        # Determine TpoOper from IndTraslado.
+        # tpo_oper es None para IndTraslado ∈ {8, 9} (exportación) — el XSD
+        # no permite esos valores en <TpoOper> del Detalle. En ese caso se
+        # omite el elemento del Detalle pero el total sigue agregándose a
+        # <TotTraslado> con <TpoTraslado>=8/9 (clave en traslado_data).
         ind_traslado = _extraer_ind_traslado_desde_xml(dte.xml_firmado)
-        tpo_oper = _IND_TRASLADO_TO_TPO_OPER.get(ind_traslado, 1)  # default: 1 (venta)
+        # Default 1 (venta) si IndTraslado no viene o no está en el mapping.
+        if ind_traslado in _IND_TRASLADO_TO_TPO_OPER:
+            tpo_oper = _IND_TRASLADO_TO_TPO_OPER[ind_traslado]
+        else:
+            # Loguear para diagnóstico: o el XML del DTE no tiene IndTraslado
+            # (bug del emisor) o trae un valor fuera del enum SII (1-9).
+            logger.warning(
+                "LibroGuia: IndTraslado %r no reconocido para folio %s; "
+                "defaulteando TpoOper=1 (venta). Verificar el DTE original.",
+                ind_traslado, getattr(dte, "folio", "?"),
+            )
+            tpo_oper = 1
+        # Clave para agrupar en traslado_data: usar ind_traslado real si TpoOper
+        # es None (para que el TotTraslado de exportación quede bien armado).
+        # Si tpo_oper tiene valor, usar ese; si no, usar el ind_traslado real
+        # (que será 8 ó 9 para que vaya al TotTraslado correspondiente).
+        traslado_key = tpo_oper if tpo_oper is not None else ind_traslado
 
         # Check if voided — distinguish between anulada (2) and folio no usado (1).
         # Prioridad:
@@ -484,14 +573,16 @@ def generar_libro_guias(
             tot_mnt_iva += mnt_iva
             tot_mnt_total += mnt_total
             tot_mnt_exe += mnt_exe
-            if tpo_oper not in traslado_data:
-                traslado_data[tpo_oper] = {"cant": 0, "neto": 0, "iva": 0, "total": 0}
-            traslado_data[tpo_oper]["cant"] += 1
-            traslado_data[tpo_oper]["neto"] += mnt_neto
-            traslado_data[tpo_oper]["iva"] += mnt_iva
-            traslado_data[tpo_oper]["total"] += mnt_total
+            if traslado_key not in traslado_data:
+                traslado_data[traslado_key] = {"cant": 0, "neto": 0, "iva": 0, "total": 0}
+            traslado_data[traslado_key]["cant"] += 1
+            traslado_data[traslado_key]["neto"] += mnt_neto
+            traslado_data[traslado_key]["iva"] += mnt_iva
+            traslado_data[traslado_key]["total"] += mnt_total
 
-        det += f"<TpoOper>{tpo_oper}</TpoOper>\n"
+        # TpoOper opcional (minOccurs=0) — omitir cuando es None (exportación).
+        if tpo_oper is not None:
+            det += f"<TpoOper>{tpo_oper}</TpoOper>\n"
         fecha_str = dte.fecha_emision.strftime('%Y-%m-%d') if hasattr(dte.fecha_emision, 'strftime') else str(dte.fecha_emision)
         det += f"<FchDoc>{fecha_str}</FchDoc>\n"
         det += f"<RUTDoc>{dte.receptor_rut or '66666666-6'}</RUTDoc>\n"
@@ -527,11 +618,12 @@ def generar_libro_guias(
         resumen_xml += f"<TotFolAnulado>{tot_fol_anulado}</TotFolAnulado>\n"
     if tot_guia_anulada > 0:
         resumen_xml += f"<TotGuiaAnulada>{tot_guia_anulada}</TotGuiaAnulada>\n"
-    # Venta guías (IndTraslado=1 → TpoOper=1)
-    if 1 in traslado_data:
-        td_venta = traslado_data[1]
-        resumen_xml += f"<TotGuiaVenta>{td_venta['cant']}</TotGuiaVenta>\n"
-        resumen_xml += f"<TotMntGuiaVta>{td_venta['total']}</TotMntGuiaVta>\n"
+    # Venta guías (IndTraslado=1 → TpoOper=1) — siempre emitir, incluso con 0.
+    # LibroGuia_v10.xsd no pone minOccurs="0" en TotGuiaVenta/TotMntGuiaVta:
+    # omitirlos cuando no hay guías de venta produce rechazo de esquema.
+    td_venta = traslado_data.get(1, {"cant": 0, "total": 0})
+    resumen_xml += f"<TotGuiaVenta>{td_venta['cant']}</TotGuiaVenta>\n"
+    resumen_xml += f"<TotMntGuiaVta>{td_venta['total']}</TotMntGuiaVta>\n"
     # Traslado entries (TpoTraslado 2-9 only)
     for tpo in sorted(traslado_data.keys()):
         if tpo == 1:
@@ -590,6 +682,7 @@ def generar_libro_compras(
         (xml_string, libro_id) — xml_string is unsigned, caller must sign it.
     """
     _validar_tipo_envio(tipo_envio)
+    _validar_periodo(periodo)
     timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
     # Build Detalle entries
@@ -605,9 +698,11 @@ def generar_libro_compras(
         det += f"<FchDoc>{e['FchDoc']}</FchDoc>"
         det += f"<RUTDoc>{e['RUTDoc']}</RUTDoc>"
         det += f"<RznSoc>{e['RznSoc']}</RznSoc>"
-        # MntExe: only emit when non-zero (per SII reference)
-        if e.get("MntExe"):
-            det += f"<MntExe>{e['MntExe']}</MntExe>"
+        # MntExe: SIEMPRE emitir (consistencia con LibroCV de ventas, regla SII
+        # "Detalle entries must include MntExe, MntNeto, MntIVA, MntTotal even
+        # when 0"). El XSD lo marca minOccurs="0" pero la práctica del SII
+        # espera el campo presente para auditorías de cuadratura.
+        det += f"<MntExe>{e.get('MntExe') or 0}</MntExe>"
         if e.get("MntNeto") is not None and e["MntNeto"] != "":
             det += f"<MntNeto>{e['MntNeto']}</MntNeto>"
         # MntIVA: emit only when non-zero.
@@ -692,18 +787,58 @@ def generar_libro_compras(
             oi = e["OtrosImp"]
             if "TotOtrosImp" not in r:
                 r["TotOtrosImp"] = []
+            # FctImpAdic: factor de proporcionalidad del crédito fiscal por
+            # impuesto adicional. Por defecto 1.0 (100% acreditable). Para
+            # impuestos especiales que dan crédito parcial (ej. algunos
+            # combustibles), el caller pasa un fct < 1.0.
+            #
+            # Restricciones del XSD (LibroCV_v10.xsd):
+            #   - FctImpAdic ∈ [0.001, 1.000] con fractionDigits=4.
+            #   - Truncamos a 4 decimales y validamos rango fail-fast.
+            fct_imp_adic_raw = oi.get("FctImpAdic", 1.0)
+            try:
+                fct_imp_adic = round(float(fct_imp_adic_raw), 4)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"FctImpAdic inválido para CodImp={oi.get('CodImp')!r}: "
+                    f"{fct_imp_adic_raw!r} no es numérico. {exc}"
+                )
+            if not (0.001 <= fct_imp_adic <= 1.0):
+                raise ValueError(
+                    f"FctImpAdic={fct_imp_adic} fuera del rango [0.001, 1.000] "
+                    f"exigido por LibroCV_v10.xsd (CodImp={oi.get('CodImp')!r}). "
+                    f"El SII rechaza con cvc-pattern-valid."
+                )
+            mnt_imp = oi["MntImp"]
+            cred_imp = round(mnt_imp * fct_imp_adic) if fct_imp_adic != 1.0 else mnt_imp
             found = False
             for tot_oi in r["TotOtrosImp"]:
                 if tot_oi["CodImp"] == oi["CodImp"]:
-                    tot_oi["TotMntImp"] += oi["MntImp"]
-                    tot_oi["TotCredImp"] += oi["MntImp"]
+                    # Política de consistencia: rechazar entries del mismo
+                    # CodImp con FctImpAdic distintos en el período. El
+                    # crédito proporcional es invariante por código de
+                    # impuesto en cada mes; mezclar factores produciría
+                    # un TotCredImp consolidado sin significado contable.
+                    fct_previo = tot_oi.get("FctImpAdic", 1.0)
+                    if fct_previo != fct_imp_adic:
+                        raise ValueError(
+                            f"FctImpAdic inconsistente para CodImp={oi['CodImp']} "
+                            f"en el período: existente={fct_previo}, nuevo={fct_imp_adic}. "
+                            f"Las entradas del mismo código de impuesto deben tener "
+                            f"el mismo factor de proporcionalidad."
+                        )
+                    tot_oi["TotMntImp"] += mnt_imp
+                    tot_oi["TotCredImp"] += cred_imp
                     found = True
             if not found:
-                r["TotOtrosImp"].append({
+                tot_oi_new = {
                     "CodImp": oi["CodImp"],
-                    "TotMntImp": oi["MntImp"],
-                    "TotCredImp": oi["MntImp"],
-                })
+                    "TotMntImp": mnt_imp,
+                    "TotCredImp": cred_imp,
+                }
+                if fct_imp_adic != 1.0:
+                    tot_oi_new["FctImpAdic"] = fct_imp_adic
+                r["TotOtrosImp"].append(tot_oi_new)
         if e.get("IVARetTotal"):
             r["TotOpIVARetTotal"] = r.get("TotOpIVARetTotal", 0) + 1
             r["TotIVARetTotal"] = r.get("TotIVARetTotal", 0) + e["IVARetTotal"]
@@ -735,6 +870,10 @@ def generar_libro_compras(
                 resumen_xml += "<TotOtrosImp>"
                 resumen_xml += f"<CodImp>{oi['CodImp']}</CodImp>"
                 resumen_xml += f"<TotMntImp>{oi['TotMntImp']}</TotMntImp>"
+                # FctImpAdic se emite solo cuando el factor no es 1.0 (crédito parcial).
+                # XSD: orden es TotMntImp → FctImpAdic? → TotCredImp?
+                if "FctImpAdic" in oi:
+                    resumen_xml += f"<FctImpAdic>{oi['FctImpAdic']}</FctImpAdic>"
                 resumen_xml += f"<TotCredImp>{oi['TotCredImp']}</TotCredImp>"
                 resumen_xml += "</TotOtrosImp>"
         if r.get("TotIVARetTotal"):

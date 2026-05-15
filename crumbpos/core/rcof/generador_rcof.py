@@ -83,7 +83,10 @@ def _generar_resumen(tipo_dte: int, boletas: list) -> str:
 
     Args:
         tipo_dte: 39 (afecta) o 41 (exenta)
-        boletas: Lista de DteEmitido de este tipo
+        boletas: Lista de DteEmitido de este tipo. Los atributos `anulado` y
+            `estado` se inspeccionan para distinguir folios emitidos vs anulados:
+            - `anulado=True` o `estado='anulado'` → cuenta en FoliosAnulados.
+            - resto → cuenta en FoliosUtilizados.
 
     Returns:
         XML string del bloque Resumen
@@ -92,11 +95,21 @@ def _generar_resumen(tipo_dte: int, boletas: list) -> str:
     total_iva = 0
     total_exento = 0
     total_total = 0
-    folios = []
+    folios_utilizados_list: list[int] = []
+    folios_anulados_count = 0
 
     for b in boletas:
         monto_total = b.monto_total or 0
         monto_exento = b.monto_exento or 0
+        anulado = (
+            getattr(b, "anulado", False)
+            or getattr(b, "estado", "") == "anulado"
+        )
+
+        if anulado:
+            # Boleta anulada: cuenta como folio anulado, NO suma en montos.
+            folios_anulados_count += 1
+            continue
 
         if tipo_dte == 41:
             # Boleta exenta: todo es exento
@@ -112,12 +125,13 @@ def _generar_resumen(tipo_dte: int, boletas: list) -> str:
             total_exento += monto_exento
             total_total += monto_total
 
-        folios.append(b.folio)
+        folios_utilizados_list.append(b.folio)
 
-    folios.sort()
+    folios_utilizados_list.sort()
+    folios = folios_utilizados_list
     folios_emitidos = len(boletas)
-    folios_anulados = 0
-    folios_utilizados = folios_emitidos
+    folios_anulados = folios_anulados_count
+    folios_utilizados = len(folios_utilizados_list)
 
     # Construir bloque Resumen (orden XSD: TipoDocumento, MntNeto?, MntIva?, TasaIVA?, MntExento?, MntTotal)
     xml = f'<Resumen><TipoDocumento>{tipo_dte}</TipoDocumento>'

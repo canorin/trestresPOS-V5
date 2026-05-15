@@ -28,8 +28,30 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════════════════════════════════
 
 import os
+import secrets
 
-SECRET_KEY = os.getenv("JWT_SECRET", "dev-secret-change-in-production")
+# JWT_SECRET: 32+ bytes random (high entropy). En producción debe venir
+# de un secret manager. Generar con: secrets.token_urlsafe(64).
+_JWT_DEFAULT = "dev-secret-change-in-production"
+SECRET_KEY = os.getenv("JWT_SECRET", _JWT_DEFAULT)
+
+# Fail-fast: si estamos en producción con el default inseguro, el proceso
+# NO debe arrancar. Esto evita despliegues con secret comprometido.
+if SECRET_KEY == _JWT_DEFAULT and os.getenv("CRUMBPOS_ENV", "").lower() == "production":
+    raise RuntimeError(
+        "JWT_SECRET no configurado en producción. "
+        "Configurar variable de entorno con un valor de alta entropía "
+        "(ej: `export JWT_SECRET=$(python -c 'import secrets; print(secrets.token_urlsafe(64))')`)."
+    )
+
+# Aviso adicional para no-producción si dejan el default
+if SECRET_KEY == _JWT_DEFAULT:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "⚠️  JWT_SECRET tiene valor por defecto. NO USAR EN PRODUCCIÓN. "
+        "Configurar CRUMBPOS_ENV=production junto con JWT_SECRET seguro."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 480  # 8 horas
 
@@ -147,6 +169,17 @@ def get_tenant(
             )
     else:
         empresa_rut = user.empresa_rut
+
+    # Validar formato del RUT antes de usar en path/query — bloquea path traversal
+    # vía header X-Empresa-Rut malicioso (ej: "../../etc").
+    from crumbpos.utils.rut import RUTInvalidoError, validar_formato_rut
+    try:
+        empresa_rut = validar_formato_rut(empresa_rut)
+    except RUTInvalidoError as exc:
+        raise HTTPException(400, f"empresa_rut inválido: {exc}")
+    # SYSTEM no es un RUT real: rechazar para tenants
+    if empresa_rut == "SYSTEM":
+        raise HTTPException(400, "Namespace SYSTEM no es un tenant válido")
 
     # Look up empresa en master
     registro = master_db.query(EmpresaRegistro).filter(

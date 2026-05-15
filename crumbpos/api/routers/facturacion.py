@@ -9,7 +9,7 @@ import base64
 from datetime import date, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -132,19 +132,56 @@ def _persist_dte_emitido(
     body: "EmitirFacturaIn",
     resultado: EmisionResult,
     sucursal_id: str | None = None,
+    usuario_id: str | None = None,
+    caja_id: str | None = None,
+    ip_origen: str | None = None,
+    user_agent: str | None = None,
 ) -> DteEmitido | None:
-    """Persist a DteEmitido record after successful emission.
+    """Persist a DteEmitido record.
 
-    sucursal_id: la sucursal que emitió el documento (del JWT o body).
+    Persiste TANTO emisiones exitosas como rechazadas, para:
+    - Auditoría legal (6 años de retención, regla SII).
+    - Reintento de envíos pendientes (jobs de polling/reenvio).
+    - Diagnóstico de fallas (glosa_sii queda registrada).
+
+    El registro es UPSERT por (empresa_id, tipo_dte, folio): si ya existe
+    (caso reintento), se actualizan los campos volátiles (track_id, estado,
+    glosa) preservando los inmutables (xml_firmado original, fecha_emisión).
+
+    Args:
+        db: sesión SQLAlchemy del tenant.
+        empresa: instancia de Empresa.
+        body: payload de la emisión (para receptor_rut/razon).
+        resultado: EmisionResult devuelto por el servicio de emisión.
+        sucursal_id: ID de sucursal (JWT o body).
+        usuario_id: ID del usuario que emite (trazabilidad).
+        caja_id: ID de la caja POS (si aplica).
+        ip_origen: IP del cliente HTTP (auditoría).
+        user_agent: User-Agent del cliente HTTP.
+
+    Returns:
+        El DteEmitido (nuevo o actualizado), o None si no hay folio.
     """
-    if not resultado.ok or resultado.folio is None:
+    if resultado.folio is None:
+        # Sin folio = error pre-emisión (CAF agotado, validación fallada).
+        # No hay nada que persistir todavía.
         return None
 
     xml_text = None
     if resultado.xml_firmado:
         xml_text = base64.b64encode(resultado.xml_firmado).decode("ascii")
 
-    estado_sii = "enviado" if resultado.track_id else "pendiente"
+    # Estado: si ok+track_id → enviado; ok sin track → pendiente; !ok con xml → rechazado
+    if resultado.ok and resultado.track_id:
+        estado_sii = "enviado"
+    elif resultado.ok:
+        estado_sii = "pendiente"
+    elif resultado.xml_firmado:
+        # Falló el envío pero el XML se firmó OK → persistir para reintento
+        estado_sii = "rechazado" if resultado.track_id else "error_envio"
+    else:
+        # Falló antes de firmar → no hay XML para persistir
+        return None
 
     # Usar sucursal específica o buscar la primera activa como fallback
     if sucursal_id:
@@ -155,9 +192,29 @@ def _persist_dte_emitido(
             Sucursal.activa == True,
         ).first()
 
+    # UPSERT: buscar registro previo del mismo (empresa, tipo, folio)
+    existente = db.query(DteEmitido).filter(
+        DteEmitido.empresa_id == empresa.id,
+        DteEmitido.tipo_dte == body.tipo_dte,
+        DteEmitido.folio == resultado.folio,
+    ).first()
+
+    if existente is not None:
+        # Reintento o actualización post-envío: refrescar campos volátiles,
+        # preservar el xml_firmado y timestamp_envio originales (idempotencia).
+        existente.track_id = resultado.track_id or existente.track_id
+        existente.estado_sii = estado_sii
+        if resultado.error:
+            existente.glosa_sii = (resultado.error or "")[:255]
+        return existente
+
     dte_record = DteEmitido(
         empresa_id=empresa.id,
         sucursal_id=sucursal.id if sucursal else None,
+        usuario_id=usuario_id,
+        caja_id=caja_id,
+        ip_origen=ip_origen,
+        user_agent=(user_agent or "")[:255] if user_agent else None,
         tipo_dte=body.tipo_dte,
         folio=resultado.folio,
         fecha_emision=date.fromisoformat(datetime.now().strftime("%Y-%m-%d")),
@@ -171,6 +228,8 @@ def _persist_dte_emitido(
         ted_xml=resultado.ted_xml,
         track_id=resultado.track_id,
         estado_sii=estado_sii,
+        glosa_sii=(resultado.error or "")[:255] if resultado.error else None,
+        timestamp_envio=datetime.utcnow(),
     )
     db.add(dte_record)
     return dte_record
@@ -250,7 +309,11 @@ def reset_servicio():
 
 
 @router.post("/emitir", response_model=EmitirFacturaOut)
-def emitir_factura(body: EmitirFacturaIn, tenant: TenantContext = Depends(get_tenant)):
+def emitir_factura(
+    body: EmitirFacturaIn,
+    request: Request,
+    tenant: TenantContext = Depends(get_tenant),
+):
     """Emite un DTE completo: genera XML, firma, envía al SII y genera PDF.
 
     Opera sobre la BD de la empresa y ambiente del usuario autenticado.
@@ -258,6 +321,12 @@ def emitir_factura(body: EmitirFacturaIn, tenant: TenantContext = Depends(get_te
     try:
         # Prioridad sucursal: body (admin override) > JWT (POS) > casa matriz
         sucursal_id = body.sucursal_id or tenant.sucursal_id
+
+        # Trazabilidad operacional: capturar quien emite + IP + user-agent.
+        # Permite auditoría legal ante disputas multi-cajero.
+        ip_origen = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        usuario_id = tenant.user.id if tenant.user else None
         servicio, empresa = _get_servicio(tenant, sucursal_id=sucursal_id)
 
         # Auto-completar fecha_ref buscando en DB cuando no se proporciona
@@ -328,9 +397,17 @@ def emitir_factura(body: EmitirFacturaIn, tenant: TenantContext = Depends(get_te
                 },
             )
 
-        # Persist DteEmitido
+        # Persist DteEmitido — SIEMPRE (incluso si ok=False con XML generado).
+        # Razón: la regla SII de conservación 6 años aplica a todo DTE
+        # firmado, incluso si su envío falló. Y permite reintento.
         try:
-            _persist_dte_emitido(tenant.db, empresa, body, resultado, sucursal_id=sucursal_id)
+            _persist_dte_emitido(
+                tenant.db, empresa, body, resultado,
+                sucursal_id=sucursal_id,
+                usuario_id=usuario_id,
+                ip_origen=ip_origen,
+                user_agent=user_agent,
+            )
         except Exception as exc:
             logger.error("Error persistiendo DteEmitido: %s", exc, exc_info=True)
 

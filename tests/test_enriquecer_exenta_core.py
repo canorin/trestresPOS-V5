@@ -69,6 +69,7 @@ def _req_nc_a_exenta(codigo_ref: int, items: list[dict]) -> FacturaRequest:
         referencias=[{
             "tipo_doc": 34,
             "folio": 66,
+            "fecha": "2026-04-01",
             "razon": "Corrección sobre Factura Exenta",
             "codigo": codigo_ref,
         }],
@@ -125,6 +126,7 @@ class TestEnriquecimientoNCRefExenta:
             items=[{"nombre": "ITEM", "cantidad": 1, "precio_unitario": 1000}],
             referencias=[{
                 "tipo_doc": 34, "folio": 66, "codigo": 1,
+                "fecha": "2026-04-01",
                 "razon": "Aumenta monto sobre exenta",
             }],
         )
@@ -160,6 +162,7 @@ class TestEnriquecimientoNoAplica:
                     "precio_unitario": 1000, "exento": False}],
             referencias=[{
                 "tipo_doc": 33, "folio": 61, "codigo": 3,
+                "fecha": "2026-04-01",
                 "razon": "Modifica monto sobre afecta",
             }],
         )
@@ -206,6 +209,7 @@ class TestE2EBugCertificacion4788488:
                     "precio_unitario": 619}],
             referencias=[{
                 "tipo_doc": 34, "folio": 66, "codigo": 3,
+                "fecha": "2026-04-01",
                 "razon": "Modifica monto de factura exenta",
             }],
         )

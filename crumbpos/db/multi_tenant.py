@@ -235,6 +235,17 @@ class UsuarioAuth(BaseMaster):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     rol: Mapped[str] = mapped_column(String(20), nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Si True, el usuario debe cambiar su password en el primer login.
+    # Se setea al crear master/admin con password generada y se limpia
+    # al ejecutar /api/auth/cambiar-password.
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False,
+    )
+    # Timestamp del último cambio exitoso de password (para auditoría y
+    # políticas futuras de expiración de password, ej. cada 180 días).
+    password_changed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow,
     )
@@ -507,6 +518,31 @@ def _migrate_master_schema(engine):
                 "Master migrate: columna 'rut_personal' agregada a usuario_auth",
             )
 
+        # ── Migración must_change_password + password_changed_at ──
+        # Idempotente: solo agrega las columnas si no existen.
+        # Re-leemos las columnas porque arriba pudimos haber recreado la tabla.
+        ua_cols = {
+            row[1] for row in conn.execute(
+                text("PRAGMA table_info(usuario_auth)"),
+            )
+        }
+        if "must_change_password" not in ua_cols:
+            conn.execute(text(
+                "ALTER TABLE usuario_auth ADD COLUMN "
+                "must_change_password BOOLEAN NOT NULL DEFAULT 0"
+            ))
+            logger.info(
+                "Master migrate: columna 'must_change_password' agregada a usuario_auth",
+            )
+        if "password_changed_at" not in ua_cols:
+            conn.execute(text(
+                "ALTER TABLE usuario_auth ADD COLUMN "
+                "password_changed_at DATETIME"
+            ))
+            logger.info(
+                "Master migrate: columna 'password_changed_at' agregada a usuario_auth",
+            )
+
         # ── Rename de valores de rol (idempotente) ──
         #
         # Antes solo había ``admin_empresa`` y ``admin_sucursal``. La
@@ -549,8 +585,14 @@ _empresa_session_factories: dict[tuple[str, str], object] = {}
 
 
 def _empresa_db_path(rut: str, ambiente: str) -> Path:
-    """Resolve path to empresa-specific database file."""
-    rut_clean = rut.strip()
+    """Resolve path to empresa-specific database file.
+
+    Validación estricta de `rut` contra regex XXXXXXX-X. Sin esto, un
+    `rut="../../etc"` produciría path traversal y lectura/creación de DB
+    fuera de `DATA_DIR`. Validación delegada a `utils.rut.validar_formato_rut`.
+    """
+    from crumbpos.utils.rut import validar_formato_rut
+    rut_clean = validar_formato_rut(rut)
     if ambiente not in ("certificacion", "produccion"):
         raise ValueError(f"Ambiente inválido: {ambiente}. Debe ser 'certificacion' o 'produccion'")
     return DATA_DIR / rut_clean / f"{ambiente}.db"
@@ -740,6 +782,28 @@ def _migrate_empresa_schema(engine):
         }
         if "rol" in usuario_cols:
             _rename_roles_sql(conn, "usuario")
+
+        # ── dte_emitido: trazabilidad (usuario, caja, IP, user agent) + timestamp_envio ──
+        # Idempotente: solo agrega columnas si no existen.
+        dte_cols = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(dte_emitido)"))
+        }
+        if dte_cols:
+            if "usuario_id" not in dte_cols:
+                conn.execute(text("ALTER TABLE dte_emitido ADD COLUMN usuario_id VARCHAR(36)"))
+                logger.info("Empresa migrate: dte_emitido.usuario_id agregada")
+            if "caja_id" not in dte_cols:
+                conn.execute(text("ALTER TABLE dte_emitido ADD COLUMN caja_id VARCHAR(36)"))
+                logger.info("Empresa migrate: dte_emitido.caja_id agregada")
+            if "ip_origen" not in dte_cols:
+                conn.execute(text("ALTER TABLE dte_emitido ADD COLUMN ip_origen VARCHAR(45)"))
+                logger.info("Empresa migrate: dte_emitido.ip_origen agregada")
+            if "user_agent" not in dte_cols:
+                conn.execute(text("ALTER TABLE dte_emitido ADD COLUMN user_agent VARCHAR(255)"))
+                logger.info("Empresa migrate: dte_emitido.user_agent agregada")
+            if "timestamp_envio" not in dte_cols:
+                conn.execute(text("ALTER TABLE dte_emitido ADD COLUMN timestamp_envio DATETIME"))
+                logger.info("Empresa migrate: dte_emitido.timestamp_envio agregada")
 
 
 def get_empresa_engine(rut: str, ambiente: str):
@@ -1022,6 +1086,8 @@ def provision_empresa(
             # (administrador / administrador_tienda / cajero) se crean
             # después desde la consola. Ver ``crumbpos.core.roles``.
             rol="master_client",
+            # Password generada automáticamente — forzar cambio en primer login.
+            must_change_password=True,
         ))
         master.commit()
     except Exception:

@@ -33,6 +33,8 @@ from __future__ import annotations
 import re
 from types import SimpleNamespace
 
+import pytest
+
 from crumbpos.core.libros.generador_iecv import (
     generar_libro_compras,
     generar_libro_guias,
@@ -154,25 +156,21 @@ class TestOrdenCaratulaLibroGuia:
             f"Actual:   {nombres}"
         )
 
-    def test_orden_exacto_sin_folio_notificacion(self):
-        """Sin FolioNotificacion (MENSUAL), los 7 elementos previos deben
-        seguir apareciendo en el mismo orden."""
-        xml, _ = generar_libro_guias(
-            dtes=[_dte_guia(1)],
-            empresa=_empresa_fake(),
-            periodo="2026-04",
-            rut_envia="17586255-2",
-            folio_notificacion=0,
-        )
-        nombres = _extraer_nombres_elementos_caratula(xml)
-        # Sin FolioNotificacion al final
-        esperado = [
-            n for n in ORDEN_CARATULA_LIBRO_GUIA if n != "FolioNotificacion"
-        ]
-        assert nombres == esperado, (
-            f"Orden de carátula LibroGuia MENSUAL incorrecto.\n"
-            f"Esperado: {esperado}\nActual: {nombres}"
-        )
+    def test_folio_notificacion_cero_lanza_value_error(self):
+        """folio_notificacion=0 debe lanzar ValueError.
+
+        LibroGuia_v10.xsd solo acepta TipoLibro='ESPECIAL' (enum de un
+        único valor). El modo MENSUAL no existe en LibroGuia — por eso
+        FolioNotificacion es obligatorio y debe ser > 0.
+        """
+        with pytest.raises(ValueError, match="folio_notificacion debe ser un entero > 0"):
+            generar_libro_guias(
+                dtes=[_dte_guia(1)],
+                empresa=_empresa_fake(),
+                periodo="2026-04",
+                rut_envia="17586255-2",
+                folio_notificacion=0,
+            )
 
     def test_no_incluye_tipo_operacion(self):
         """El XSD del LibroGuia NO define ``TipoOperacion`` en la carátula.

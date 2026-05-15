@@ -40,6 +40,8 @@ from lxml import etree
 from sqlalchemy import select, and_, text, or_, func
 from sqlalchemy.orm import Session
 
+from crumbpos.core.security.xml_safe import fromstring_safe
+
 from crumbpos.db.models import (
     CafFolio,
     CafAsignacion,
@@ -830,8 +832,9 @@ class CAFManagerDB:
         from crumbpos.core.caf.caf_manager import CAF, _cargar_llave_publica_sii
 
         # ── Parsear XML para extraer metadata ─────────────────────────
+        # CAF viene del usuario (upload): parser endurecido contra XXE.
         try:
-            tree = etree.fromstring(xml_bytes)
+            tree = fromstring_safe(xml_bytes)
         except Exception as e:
             raise ValueError(f"XML inválido: {e}")
 

@@ -276,6 +276,8 @@ def crear_usuario(body: UsuarioCreateIn, tenant: TenantContext = Depends(get_ten
             password_hash=password_hash,
             rol=rol_nuevo,
             activo=True,
+            # Password creada por admin: forzar cambio en primer login.
+            must_change_password=True,
         ))
         master_session.commit()
 

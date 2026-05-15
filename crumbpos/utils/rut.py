@@ -1,4 +1,48 @@
 """Utilidades para manejo de RUT chileno."""
+import re
+
+# Regex estricta para RUT formato XXXXXXX-X o XXXXXXXX-X (sin puntos, con guión).
+# Acepta cuerpo de 7 u 8 dígitos + DV {0-9, K, k}. NO acepta path traversal,
+# espacios, ni otros caracteres. Para uso en validación de path/header.
+RUT_REGEX = re.compile(r"^\d{1,8}-[0-9Kk]$")
+
+# Caso especial: namespace reservado para super_admin.
+RUT_SYSTEM_NAMESPACE = "SYSTEM"
+
+
+class RUTInvalidoError(ValueError):
+    """RUT con formato inválido. Usado para fallar fast en path/header parsing."""
+
+
+def validar_formato_rut(rut: str | None) -> str:
+    """Valida que un RUT cumpla formato XXXXXXX-X estrictamente, sin DV check.
+
+    Pensado para usar en validación de parámetros de path/header donde el
+    objetivo es prevenir path traversal (`../`, `/`, `..`, etc.). NO valida
+    el DV matemático — para eso usar `validar_rut()`.
+
+    Acepta el namespace especial `"SYSTEM"` (super admin).
+
+    Args:
+        rut: string del RUT (sin puntos, con guión) o "SYSTEM".
+
+    Returns:
+        El RUT normalizado (uppercase, sin puntos/espacios).
+
+    Raises:
+        RUTInvalidoError: si el formato no cumple el regex.
+    """
+    if not rut or not isinstance(rut, str):
+        raise RUTInvalidoError(f"RUT vacío o no es string: {rut!r}")
+    rut_limpio = rut.upper().replace(".", "").replace(" ", "")
+    if rut_limpio == RUT_SYSTEM_NAMESPACE:
+        return rut_limpio
+    if not RUT_REGEX.match(rut_limpio):
+        raise RUTInvalidoError(
+            f"RUT '{rut}' no cumple formato XXXXXXXX-X. "
+            f"Esperado: 1-8 dígitos, guión, dígito verificador (0-9 o K)."
+        )
+    return rut_limpio
 
 
 def validar_rut(rut: str) -> bool:

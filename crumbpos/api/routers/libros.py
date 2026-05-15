@@ -71,7 +71,9 @@ def _get_servicio_libros(tenant: TenantContext) -> tuple[ServicioLibros, Empresa
 
 class GenerarLibroGuiasIn(BaseModel):
     periodo: str  # "YYYY-MM"
-    folio_notificacion: int = 0
+    # FolioNotificacion obligatorio: LibroGuia_v10.xsd solo acepta TipoLibro='ESPECIAL'.
+    # Obtener el número de atención en https://zeus.sii.cl/AUT2/AS/accAut.html ANTES de enviar.
+    folio_notificacion: int
     enviar: bool = True
     guias_anuladas: list[int] = []
     # Filtro opcional: solo incluir estos folios T52 (para certificación)

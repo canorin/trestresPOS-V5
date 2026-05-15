@@ -77,6 +77,7 @@ def _req_nc_codref3(items: list[dict]) -> FacturaRequest:
         referencias=[{
             "tipo_doc": 33,
             "folio": 61,
+            "fecha": "2026-04-01",
             "razon": "Modifica monto",
             "codigo": 3,
         }],
@@ -162,6 +163,7 @@ class TestGuardCodRef3ParaND:
             items=[{"nombre": "X", "cantidad": 1, "precio_unitario": 0}],
             referencias=[{
                 "tipo_doc": 33, "folio": 61, "codigo": 3,
+                "fecha": "2026-04-01",
                 "razon": "Aumenta monto",
             }],
         )
@@ -194,6 +196,7 @@ class TestNoRegresionCodRef1y2:
             }],
             referencias=[{
                 "tipo_doc": 33, "folio": 61, "codigo": 2,
+                "fecha": "2026-04-01",
                 "razon": "Corrige texto",
             }],
         )
@@ -215,6 +218,7 @@ class TestNoRegresionCodRef1y2:
             items=[{"nombre": "Item orig", "cantidad": 1, "precio_unitario": 1000}],
             referencias=[{
                 "tipo_doc": 33, "folio": 61, "codigo": 1,
+                "fecha": "2026-04-01",
                 "razon": "Anula documento",
             }],
         )

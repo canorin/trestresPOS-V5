@@ -8,6 +8,7 @@ Proceso:
 """
 import base64
 import hashlib
+import logging
 import requests
 from lxml import etree
 from cryptography.hazmat.primitives import hashes
@@ -16,8 +17,44 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 from crumbpos.config.settings import get_sii_url
 
+logger = logging.getLogger(__name__)
+
 SOAP_NS = "http://schemas.xmlsoap.org/soap/envelope/"
 SII_NS = "http://www.sii.cl/XMLSchema"
+
+
+# ══════════════════════════════════════════════════════════════
+# Excepciones diferenciadas por canal de autenticación
+# ══════════════════════════════════════════════════════════════
+#
+# Ambos canales del SII (SOAP factura y REST boleta) reportan errores con
+# distinta semántica. Tener clases dedicadas permite:
+#   - Distinguir en logs/dashboards qué canal está fallando.
+#   - Reintentos diferenciados (REST puede recuperarse con backoff distinto).
+#   - Detección de errores transitorios vs. permanentes por canal.
+
+
+class SIIAuthError(ValueError):
+    """Error genérico de autenticación contra el SII."""
+    pass
+
+
+class SIIAuthSOAPError(SIIAuthError):
+    """Error obteniendo token SOAP (DTEUpload — facturas, NC, ND, guías, libros, RCOF).
+
+    Indica falla del flujo getSeed→firmar→getToken en maullin/palena.
+    Casos típicos: ESTADO != 00 en respuesta, semilla inválida, certificado vencido.
+    """
+    pass
+
+
+class SIIAuthRESTError(SIIAuthError):
+    """Error obteniendo token REST (boleta.electronica — solo T39/T41).
+
+    Indica falla del flujo getSeed boleta → firmar → getToken boleta en apicert/api.
+    Casos típicos: HTTP 4xx/5xx, JSON malformado, certificado no enrolado en boletas REST.
+    """
+    pass
 
 
 def _soap_call(url: str, action: str) -> str:
@@ -47,11 +84,18 @@ def _soap_call(url: str, action: str) -> str:
         if elem.tag.endswith("Return") and elem.text:
             return elem.text
 
-    raise ValueError(f"No se pudo parsear respuesta SOAP: {response.text[:500]}")
+    raise SIIAuthSOAPError(
+        f"SOAP {url}: no se pudo parsear respuesta. Primer fragmento: {response.text[:500]}"
+    )
 
 
 def _soap_call_with_body(url: str, action: str, body_xml: str) -> str:
-    """Hace una llamada SOAP con cuerpo XML personalizado."""
+    """Hace una llamada SOAP con cuerpo XML personalizado.
+
+    Raises:
+        SIIAuthSOAPError: para SOAP Faults, HTTP 500, respuestas inválidas
+            o cualquier otro problema en el flujo SOAP.
+    """
     from xml.sax.saxutils import escape
     # El XML firmado debe ir escapado como string dentro del SOAP
     escaped_xml = escape(body_xml)
@@ -78,19 +122,28 @@ def _soap_call_with_body(url: str, action: str, body_xml: str) -> str:
             root = etree.fromstring(response.content)
             fault = root.findtext(".//{http://schemas.xmlsoap.org/soap/envelope/}faultstring")
             if fault:
-                raise ValueError(f"SII SOAP Fault: {fault}")
+                raise SIIAuthSOAPError(f"SOAP Fault del SII ({action}): {fault}")
         except etree.XMLSyntaxError:
             pass
-        raise ValueError(f"Error 500 del SII: {response.text[:500]}")
+        raise SIIAuthSOAPError(
+            f"HTTP 500 del SII en {action}: {response.text[:500]}"
+        )
 
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        raise SIIAuthSOAPError(
+            f"HTTP {response.status_code} del SII en {action}: {exc}"
+        ) from exc
 
     root = etree.fromstring(response.content)
     for elem in root.iter():
         if elem.tag.endswith("Return") and elem.text:
             return elem.text
 
-    raise ValueError(f"No se pudo parsear respuesta SOAP: {response.text[:500]}")
+    raise SIIAuthSOAPError(
+        f"SOAP {action}: respuesta sin elemento *Return. Primer fragmento: {response.text[:500]}"
+    )
 
 
 def obtener_semilla(ambiente: str) -> str:
@@ -99,9 +152,17 @@ def obtener_semilla(ambiente: str) -> str:
     Args:
         ambiente: "certificacion" o "produccion" — resuelve el host SII
             (maullin vs palena).
+
+    Raises:
+        SIIAuthSOAPError: si la respuesta del SII no contiene SEMILLA o
+            si el ESTADO retornado no es "00".
     """
     url = get_sii_url("seed", ambiente)
-    xml_interno = _soap_call(url, "getSeed")
+    try:
+        xml_interno = _soap_call(url, "getSeed")
+    except ValueError as exc:
+        # _soap_call lanza ValueError genérico; lo elevamos como SOAP-específico
+        raise SIIAuthSOAPError(f"getSeed SOAP falló: {exc} (ambiente={ambiente})") from exc
 
     # Parsear el XML interno
     root = etree.fromstring(xml_interno.encode("utf-8"))
@@ -109,12 +170,17 @@ def obtener_semilla(ambiente: str) -> str:
     if semilla is None:
         semilla = root.findtext(".//SEMILLA")
     if semilla is None:
-        raise ValueError(f"No se encontró SEMILLA en respuesta: {xml_interno[:500]}")
+        raise SIIAuthSOAPError(
+            f"SOAP getSeed: no se encontró SEMILLA en respuesta SII "
+            f"(ambiente={ambiente}). Primer fragmento: {xml_interno[:500]}"
+        )
 
     # Verificar estado
     estado = root.findtext(f".//{{{SII_NS}}}RESP_HDR/ESTADO")
     if estado and estado != "00":
-        raise ValueError(f"Error obteniendo semilla. Estado: {estado}")
+        raise SIIAuthSOAPError(
+            f"SOAP getSeed: estado={estado} (ambiente={ambiente})"
+        )
 
     return semilla
 
@@ -176,7 +242,7 @@ def obtener_token(private_key_pem: bytes, cert_der: bytes, ambiente: str) -> str
         ambiente: "certificacion" o "produccion" — determina el host SII.
     """
     semilla = obtener_semilla(ambiente)
-    print(f"  Semilla obtenida: {semilla}")
+    logger.debug("Semilla SII obtenida: %s (ambiente=%s)", semilla, ambiente)
 
     xml_firmado = firmar_semilla(semilla, private_key_pem, cert_der)
 
@@ -193,10 +259,15 @@ def obtener_token(private_key_pem: bytes, cert_der: bytes, ambiente: str) -> str
     estado = root.findtext(f".//{{{SII_NS}}}RESP_HDR/ESTADO")
     if estado and estado != "00":
         glosa = root.findtext(f".//{{{SII_NS}}}RESP_HDR/GLOSA") or ""
-        raise ValueError(f"Error obteniendo token. Estado: {estado}. Glosa: {glosa}")
+        raise SIIAuthSOAPError(
+            f"SOAP getToken: estado={estado}, glosa={glosa!r} (ambiente={ambiente})"
+        )
 
     if token is None:
-        raise ValueError(f"No se encontró TOKEN en respuesta: {xml_interno[:500]}")
+        raise SIIAuthSOAPError(
+            f"SOAP getToken: no se encontró TOKEN en respuesta SII. "
+            f"Primer fragmento: {xml_interno[:500]}"
+        )
 
     return token
 
@@ -208,10 +279,25 @@ def obtener_semilla_boleta(ambiente: str) -> str:
 
     Args:
         ambiente: "certificacion" o "produccion" — resuelve apicert vs api.
+
+    Raises:
+        SIIAuthRESTError: si la respuesta REST no contiene SEMILLA o si el
+            ESTADO retornado no es "00".
     """
     url = get_sii_url("boleta_seed", ambiente)
-    response = requests.get(url, headers={"Accept": "application/xml"}, timeout=30)
-    response.raise_for_status()
+    try:
+        response = requests.get(url, headers={"Accept": "application/xml"}, timeout=30)
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        raise SIIAuthRESTError(
+            f"REST getSeed boleta: HTTP {response.status_code} "
+            f"(ambiente={ambiente}, url={url})"
+        ) from exc
+    except requests.RequestException as exc:
+        raise SIIAuthRESTError(
+            f"REST getSeed boleta: error de red ({exc.__class__.__name__}: {exc}) "
+            f"(ambiente={ambiente})"
+        ) from exc
 
     xml_text = response.text.replace('<?xml version="1.0" encoding="UTF-8"?>', '')
     root = etree.fromstring(xml_text.encode("utf-8"))
@@ -221,11 +307,16 @@ def obtener_semilla_boleta(ambiente: str) -> str:
     if semilla is None:
         semilla = root.findtext(".//SEMILLA")
     if semilla is None:
-        raise ValueError(f"No se encontró SEMILLA en respuesta boleta: {response.text[:500]}")
+        raise SIIAuthRESTError(
+            f"REST getSeed boleta: no se encontró SEMILLA en respuesta SII "
+            f"(ambiente={ambiente}). Primer fragmento: {response.text[:500]}"
+        )
 
     estado = root.findtext(f".//{{{SII_NS}}}RESP_HDR/ESTADO")
     if estado and estado != "00":
-        raise ValueError(f"Error obteniendo semilla boleta. Estado: {estado}")
+        raise SIIAuthRESTError(
+            f"REST getSeed boleta: estado={estado} (ambiente={ambiente})"
+        )
 
     return semilla
 
@@ -235,11 +326,17 @@ def firmar_semilla_boleta(semilla: str, firma) -> str:
 
     La semilla de boleta usa un formato diferente al SOAP tradicional:
     <getToken><item ID="IdAFirmar"><Semilla>{seed}</Semilla></item></getToken>
+
+    Raises:
+        SIIAuthRESTError: si la firma de la semilla falla (cert vencido,
+            password incorrecta, semilla inválida, etc.).
     """
     xml_seed = f'<getToken><item ID="IdAFirmar"><Semilla>{semilla}</Semilla></item></getToken>'
     signed = firma.firmar(xml_seed, uri="IdAFirmar", type="token")
     if not signed:
-        raise RuntimeError(f"Error firmando semilla boleta: {firma.errores}")
+        raise SIIAuthRESTError(
+            f"REST firmar semilla boleta: error en firma electrónica: {firma.errores}"
+        )
     return signed
 
 
@@ -254,7 +351,7 @@ def obtener_token_boleta(firma, ambiente: str) -> str:
         Token string para uso en Cookie header
     """
     semilla = obtener_semilla_boleta(ambiente)
-    print(f"  Semilla boleta obtenida: {semilla}")
+    logger.debug("Semilla boleta SII obtenida: %s (ambiente=%s)", semilla, ambiente)
 
     xml_firmado = firmar_semilla_boleta(semilla, firma)
 
@@ -281,9 +378,14 @@ def obtener_token_boleta(firma, ambiente: str) -> str:
     estado = root.findtext(f".//{{{SII_NS}}}RESP_HDR/ESTADO")
     if estado and estado != "00":
         glosa = root.findtext(f".//{{{SII_NS}}}RESP_HDR/GLOSA") or ""
-        raise ValueError(f"Error obteniendo token boleta. Estado: {estado}. Glosa: {glosa}")
+        raise SIIAuthRESTError(
+            f"REST getToken boleta: estado={estado}, glosa={glosa!r} (ambiente={ambiente})"
+        )
 
     if token is None:
-        raise ValueError(f"No se encontró TOKEN boleta: {response.text[:500]}")
+        raise SIIAuthRESTError(
+            f"REST getToken boleta: no se encontró TOKEN en respuesta SII. "
+            f"Primer fragmento: {response.text[:500]}"
+        )
 
     return token

@@ -72,7 +72,7 @@ class ServicioRCOF:
         por lo que requiere el token SOAP, no el REST de boletas.
         """
         now = datetime.now()
-        if self._token and self._token_time and (now - self._token_time).seconds < 1800:
+        if self._token and self._token_time and (now - self._token_time).total_seconds() < 1800:
             return self._token
 
         pfx_data = open(self.cert_path, "rb").read()
@@ -126,6 +126,14 @@ class ServicioRCOF:
             )
 
             if not boletas:
+                # Política día sin boletas: NO se envía RCOF cuando el
+                # contribuyente no emitió ninguna boleta electrónica en el día.
+                # Fuente: Resolución Exenta SII N°74 (2017) y oficios posteriores —
+                # el RCOF reporta CONSUMO de folios; si no hubo consumo, no hay
+                # nada que reportar. El SII no exige RCOF "vacío" o "en cero".
+                # Esta política se aplica de manera consistente: si más adelante
+                # un cliente declara haber sido requerido por su unidad SII para
+                # informar RCOF en cero, hay que reabrir y ajustar aquí.
                 return {
                     "ok": True,
                     "rcof_id": None,

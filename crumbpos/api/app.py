@@ -25,10 +25,30 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
-# Super admin credentials (from env or defaults for dev)
+# Super admin credentials (from env or defaults for dev).
+# En producción: SUPER_ADMIN_PASSWORD es obligatoria y NO puede ser el default.
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "matias@trestres.cl")
-SUPER_ADMIN_PASSWORD = os.getenv("SUPER_ADMIN_PASSWORD", "admin123")
+_SUPER_ADMIN_DEFAULT = "admin123"
+SUPER_ADMIN_PASSWORD = os.getenv("SUPER_ADMIN_PASSWORD", _SUPER_ADMIN_DEFAULT)
 SUPER_ADMIN_NOMBRE = os.getenv("SUPER_ADMIN_NOMBRE", "Matías Bañados")
+
+# Fail-fast: bloquear arranque en producción si la password del super admin
+# es el default conocido.
+if (
+    SUPER_ADMIN_PASSWORD == _SUPER_ADMIN_DEFAULT
+    and os.getenv("CRUMBPOS_ENV", "").lower() == "production"
+):
+    raise RuntimeError(
+        "SUPER_ADMIN_PASSWORD no configurada en producción. "
+        "Configurar con valor de alta entropía: "
+        "`export SUPER_ADMIN_PASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(24))')`."
+    )
+
+if SUPER_ADMIN_PASSWORD == _SUPER_ADMIN_DEFAULT:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "⚠️  SUPER_ADMIN_PASSWORD usa valor por defecto. NO USAR EN PRODUCCIÓN."
+    )
 
 
 @asynccontextmanager
@@ -70,18 +90,32 @@ app = FastAPI(
 # Archivos estáticos (logo, assets)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# CORS: permitir frontend local y panel web
+# CORS: la lista de orígenes permitidos viene de la env var
+# CRUMBPOS_ALLOWED_ORIGINS como CSV. En desarrollo, default incluye localhost.
+# En producción, configurar SOLO los dominios reales.
+# Usar `"*"` con `allow_credentials=True` es inseguro (habilita CSRF
+# cross-origin con credenciales) — bloqueado explícitamente abajo.
+_DEV_ORIGINS = "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://localhost:8000"
+_origins_env = os.getenv("CRUMBPOS_ALLOWED_ORIGINS", _DEV_ORIGINS)
+_allowed_origins = [o.strip() for o in _origins_env.split(",") if o.strip()]
+
+if "*" in _allowed_origins:
+    if os.getenv("CRUMBPOS_ENV", "").lower() == "production":
+        raise RuntimeError(
+            "CRUMBPOS_ALLOWED_ORIGINS no puede contener '*' en producción "
+            "(habilita CSRF con credenciales). Configurar dominios explícitos."
+        )
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "⚠️  CORS permite '*' — habilita CSRF cross-origin. NO USAR EN PRODUCCIÓN."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev (admin)
-        "http://localhost:5174",  # Vite dev (POS)
-        "http://localhost:3000",  # alt
-        "*",  # TODO: restrict in production
-    ],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Empresa-Rut", "X-Sucursal-Id"],
 )
 
 # Routers

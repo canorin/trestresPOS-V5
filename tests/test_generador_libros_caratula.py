@@ -221,11 +221,33 @@ class TestCaratulaCamposObligatoriosGuias:
 
 
 class TestCaratulaModoMensualGuias:
-    """Sin folio de notificación → MENSUAL y sin FolioNotificacion."""
+    """LibroGuia solo acepta TipoLibro='ESPECIAL' — modo MENSUAL no existe."""
+
+    def test_folio_notificacion_cero_lanza_value_error(self):
+        """folio_notificacion=0 debe lanzar ValueError: LibroGuia_v10.xsd
+        solo define TipoLibro='ESPECIAL' y FolioNotificacion es obligatorio.
+
+        El modo MENSUAL (sin FolioNotificacion) es exclusivo de LibroCV
+        (ventas/compras). LibroGuia siempre requiere número de atención del SII.
+        """
+        with pytest.raises(ValueError, match="folio_notificacion debe ser un entero > 0"):
+            generar_libro_guias(
+                dtes=[_dte_guia(1)],
+                empresa=_empresa_fake(),
+                periodo="2026-04",
+                rut_envia="17586255-2",
+                folio_notificacion=0,
+            )
+
+
+class TestCaratulaModoMensualVentas:
+    """LibroCV ventas: folio_notificacion=0 → TipoLibro=MENSUAL, sin FolioNotificacion."""
 
     def test_tipo_libro_mensual_cuando_no_hay_folio_notificacion(self):
-        xml, _ = generar_libro_guias(
-            dtes=[_dte_guia(1)],
+        """En LibroCV (ventas), folio_notificacion=0 debe producir TipoLibro=MENSUAL
+        y omitir FolioNotificacion. Este es el modo normal de producción mensual."""
+        xml, _ = generar_libro_ventas(
+            dtes=[_dte_venta(1)],
             empresa=_empresa_fake(),
             periodo="2026-04",
             rut_envia="17586255-2",
@@ -234,8 +256,28 @@ class TestCaratulaModoMensualGuias:
         caratula = _extraer_caratula(xml)
         assert "<TipoLibro>MENSUAL</TipoLibro>" in caratula
         assert "<FolioNotificacion>" not in caratula
-        # TipoOperacion no va en LibroGuia (XSD no lo define)
-        assert "<TipoOperacion>" not in caratula
+        # TipoOperacion=VENTA debe estar presente
+        assert "<TipoOperacion>VENTA</TipoOperacion>" in caratula
+
+
+class TestCaratulaModoMensualCompras:
+    """LibroCV compras: folio_notificacion=0 → TipoLibro=MENSUAL, sin FolioNotificacion."""
+
+    def test_tipo_libro_mensual_cuando_no_hay_folio_notificacion(self):
+        """En LibroCV (compras), folio_notificacion=0 debe producir TipoLibro=MENSUAL
+        y omitir FolioNotificacion. Este es el modo normal de producción mensual."""
+        xml, _ = generar_libro_compras(
+            dtes=[_entrada_compra(1)],
+            empresa=_empresa_fake(),
+            periodo="2026-04",
+            rut_envia="17586255-2",
+            folio_notificacion=0,
+        )
+        caratula = _extraer_caratula(xml)
+        assert "<TipoLibro>MENSUAL</TipoLibro>" in caratula
+        assert "<FolioNotificacion>" not in caratula
+        # TipoOperacion=COMPRA debe estar presente
+        assert "<TipoOperacion>COMPRA</TipoOperacion>" in caratula
 
 
 # ══════════════════════════════════════════════════════════════════

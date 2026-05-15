@@ -10,6 +10,11 @@ from crumbpos.core.firma.timbre import generar_ted
 SII_NS = "http://www.sii.cl/SiiDte"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 
+# RUT receptor SII para todos los EnvioDTE/EnvioBOLETA — constante oficial.
+# Es el RUT del SII como receptor del envío (no del receptor del DTE individual).
+# Fuente única para todos los sobres (facturas, boletas, libros).
+RUT_RECEPTOR_SII = "60803000-K"
+
 logger = logging.getLogger(__name__)
 
 # Límites de longitud del XSD SII (DTE_v10.xsd + SiiTypes_v10.xsd).
@@ -89,8 +94,10 @@ def generar_documento_xml(dte: DTE, caf: CAF, timestamp: str | None = None) -> e
 
     # Boletas NO llevan IndMntBruto — son bruto por defecto en EnvioBOLETA_v11
 
-    # Forma de pago (1=Contado, 2=Crédito, 3=Sin costo) — después de IndServicio
-    if dte.fma_pago is not None:
+    # Forma de pago (1=Contado, 2=Crédito, 3=Sin costo) — después de IndServicio.
+    # EnvioBOLETA_v11.xsd no define <FmaPago> en IdDoc para T39/T41.
+    # Solo aplica a facturas (T33/T34), guías (T52), NC (T61), ND (T56).
+    if dte.fma_pago is not None and not es_boleta:
         etree.SubElement(id_doc, "FmaPago").text = str(dte.fma_pago)
 
     # MntPagos (para ventas a crédito) — dentro de IdDoc, después de FmaPago
@@ -133,14 +140,29 @@ def generar_documento_xml(dte: DTE, caf: CAF, timestamp: str | None = None) -> e
             _set_text_truncado(receptor, "CiudadRecep", dte.receptor["CiudadRecep"])
 
     # Totales
+    # En boletas T39/T41 los totales son BRUTOS por defecto (EnvioBOLETA_v11).
+    # MntNeto, MntIVA y TasaIVA NO deben emitirse en boletas:
+    #   - T39 (afecta): solo MntTotal (bruto). El SII desglosa internamente.
+    #     `MntExe` SÍ puede aparecer en T39 si hay items con IndExe=1
+    #     (boleta mixta: parte afecta + parte exenta).
+    #   - T41 (exenta): solo MntExe y MntTotal.
+    # Guard defensivo: incluso si calcular_totales() llena monto_neto/iva
+    # en un DTE marcado como boleta, los excluimos del XML.
     totales = etree.SubElement(encabezado, "Totales")
-    if dte.monto_neto is not None:
+    if not es_boleta and dte.monto_neto is not None:
         etree.SubElement(totales, "MntNeto").text = str(dte.monto_neto)
+    # MntExe: emitir solo si > 0 en T39 (boleta mixta); siempre en T41 (exenta)
+    # y facturas con exentos.
     if dte.monto_exento is not None:
-        etree.SubElement(totales, "MntExe").text = str(dte.monto_exento)
+        if dte.tipo_dte == 39:
+            # Boleta afecta: solo si hay items exentos
+            if dte.monto_exento > 0:
+                etree.SubElement(totales, "MntExe").text = str(dte.monto_exento)
+        else:
+            etree.SubElement(totales, "MntExe").text = str(dte.monto_exento)
     if not es_boleta and dte.tasa_iva is not None:
         etree.SubElement(totales, "TasaIVA").text = str(dte.tasa_iva)
-    if dte.iva is not None:
+    if not es_boleta and dte.iva is not None:
         etree.SubElement(totales, "IVA").text = str(dte.iva)
     etree.SubElement(totales, "MntTotal").text = str(dte.monto_total)
 
@@ -206,7 +228,19 @@ def generar_documento_xml(dte: DTE, caf: CAF, timestamp: str | None = None) -> e
             if ref.fecha_ref:
                 etree.SubElement(referencia, "FchRef").text = ref.fecha_ref
             else:
-                # Fallback: usar fecha emisión del DTE actual
+                # Fallback: usar fecha emisión del DTE actual.
+                # Advertencia: FchRef debería ser la fecha del documento referenciado.
+                # Si se está usando el fallback, el caller no pasó la fecha correcta.
+                logger.warning(
+                    "FchRef no proporcionado en Referencia NroLinRef=%s "
+                    "(TpoDocRef=%s, FolioRef=%s). Usando fecha de emisión del DTE "
+                    "actual (%s) como fallback. Para producción, pasar la fecha "
+                    "real del documento referenciado.",
+                    ref.nro_linea,
+                    getattr(ref, "tipo_doc_ref", "?"),
+                    getattr(ref, "folio_ref", "?"),
+                    dte.fecha_emision,
+                )
                 etree.SubElement(referencia, "FchRef").text = dte.fecha_emision
         if ref.codigo_ref is not None:
             etree.SubElement(referencia, "CodRef").text = str(ref.codigo_ref)
@@ -298,7 +332,7 @@ def generar_envio_boleta(
     caratula = etree.SubElement(set_dte, "Caratula", version="1.0")
     etree.SubElement(caratula, "RutEmisor").text = rut_emisor
     etree.SubElement(caratula, "RutEnvia").text = rut_envia
-    etree.SubElement(caratula, "RutReceptor").text = "60803000-K"
+    etree.SubElement(caratula, "RutReceptor").text = RUT_RECEPTOR_SII
     etree.SubElement(caratula, "FchResol").text = fecha_resolucion
     etree.SubElement(caratula, "NroResol").text = str(nro_resolucion)
     etree.SubElement(caratula, "TmstFirmaEnv").text = timestamp
@@ -313,6 +347,49 @@ def generar_envio_boleta(
         set_dte.append(dte)
 
     return envio
+
+
+def construir_caratula_str(
+    rut_emisor: str,
+    rut_envia: str,
+    fecha_resolucion: str,
+    nro_resolucion: int,
+    tipo_dte: int,
+    cantidad_dtes: int = 1,
+    timestamp: str | None = None,
+) -> str:
+    """Construye el XML string de la <Caratula> de EnvioDTE/EnvioBOLETA.
+
+    Fuente única de verdad para el armado de la carátula desde flujos
+    de emisión individual (firma con `facturacion_electronica.firma.Firma`,
+    que opera sobre strings, no lxml).
+
+    Args:
+        rut_emisor: RUT de la empresa emisora (XXXXXXXX-X).
+        rut_envia: RUT del firmante / persona que envía.
+        fecha_resolucion: Fecha de resolución autorizadora (YYYY-MM-DD).
+        nro_resolucion: Número de resolución (0 para empresas en producción
+            sin resolución específica).
+        tipo_dte: Tipo de DTE (33, 34, 39, 41, 52, 56, 61).
+        cantidad_dtes: Cantidad de DTEs del mismo tipo en el SubTotDTE.
+        timestamp: Timestamp ISO 8601 (default: now()).
+
+    Returns:
+        String XML con <Caratula>...</Caratula>.
+    """
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    return (
+        f'<Caratula version="1.0">'
+        f'<RutEmisor>{rut_emisor}</RutEmisor>'
+        f'<RutEnvia>{rut_envia}</RutEnvia>'
+        f'<RutReceptor>{RUT_RECEPTOR_SII}</RutReceptor>'
+        f'<FchResol>{fecha_resolucion}</FchResol>'
+        f'<NroResol>{nro_resolucion}</NroResol>'
+        f'<TmstFirmaEnv>{timestamp}</TmstFirmaEnv>'
+        f'<SubTotDTE><TpoDTE>{tipo_dte}</TpoDTE><NroDTE>{cantidad_dtes}</NroDTE></SubTotDTE>'
+        f'</Caratula>'
+    )
 
 
 def _contar_dtes(dtes: list[etree._Element]) -> dict[str, int]:

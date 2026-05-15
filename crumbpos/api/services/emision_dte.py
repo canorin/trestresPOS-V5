@@ -18,6 +18,7 @@ from crumbpos.core.dte.generador_xml import (
     generar_dte_xml,
     generar_envio_dte,
     xml_to_string,
+    construir_caratula_str,
 )
 from crumbpos.core.firma.timbre import generar_ted
 from crumbpos.core.sii_client.autenticacion import obtener_token, obtener_token_boleta
@@ -203,7 +204,7 @@ class ServicioEmisionDTE:
         """Token SOAP para DTEs (facturas, NC, ND, guías)."""
         self._cargar_firma()
         now = datetime.now()
-        if self._token and self._token_time and (now - self._token_time).seconds < 1800:
+        if self._token and self._token_time and (now - self._token_time).total_seconds() < 1800:
             return self._token
         self._token = obtener_token(
             self._private_key, self._cert_der, self.config.ambiente
@@ -218,7 +219,7 @@ class ServicioEmisionDTE:
         if not hasattr(self, '_token_boleta'):
             self._token_boleta = None
             self._token_boleta_time = None
-        if self._token_boleta and self._token_boleta_time and (now - self._token_boleta_time).seconds < 1800:
+        if self._token_boleta and self._token_boleta_time and (now - self._token_boleta_time).total_seconds() < 1800:
             return self._token_boleta
         self._token_boleta = obtener_token_boleta(self._firma, self.config.ambiente)
         self._token_boleta_time = now
@@ -490,6 +491,27 @@ class ServicioEmisionDTE:
         if req.tipo_dte not in self.TIPOS_DTE_VALIDOS:
             return f"Tipo DTE {req.tipo_dte} no es válido. Tipos soportados: {', '.join(f'{k}={v}' for k, v in self.TIPOS_NOMBRES.items())}"
 
+        # --- RUT del emisor: formato + DV ---
+        # Defensa adicional: aunque el RUT del emisor viene de la configuración
+        # de la empresa (verificada en el alta), validamos en cada emisión por
+        # si la configuración fue modificada manualmente.
+        error_rut_emisor = self._validar_rut(self.config.rut, "emisor (empresa)")
+        if error_rut_emisor:
+            return error_rut_emisor
+
+        # --- Acteco obligatorio para DTEs no-boleta ---
+        # DTE_v10.xsd: <Acteco> es obligatorio en <Emisor> para T33/T34/T52/T56/T61.
+        # Si la empresa no lo tiene configurado, el SII rechaza con STATUS=7
+        # (esquema inválido) sin devolver trackid.
+        es_boleta = req.tipo_dte in (39, 41)
+        if not es_boleta:
+            if not self.config.acteco or self.config.acteco == 0:
+                return (
+                    f"Acteco (código de actividad económica) no está configurado en la empresa. "
+                    f"Es obligatorio para emitir {self.TIPOS_NOMBRES[req.tipo_dte]}. "
+                    f"Configurar en Información del Negocio antes de emitir."
+                )
+
         # --- Items obligatorios ---
         if not req.items:
             return f"El DTE debe tener al menos 1 ítem de detalle"
@@ -527,7 +549,10 @@ class ServicioEmisionDTE:
             nombre_tipo = "Nota de Crédito" if req.tipo_dte == 61 else "Nota de Débito"
             if not req.referencias:
                 return f"{nombre_tipo} requiere al menos 1 referencia al documento original"
-            # Verificar que al menos una referencia apunta a un DTE válido
+            # Verificar TODAS las referencias DTE (no solo la primera) — cada
+            # referencia debe cumplir folio + fecha + (CodRef para NC). Si la
+            # NC/ND tiene múltiples refs a DTEs y solo la primera está
+            # completa, el SII rechaza al evaluar las demás.
             tiene_ref_dte = False
             for ref in req.referencias:
                 tipo_ref = str(ref.get("tipo_doc", ""))
@@ -536,10 +561,22 @@ class ServicioEmisionDTE:
                     # Verificar que tiene folio
                     if not ref.get("folio"):
                         return f"{nombre_tipo}: referencia a tipo {tipo_ref} requiere folio"
+                    # FchRef obligatorio cuando se referencia un DTE real.
+                    # Si falta, el XSD permite emitirlo pero la fecha emitida
+                    # sería la del documento actual (fallback), lo que produce
+                    # libros de ventas inconsistentes (la NC/ND aparece con
+                    # fecha del NC, no del documento corregido).
+                    if not ref.get("fecha"):
+                        return (
+                            f"{nombre_tipo}: referencia a tipo {tipo_ref} folio "
+                            f"{ref.get('folio')} requiere 'fecha' (FchRef) — debe "
+                            f"ser la fecha de emisión del documento referenciado, "
+                            f"no la fecha actual."
+                        )
                     # Verificar CodRef para NC
                     if req.tipo_dte == 61 and ref.get("codigo") is None:
                         return f"Nota de Crédito requiere CodRef en la referencia (1=anula, 2=corrige texto, 3=corrige monto)"
-                    break
+                    # NOTE: no `break` — seguimos validando refs siguientes.
             if not tiene_ref_dte:
                 return f"{nombre_tipo} requiere al menos 1 referencia a un DTE (tipo 33, 34, 52, 56 o 61)"
 
@@ -680,8 +717,38 @@ class ServicioEmisionDTE:
                 )
         return None
 
+    @staticmethod
+    def _calcular_dv_rut(cuerpo: str) -> str:
+        """Calcula el dígito verificador de un RUT chileno (módulo 11).
+
+        Algoritmo oficial: multiplica cada dígito de derecha a izquierda
+        por la secuencia 2,3,4,5,6,7,2,3,... Suma los productos. El DV es
+        11 - (suma % 11), donde 10 → 'K' y 11 → '0'.
+        """
+        suma = 0
+        multiplicador = 2
+        for digito in reversed(cuerpo):
+            suma += int(digito) * multiplicador
+            multiplicador = 2 if multiplicador == 7 else multiplicador + 1
+        resto = 11 - (suma % 11)
+        if resto == 11:
+            return "0"
+        if resto == 10:
+            return "K"
+        return str(resto)
+
     def _validar_rut(self, rut: str, contexto: str) -> str | None:
-        """Valida formato básico de RUT chileno."""
+        """Valida formato + DV (módulo 11) de un RUT chileno.
+
+        Reglas:
+        - Formato: XXXXXXXX-X (con o sin puntos)
+        - Cuerpo numérico
+        - DV en {0-9, K}
+        - DV matemáticamente correcto vs módulo 11 sobre el cuerpo
+
+        El SII rechaza emisiones con receptor de RUT inválido. Validar el
+        DV pre-emisión ahorra un round-trip + folio quemado.
+        """
         if not rut or not rut.strip():
             return f"RUT {contexto} es obligatorio"
         rut_limpio = rut.replace(".", "").replace(" ", "").upper()
@@ -695,6 +762,17 @@ class ServicioEmisionDTE:
             return f"RUT {contexto} '{rut}': cuerpo debe ser numérico"
         if dv not in "0123456789K":
             return f"RUT {contexto} '{rut}': dígito verificador inválido"
+        # Validación DV módulo 11. Excepción: el "RUT de consumidor final"
+        # genérico 66666666-6 es aceptado por el SII en boletas/facturas a
+        # contado y NO cumple módulo 11 estricto — se exenta del cálculo.
+        if cuerpo != "66666666":
+            dv_esperado = self._calcular_dv_rut(cuerpo)
+            if dv != dv_esperado:
+                return (
+                    f"RUT {contexto} '{rut}': dígito verificador incorrecto. "
+                    f"Esperado '{dv_esperado}' para cuerpo '{cuerpo}' (módulo 11). "
+                    f"El SII rechazará la emisión — verificar el RUT del receptor."
+                )
         return None
 
     def _validar_guia_despacho(self, req: FacturaRequest) -> str | None:
@@ -1003,19 +1081,18 @@ class ServicioEmisionDTE:
                 # No bloquear si la verificación falla por error interno,
                 # pero sí logear para diagnóstico
 
-            # Paso D: Construir Caratula
+            # Paso D: Construir Caratula via helper compartido
+            # (fuente única de verdad con generar_envio_boleta y generar_envio_dte).
             rut_envia = self.config.rut_firmante or self.config.rut
             timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            caratula = (
-                f'<Caratula version="1.0">'
-                f'<RutEmisor>{self.config.rut}</RutEmisor>'
-                f'<RutEnvia>{rut_envia}</RutEnvia>'
-                f'<RutReceptor>60803000-K</RutReceptor>'
-                f'<FchResol>{self.config.fecha_resolucion}</FchResol>'
-                f'<NroResol>{self.config.numero_resolucion}</NroResol>'
-                f'<TmstFirmaEnv>{timestamp}</TmstFirmaEnv>'
-                f'<SubTotDTE><TpoDTE>{req.tipo_dte}</TpoDTE><NroDTE>1</NroDTE></SubTotDTE>'
-                f'</Caratula>'
+            caratula = construir_caratula_str(
+                rut_emisor=self.config.rut,
+                rut_envia=rut_envia,
+                fecha_resolucion=self.config.fecha_resolucion,
+                nro_resolucion=self.config.numero_resolucion,
+                tipo_dte=req.tipo_dte,
+                cantidad_dtes=1,
+                timestamp=timestamp,
             )
 
             # Paso E: Armar sobre (EnvioBOLETA para boletas, EnvioDTE para el resto)

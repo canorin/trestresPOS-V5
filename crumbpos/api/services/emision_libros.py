@@ -3,7 +3,17 @@
 Sigue el mismo patrón de firma que emision_dte.py:
 - Carga certificado con facturacion_electronica.firma.Firma
 - Firma con type="libro"
-- Envía al SII con enviar_dte (mismo endpoint upload)
+- Envía al SII con enviar_dte (mismo endpoint DTEUpload SOAP).
+
+**Endpoints SII para libros:**
+Los libros IECV y LibroGuia se envían al MISMO endpoint que los DTEs normales:
+- Cert:  https://maullin.sii.cl/cgi_dte/UPL/DTEUpload
+- Prod:  https://palena.sii.cl/cgi_dte/UPL/DTEUpload
+
+`enviar_dte()` con `es_boleta=False` (default) resuelve `settings.get_sii_url("upload", ...)`,
+que apunta a esos hosts. No hay endpoint separado para libros — la diferenciación
+la hace el SII inspeccionando el tag root del XML enviado (LibroCompraVenta vs LibroGuia
+vs EnvioDTE).
 """
 import json
 import logging
@@ -68,7 +78,7 @@ class ServicioLibros:
     def _obtener_token(self) -> str:
         self._cargar_firma()
         now = datetime.now()
-        if self._token and self._token_time and (now - self._token_time).seconds < 1800:
+        if self._token and self._token_time and (now - self._token_time).total_seconds() < 1800:
             return self._token
         self._token = obtener_token(
             self._private_key, self._cert_der, self.empresa.ambiente_sii
@@ -150,9 +160,10 @@ class ServicioLibros:
             xml_final = '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + signed
             xml_bytes = xml_final.encode("ISO-8859-1")
 
-            # Debug: save to /tmp
-            Path("/tmp/ultimo_libro_ventas.xml").write_bytes(xml_bytes)
-            logger.info("Libro de ventas XML guardado en /tmp/ultimo_libro_ventas.xml")
+            # Debug: save to /tmp con namespace por tenant+periodo
+            debug_path = Path(f"/tmp/ultimo_libro_ventas_{self.empresa.rut}_{periodo}.xml")
+            debug_path.write_bytes(xml_bytes)
+            logger.info("Libro de ventas XML guardado en %s", debug_path)
 
             # Build resumen for DB storage
             resumen = _build_resumen(dtes)
@@ -245,7 +256,7 @@ class ServicioLibros:
         self,
         db: Session,
         periodo: str,
-        folio_notificacion: int = 0,
+        folio_notificacion: int,
         enviar: bool = True,
         guias_anuladas: list[int] | None = None,
         folios_filter: list[int] | None = None,
@@ -255,7 +266,9 @@ class ServicioLibros:
         Args:
             db: SQLAlchemy session
             periodo: "YYYY-MM"
-            folio_notificacion: 0 for production, >0 for certification
+            folio_notificacion: Número de atención del SII (obligatorio, > 0).
+                LibroGuia_v10.xsd solo acepta TipoLibro='ESPECIAL'.
+                Obtenerlo en https://zeus.sii.cl/AUT2/AS/accAut.html.
             enviar: whether to send to SII
 
         Returns:
@@ -290,11 +303,12 @@ class ServicioLibros:
                     "error": f"No hay Guías de Despacho para el periodo {periodo}",
                 }
 
-            # Mark anuladas
-            if guias_anuladas:
-                for dte in dtes:
-                    if dte.folio in guias_anuladas:
-                        dte.anulado = True
+            # Pasar guias_anuladas como parámetro al generador, NO mutar la BD.
+            # Mutar `dte.anulado=True` aquí contaminaba la base productiva si
+            # el caller pasaba `guias_anuladas` por error (ej. caso típico del
+            # SET de pruebas SII donde una guía aparece marcada como anulada
+            # solo para ese envío específico).
+            folios_anulados_set = set(guias_anuladas) if guias_anuladas else None
 
             # Generate XML (LibroGuia, NOT LibroCompraVenta)
             xml_str, libro_id = generar_libro_guias(
@@ -303,6 +317,7 @@ class ServicioLibros:
                 periodo=periodo,
                 rut_envia=rut_envia,
                 folio_notificacion=folio_notificacion,
+                folios_anulados=folios_anulados_set,
             )
 
             # Sign with type="libro"
@@ -318,8 +333,9 @@ class ServicioLibros:
             xml_bytes = xml_final.encode("ISO-8859-1")
 
             # Debug: save to /tmp
-            Path("/tmp/ultimo_libro_guias.xml").write_bytes(xml_bytes)
-            logger.info("Libro de guías XML guardado en /tmp/ultimo_libro_guias.xml")
+            debug_path = Path(f"/tmp/ultimo_libro_guias_{self.empresa.rut}_{periodo}.xml")
+            debug_path.write_bytes(xml_bytes)
+            logger.info("Libro de guías XML guardado en %s", debug_path)
 
             # Build resumen for DB storage
             resumen = _build_resumen(dtes)
@@ -446,8 +462,9 @@ class ServicioLibros:
             xml_final = '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + signed
             xml_bytes = xml_final.encode("ISO-8859-1")
 
-            Path("/tmp/ultimo_libro_compras.xml").write_bytes(xml_bytes)
-            logger.info("Libro de compras XML guardado en /tmp/ultimo_libro_compras.xml")
+            debug_path = Path(f"/tmp/ultimo_libro_compras_{self.empresa.rut}_{periodo}.xml")
+            debug_path.write_bytes(xml_bytes)
+            logger.info("Libro de compras XML guardado en %s", debug_path)
 
             track_id = None
             estado_sii = "generado"

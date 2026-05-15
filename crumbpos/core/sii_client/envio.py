@@ -1,10 +1,13 @@
 """Envío de DTEs al SII."""
 import json
+import logging
 import time
 import requests
 from lxml import etree
 
 from crumbpos.config.settings import get_sii_url, RUT_SII
+
+logger = logging.getLogger(__name__)
 
 
 def enviar_dte(
@@ -32,9 +35,18 @@ def enviar_dte(
     if rut_envia is None:
         rut_envia = rut_emisor
 
+    # NOTA: es_boleta=True en enviar_dte() mezclaría token SOAP con endpoint
+    # REST de boletas — combinación incorrecta. Para boletas usar enviar_boleta().
+    # El parámetro se mantiene por compatibilidad de firma pero no debe usarse.
+    if es_boleta:
+        logger.warning(
+            "enviar_dte() llamado con es_boleta=True — usar enviar_boleta() "
+            "para boletas T39/T41. Token SOAP y endpoint REST no son compatibles."
+        )
+
     sender_num, sender_dv = rut_envia.split("-")
     company_num, company_dv = rut_emisor.split("-")
-    servicio = "upload_boleta" if es_boleta else "upload"
+    servicio = "boleta_upload" if es_boleta else "upload"
     url = get_sii_url(servicio, ambiente)
 
     headers = {
@@ -60,7 +72,7 @@ def enviar_dte(
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             if attempt < max_retries - 1:
                 wait = 10 * (attempt + 1)
-                print(f"  Reintento {attempt + 2}/{max_retries} en {wait}s... ({e.__class__.__name__})")
+                logger.warning("Reintento %d/%d en %ds... (%s)", attempt + 2, max_retries, wait, e.__class__.__name__)
                 time.sleep(wait)
             else:
                 raise
@@ -133,10 +145,16 @@ def consultar_estado_envio(
     rut_num, rut_dv = rut_emisor.split("-")
     url = get_sii_url("estado_envio", ambiente)
 
+    # Namespace estándar SII para servicios SOAP (convención de todos los
+    # WS expuestos en maullin/palena: getSeed, getToken, getEstUp, getEstDte).
+    # NO usar la URL del endpoint como namespace — algunas implementaciones
+    # del servidor SII lo aceptan, pero la convención literal es:
+    SII_SOAP_NAMESPACE = "http://DefaultNamespace"
+
     soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
 <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 <soapenv:Body>
-<getEstUp xmlns="{url}" soapenv:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
+<getEstUp xmlns="{SII_SOAP_NAMESPACE}" soapenv:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
 <RutCompania xsi:type="xsd:string">{rut_num}</RutCompania>
 <DvCompania xsi:type="xsd:string">{rut_dv}</DvCompania>
 <TrackId xsi:type="xsd:string">{track_id}</TrackId>
@@ -222,7 +240,7 @@ def enviar_boleta(
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
             if attempt < max_retries - 1:
                 wait = 10 * (attempt + 1)
-                print(f"  Reintento {attempt + 2}/{max_retries} en {wait}s... ({e.__class__.__name__})")
+                logger.warning("Reintento %d/%d en %ds... (%s)", attempt + 2, max_retries, wait, e.__class__.__name__)
                 time.sleep(wait)
             else:
                 raise
@@ -269,11 +287,28 @@ def consultar_estado_boleta(
 ) -> dict:
     """Consulta el estado de un envío de boletas vía REST API.
 
+    Endpoint SII (REST):
+        GET {boleta_estado}/{rutEmisor}-{dvEmisor}-{trackId}
+
+    Donde `boleta_estado` resuelve a:
+        - cert: https://apicert.sii.cl/recursos/v1/boleta.electronica.envio
+        - prod: https://api.sii.cl/recursos/v1/boleta.electronica.envio
+
+    Headers obligatorios:
+        - Accept: application/json (la API REST de boletas siempre responde JSON)
+        - Cookie: TOKEN=... (token REST vigente, obtenido vía obtener_token_boleta)
+
     Args:
         track_id: TrackID devuelto por el SII al hacer upload de boletas.
         token: Token REST vigente para boletas.
         rut_emisor: RUT de la empresa (sin puntos, con guión).
         ambiente: "certificacion" o "produccion".
+
+    Returns:
+        dict con la respuesta JSON del SII. Si el SII responde no-JSON
+        (excepcional), retorna `{"raw": <texto crudo>}` para diagnóstico.
+        El llamador debe verificar la presencia de `estado` y/o `errores`
+        en la respuesta para decidir si reintentar.
     """
     rut_num, rut_dv = rut_emisor.split("-")
     url = f"{get_sii_url('boleta_estado', ambiente)}/{rut_num}-{rut_dv}-{track_id}"
@@ -281,6 +316,7 @@ def consultar_estado_boleta(
     headers = {
         "Accept": "application/json",
         "Cookie": f"TOKEN={token}",
+        "User-Agent": "Mozilla/4.0 (compatible; PROG 1.0; CrumbPOS)",
     }
 
     response = requests.get(url, headers=headers, timeout=30)
@@ -289,4 +325,8 @@ def consultar_estado_boleta(
     try:
         return json.loads(response.text)
     except json.JSONDecodeError:
+        logger.warning(
+            "consultar_estado_boleta: SII respondió no-JSON (track=%s, ambiente=%s)",
+            track_id, ambiente,
+        )
         return {"raw": response.text}

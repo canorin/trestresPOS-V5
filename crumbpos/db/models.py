@@ -17,6 +17,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
+from .types import EncryptedString, EncryptedText
 
 
 def new_uuid() -> str:
@@ -45,9 +46,12 @@ class Empresa(Base):
     fecha_resolucion: Mapped[str | None] = mapped_column(String(10))
     numero_resolucion: Mapped[int] = mapped_column(Integer, default=0)
     # Certificado digital
+    # cert_data y cert_password se cifran en reposo con master key (Fernet).
+    # Compatibilidad legacy: filas pre-migración con plaintext se leen tal cual;
+    # la siguiente escritura las cifra. Ver crumbpos/db/types.py.
     cert_path: Mapped[str | None] = mapped_column(String(255))  # path al .pfx
-    cert_data: Mapped[str | None] = mapped_column(Text)  # .pfx en base64 (para cloud)
-    cert_password: Mapped[str | None] = mapped_column(String(100))  # TODO: encriptar en prod
+    cert_data: Mapped[str | None] = mapped_column(EncryptedText)  # .pfx en base64, cifrado
+    cert_password: Mapped[str | None] = mapped_column(EncryptedString(100))  # cifrado en reposo
     cert_rut_firmante: Mapped[str | None] = mapped_column(String(12))
     # Config
     tasa_iva: Mapped[int] = mapped_column(Integer, default=19)
@@ -441,7 +445,10 @@ class CafFolio(Base):
     # DEPRECADO: la fuente de verdad del próximo folio es
     # ``caf_asignacion.folio_actual`` del tramo activo en uso. Esta columna
     # queda con el último valor que tuvo antes de la migración a tramos.
-    caf_xml_raw: Mapped[bytes] = mapped_column(Text, nullable=False)  # XML completo del CAF
+    # caf_xml_raw contiene la clave RSA privada del timbre electrónico — CRÍTICO.
+    # Se cifra en reposo con la master key (Fernet). Filas pre-migración con
+    # plaintext se leen tal cual; la siguiente escritura las cifra.
+    caf_xml_raw: Mapped[str] = mapped_column(EncryptedText, nullable=False)
     rut_emisor: Mapped[str | None] = mapped_column(String(12))
     fecha_autorizacion: Mapped[str | None] = mapped_column(String(10))
     estado: Mapped[str] = mapped_column(String(10), default="activo")
@@ -575,6 +582,15 @@ class DteEmitido(Base):
     empresa_id: Mapped[str] = mapped_column(ForeignKey("empresa.id"), nullable=False)
     sucursal_id: Mapped[str | None] = mapped_column(ForeignKey("sucursal.id"), nullable=True)
     venta_id: Mapped[str | None] = mapped_column(ForeignKey("venta.id"))
+    # Trazabilidad operacional (auditoría multi-cajero).
+    # Quien emitió el DTE: user_id, caja, IP de origen, User-Agent.
+    # Permite responder "¿quién emitió la factura 12345 el día X?" ante
+    # disputa o fraude. Todos nullable porque RCOF/libros y emisiones
+    # automatizadas no tienen user/caja asociado.
+    usuario_id: Mapped[str | None] = mapped_column(ForeignKey("usuario.id"), nullable=True)
+    caja_id: Mapped[str | None] = mapped_column(ForeignKey("caja.id"), nullable=True)
+    ip_origen: Mapped[str | None] = mapped_column(String(45), nullable=True)  # IPv6 max 45
+    user_agent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # DTE
     tipo_dte: Mapped[int] = mapped_column(Integer, nullable=False)
     folio: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -603,6 +619,11 @@ class DteEmitido(Base):
     sync_status: Mapped[str] = mapped_column(String(15), default="local")
     # Sync: local, enviado, confirmado
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # TmstFirmaEnv del envoltorio: se preserva para re-envíos idempotentes.
+    # Si tenemos que reenviar al SII porque el primer intento falló mid-flight,
+    # debemos usar EXACTAMENTE el mismo timestamp para que el SII reconozca el
+    # sobre como duplicado y no asigne un nuevo track_id.
+    timestamp_envio: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     empresa: Mapped["Empresa"] = relationship()
     venta: Mapped["Venta | None"] = relationship()
