@@ -9,6 +9,7 @@ from fpdf import FPDF
 
 from .base import (
     DTEPrintData, TIPO_NOMBRE, TIPOS_CEDIBLES, SUCURSAL_SII, LOGO_PATH,
+    CRUMB_LOGO_PATH,
     format_rut, format_number, monto_en_palabras, fecha_display,
     generar_imagen_timbre,
 )
@@ -54,6 +55,7 @@ class PDFCarta(FPDF):
         y = self._son_pesos(y)
         y = self._totales(y)
         self._timbre()
+        self._logo_crumb()
 
         if es_cedible and self._lleva_cedible():
             self._acuse_recibo()
@@ -431,11 +433,22 @@ class PDFCarta(FPDF):
         self.set_xy(col1_x, cy)
         self.cell(ar_w - 6, row_h, "Firma:  ___________________________")
 
+    # ---------- LOGO CRUMB (pie inferior derecho, todas las páginas) ----------
+    def _logo_crumb(self):
+        if not os.path.exists(CRUMB_LOGO_PATH):
+            return
+        page_h = 279.4
+        logo_w = 18  # ~50 px a 72 dpi
+        logo_x = self.LM + self.PW - logo_w  # alineado al margen derecho
+        logo_y = page_h - 9
+        self.image(CRUMB_LOGO_PATH, x=logo_x, y=logo_y, w=logo_w)
+
     # ---------- LEYENDA CEDIBLE ----------
     def _leyenda_cedible(self):
         page_h = 279.4
         texto = "CEDIBLE CON SU FACTURA" if self.data.tipo_dte == 52 else "CEDIBLE"
         self.set_font("Helvetica", "B", 10)
         self.set_text_color(0, 0, 0)
-        self.set_xy(150, page_h - 12)
+        # Desplazado 4mm arriba para no solapar el logo CrumbPOS
+        self.set_xy(150, page_h - 16)
         self.cell(55, 5, texto, align="R")

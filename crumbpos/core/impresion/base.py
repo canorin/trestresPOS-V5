@@ -35,6 +35,9 @@ SUCURSAL_SII = "SANTIAGO ORIENTE"
 # Logo por defecto
 LOGO_PATH = str(settings.BASE_DIR / "crumbpos" / "config" / "logo.png")
 
+# Logo CrumbPOS (pie de página inferior derecho en todas las páginas)
+CRUMB_LOGO_PATH = str(settings.BASE_DIR / "crumbpos" / "config" / "crumb_logo.svg")
+
 
 @dataclass
 class DTEPrintData:

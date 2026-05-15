@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Maqueta — Factura Electrónica T33</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #e8e8e8;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10pt;
+      color: #111;
+      padding: 24px 16px 48px;
+      min-height: 100vh;
+    }
+
+    /* ── Controles de vista ──────────────────────────────────── */
+    .controls {
+      max-width: 700px;
+      margin: 0 auto 18px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .controls label {
+      font-size: 12px;
+      color: #555;
+      font-family: -apple-system, sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .controls select {
+      padding: 5px 8px;
+      font-size: 12px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .controls .tag {
+      background: #1d1d1f;
+      color: #fff;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-family: -apple-system, sans-serif;
+    }
+
+    /* ── Hoja A4 ────────────────────────────────────────────── */
+    .pagina {
+      width: 700px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 28px 32px 32px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.18);
+      position: relative;
+    }
+
+    /* ── Cabecera: emisor + recuadro SII ────────────────────── */
+    .cabecera {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 14px;
+      padding-bottom: 14px;
+      border-bottom: 2px solid #111;
+    }
+
+    .emisor-logo {
+      display: block;
+      height: 38px;
+      margin-bottom: 8px;
+    }
+
+    .emisor h1 {
+      font-size: 13pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      line-height: 1.2;
+      margin-bottom: 2px;
+    }
+    .emisor .rut-emisor {
+      font-size: 9.5pt;
+      color: #333;
+      margin-bottom: 6px;
+    }
+    .emisor .dato {
+      font-size: 8.5pt;
+      color: #333;
+      line-height: 1.55;
+    }
+    .emisor .dato strong { color: #111; }
+
+    /* Recuadro SII obligatorio */
+    .recuadro-sii {
+      border: 2px solid #111;
+      padding: 10px 14px;
+      text-align: center;
+      min-width: 190px;
+    }
+    .recuadro-sii .sii-logo {
+      font-size: 8pt;
+      color: #555;
+      margin-bottom: 6px;
+      letter-spacing: .04em;
+    }
+    .recuadro-sii .tipo-doc {
+      font-size: 11.5pt;
+      font-weight: bold;
+      text-transform: uppercase;
+      line-height: 1.15;
+      margin-bottom: 6px;
+    }
+    .recuadro-sii .num-doc {
+      font-size: 17pt;
+      font-weight: bold;
+      letter-spacing: .03em;
+      margin-bottom: 6px;
+    }
+    .recuadro-sii .sii-leyenda {
+      font-size: 7.5pt;
+      color: #555;
+      line-height: 1.4;
+    }
+
+    /* ── Datos emisión ─────────────────────────────────────── */
+    .datos-emision {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px 12px;
+      margin-bottom: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #ccc;
+    }
+    .dato-item label {
+      display: block;
+      font-size: 7.5pt;
+      color: #666;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 1px;
+    }
+    .dato-item span {
+      font-size: 9.5pt;
+      font-weight: 600;
+    }
+
+    /* ── Receptor ───────────────────────────────────────────── */
+    .receptor-box {
+      border: 1px solid #bbb;
+      background: #fafafa;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 20px;
+    }
+    .receptor-box .dato-item label { color: #555; }
+
+    /* ── Tabla de ítems ─────────────────────────────────────── */
+    .tabla-items {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 4px;
+    }
+    .tabla-items thead th {
+      background: #111;
+      color: #fff;
+      font-size: 8pt;
+      padding: 6px 8px;
+      text-align: left;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .tabla-items thead th.right { text-align: right; }
+
+    .tabla-items tbody tr { border-bottom: 1px solid #e5e5e5; }
+    .tabla-items tbody tr:last-child { border-bottom: none; }
+    .tabla-items tbody tr:nth-child(even) { background: #f8f8f8; }
+
+    .tabla-items tbody td {
+      padding: 7px 8px;
+      font-size: 9pt;
+      vertical-align: top;
+    }
+    .tabla-items tbody td.right {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .tabla-items tbody td.desc small {
+      display: block;
+      font-size: 7.5pt;
+      color: #666;
+      margin-top: 1px;
+    }
+
+    /* ── Bloque totales + TED ────────────────────────────────── */
+    .footer-doc {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: end;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #ccc;
+    }
+
+    /* TED */
+    .ted-area {
+      border: 1px dashed #aaa;
+      padding: 10px 12px;
+      text-align: center;
+      min-width: 170px;
+    }
+    .ted-area .ted-titulo {
+      font-size: 7.5pt;
+      color: #555;
+      margin-bottom: 6px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .ted-area .ted-barcode {
+      /* Simulación visual del código PDF417 */
+      display: flex;
+      flex-direction: column;
+      gap: 1.5px;
+      margin: 0 auto 6px;
+      width: 130px;
+    }
+    .ted-area .ted-barcode .bar-row {
+      height: 3px;
+      background: #111;
+      display: flex;
+      gap: 1px;
+    }
+    .ted-area .ted-barcode .bar-row span {
+      display: inline-block;
+      height: 100%;
+      background: #fff;
+    }
+    .ted-area .ted-leyenda {
+      font-size: 6.5pt;
+      color: #666;
+    }
+
+    /* Totales */
+    .totales {
+      min-width: 220px;
+    }
+    .total-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 9.5pt;
+      border-bottom: 1px dotted #ddd;
+    }
+    .total-row:last-child { border-bottom: none; }
+    .total-row label { color: #444; }
+    .total-row span { font-variant-numeric: tabular-nums; font-weight: 500; }
+    .total-row.total-final {
+      font-size: 12pt;
+      font-weight: bold;
+      padding: 8px 0 0;
+      margin-top: 4px;
+      border-top: 2px solid #111;
+      border-bottom: none;
+    }
+    .total-row.exenta label,
+    .total-row.exenta span { color: #666; }
+
+    /* ── Leyendas legales ───────────────────────────────────── */
+    .leyendas {
+      margin-top: 16px;
+      padding-top: 10px;
+      border-top: 1px solid #ddd;
+      font-size: 7pt;
+      color: #666;
+      line-height: 1.6;
+    }
+    .leyendas p + p { margin-top: 3px; }
+
+    /* ── Variante boleta (toggle) ───────────────────────────── */
+    body.boleta .tipo-doc { font-size: 10.5pt; }
+    body.boleta .tabla-items thead { background: #1a1a1a; }
+    body.boleta .recuadro-sii { background: #fffce8; }
+
+    /* ── Print ───────────────────────────────────────────────── */
+    @media print {
+      body { background: #fff; padding: 0; }
+      .controls { display: none; }
+      .pagina { box-shadow: none; width: 100%; padding: 12mm 14mm; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <span class="tag">Maqueta DTE</span>
+    <label>
+      Tipo:
+      <select id="sel-tipo" onchange="cambiarTipo(this.value)">
+        <option value="33">T33 — Factura Electrónica</option>
+        <option value="34">T34 — Factura Exenta</option>
+        <option value="39">T39 — Boleta Electrónica</option>
+        <option value="61">T61 — Nota de Crédito</option>
+        <option value="56">T56 — Nota de Débito</option>
+      </select>
+    </label>
+    <label>
+      <input type="checkbox" id="chk-logo" checked onchange="toggleLogo(this.checked)">
+      Mostrar logo
+    </label>
+    <label>
+      <input type="checkbox" id="chk-exenta" onchange="toggleExenta(this.checked)">
+      Con línea exenta
+    </label>
+  </div>
+
+  <!-- ── Hoja ────────────────────────────────────────────── -->
+  <div class="pagina" id="pagina">
+
+    <!-- CABECERA -->
+    <div class="cabecera">
+      <div class="emisor">
+        <img class="emisor-logo" id="logo-emisor" src="/static/logottpos.svg" alt="Logo">
+        <h1 id="razon-emisor">Grupo Trestres SpA</h1>
+        <div class="rut-emisor">RUT: <strong>77.829.149-5</strong></div>
+        <div class="dato">
+          <strong>Giro:</strong> Publicidad<br>
+          <strong>Dirección:</strong> Los Militares 5620 Of. 905<br>
+          <strong>Comuna:</strong> Las Condes &nbsp;·&nbsp; <strong>Ciudad:</strong> Santiago<br>
+          <strong>Teléfono:</strong> +56 2 2345 6789
+        </div>
+      </div>
+
+      <div class="recuadro-sii">
+        <div class="sii-logo">R.U.T.: 77.829.149-5</div>
+        <div class="tipo-doc" id="tipo-nombre">FACTURA<br>ELECTRÓNICA</div>
+        <div class="num-doc">N° <span id="folio-num">000042</span></div>
+        <div class="sii-leyenda">
+          S.I.I.<br>
+          LAS CONDES
+        </div>
+      </div>
+    </div>
+
+    <!-- DATOS EMISIÓN -->
+    <div class="datos-emision">
+      <div class="dato-item">
+        <label>Fecha emisión</label>
+        <span>15 de mayo de 2026</span>
+      </div>
+      <div class="dato-item">
+        <label>Forma de pago</label>
+        <span id="fma-pago">Contado</span>
+      </div>
+      <div class="dato-item">
+        <label>Fecha vencimiento</label>
+        <span>15 de junio de 2026</span>
+      </div>
+    </div>
+
+    <!-- RECEPTOR -->
+    <div class="receptor-box">
+      <div class="dato-item">
+        <label>Razón social</label>
+        <span>Innovaciones Digitales Ltda.</span>
+      </div>
+      <div class="dato-item">
+        <label>RUT</label>
+        <span>76.354.771-K</span>
+      </div>
+      <div class="dato-item">
+        <label>Giro</label>
+        <span>Desarrollo de Software</span>
+      </div>
+      <div class="dato-item">
+        <label>Dirección</label>
+        <span>Av. Apoquindo 4800 Of. 1201, Las Condes</span>
+      </div>
+    </div>
+
+    <!-- TABLA ÍTEMS -->
+    <table class="tabla-items">
+      <thead>
+        <tr>
+          <th style="width:44px;">Cant.</th>
+          <th>Descripción</th>
+          <th style="width:30px;">U.M.</th>
+          <th class="right" style="width:90px;">P. Unitario</th>
+          <th class="right" style="width:60px;">Dto.</th>
+          <th class="right" style="width:90px;">Total</th>
+        </tr>
+      </thead>
+      <tbody id="tbody-items">
+        <tr>
+          <td class="right">3</td>
+          <td class="desc">
+            Campaña publicitaria digital — paquete mensual
+            <small>Gestión redes sociales + diseño gráfico + reportes semanales</small>
+          </td>
+          <td>Mes</td>
+          <td class="right">$ 350.000</td>
+          <td class="right">—</td>
+          <td class="right">$ 1.050.000</td>
+        </tr>
+        <tr>
+          <td class="right">1</td>
+          <td class="desc">
+            Producción audiovisual — video corporativo
+            <small>Guión, filmación, edición y entrega en formato HD y 4K</small>
+          </td>
+          <td>Und</td>
+          <td class="right">$ 480.000</td>
+          <td class="right">—</td>
+          <td class="right">$ 480.000</td>
+        </tr>
+        <tr>
+          <td class="right">5</td>
+          <td class="desc">
+            Diseño de piezas gráficas — formato digital
+            <small>Banners RRSS, email marketing, presentaciones corporativas</small>
+          </td>
+          <td>Und</td>
+          <td class="right">$ 45.000</td>
+          <td class="right">10%</td>
+          <td class="right">$ 202.500</td>
+        </tr>
+        <tr id="fila-exenta" style="display:none;">
+          <td class="right">1</td>
+          <td class="desc">
+            Gastos de notaría (reembolso exento)
+            <small>Exento de IVA según Art. 12° DL 825</small>
+          </td>
+          <td>Und</td>
+          <td class="right">$ 35.000</td>
+          <td class="right">—</td>
+          <td class="right">$ 35.000</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- FOOTER: TED + Totales -->
+    <div class="footer-doc">
+      <!-- TED (Timbre Electrónico) -->
+      <div class="ted-area">
+        <div class="ted-titulo">Timbre Electrónico SII</div>
+        <!-- PDF417 simulado -->
+        <div class="ted-barcode" id="ted-barcode"></div>
+        <div class="ted-leyenda">
+          Resolución N° 0 del 07/04/2026<br>
+          Verifique en www.sii.cl
+        </div>
+      </div>
+
+      <!-- Totales -->
+      <div class="totales" id="bloque-totales">
+        <div class="total-row" id="row-neto">
+          <label>Monto neto</label>
+          <span id="val-neto">$ 1.461.975</span>
+        </div>
+        <div class="total-row exenta" id="row-exenta" style="display:none;">
+          <label>Monto exento</label>
+          <span>$ 35.000</span>
+        </div>
+        <div class="total-row" id="row-iva">
+          <label>IVA (19%)</label>
+          <span id="val-iva">$ 277.775</span>
+        </div>
+        <div class="total-row total-final">
+          <label>TOTAL</label>
+          <span id="val-total">$ 1.739.750</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Leyendas legales -->
+    <div class="leyendas">
+      <p><strong>Emisor:</strong> Grupo Trestres SpA — Sistema de facturación electrónica trestresPOS. Resolución SII Exenta N° 0 del 07-04-2026.</p>
+      <p>El acuse de recibo que se menciona en el N° 1, del artículo 155 de la Ley N° 18.101 deberá ajustarse al procedimiento establecido en la norma vigente.</p>
+      <p id="leyenda-cesion" style="display:none;"><strong>Transferencia:</strong> La cesión de este crédito se debe hacer de acuerdo con los artículos 164 y siguientes del Código de Comercio.</p>
+    </div>
+
+  </div><!-- /pagina -->
+
+  <script>
+    /* ── Genera barcode PDF417 simulado ────────────────────── */
+    function generarBarcode() {
+      const cont = document.getElementById('ted-barcode');
+      cont.innerHTML = '';
+      const rng = (n) => Math.floor(Math.random() * n);
+      for (let r = 0; r < 16; r++) {
+        const row = document.createElement('div');
+        row.className = 'bar-row';
+        let pos = 0;
+        const totalW = 130;
+        while (pos < totalW) {
+          const w = rng(6) + 2;
+          const gap = rng(4) + 1;
+          const bar = document.createElement('span');
+          bar.style.width = w + 'px';
+          row.appendChild(bar);
+          pos += w + gap;
+        }
+        cont.appendChild(row);
+      }
+    }
+    generarBarcode();
+
+    /* ── Cambiar tipo DTE ────────────────────────────────── */
+    const META = {
+      '33': { titulo: 'FACTURA\nELECTRÓNICA',    iva: true,  fma: 'Contado',  cesion: true  },
+      '34': { titulo: 'FACTURA EXENTA\nELECTRÓNICA', iva: false, fma: 'Contado', cesion: true  },
+      '39': { titulo: 'BOLETA\nELECTRÓNICA',     iva: true,  fma: '—',        cesion: false },
+      '61': { titulo: 'NOTA DE CRÉDITO\nELECTRÓNICA', iva: true, fma: '—',   cesion: false },
+      '56': { titulo: 'NOTA DE DÉBITO\nELECTRÓNICA',  iva: true, fma: '—',   cesion: false },
+    };
+
+    function cambiarTipo(v) {
+      const m = META[v] || META['33'];
+      document.getElementById('tipo-nombre').innerHTML = m.titulo.replace('\n','<br>');
+      document.getElementById('row-iva').style.display = m.iva ? '' : 'none';
+      document.getElementById('row-neto').querySelector('label').textContent =
+        m.iva ? 'Monto neto' : 'Monto exento';
+      document.getElementById('val-iva').closest('.total-row').style.display =
+        m.iva ? '' : 'none';
+      document.getElementById('fma-pago').textContent = m.fma;
+      document.getElementById('leyenda-cesion').style.display = m.cesion ? '' : 'none';
+      recalcular();
+    }
+
+    function toggleLogo(show) {
+      document.getElementById('logo-emisor').style.display = show ? '' : 'none';
+    }
+
+    function toggleExenta(show) {
+      document.getElementById('fila-exenta').style.display = show ? '' : 'none';
+      document.getElementById('row-exenta').style.display = show ? '' : 'none';
+      recalcular();
+    }
+
+    function recalcular() {
+      const tipo = document.getElementById('sel-tipo').value;
+      const conExenta = document.getElementById('chk-exenta').checked;
+      const m = META[tipo] || META['33'];
+
+      const neto = 1732500 - 270338; /* ≈ 1.462.162 */
+      const exenta = conExenta ? 35000 : 0;
+      const iva = m.iva ? Math.round(neto * 0.19) : 0;
+      const total = neto + exenta + iva;
+
+      const fmt = n => '$ ' + n.toLocaleString('es-CL');
+      document.getElementById('val-neto').textContent  = fmt(neto);
+      document.getElementById('val-iva').textContent   = fmt(iva);
+      document.getElementById('val-total').textContent = fmt(total);
+    }
+
+    recalcular();
+  </script>
+</body>
+</html>
