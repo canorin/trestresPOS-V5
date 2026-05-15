@@ -47,6 +47,7 @@ from crumbpos.core.roles import (
 from crumbpos.db.models import Usuario, UsuarioSucursal, Sucursal
 from crumbpos.db.multi_tenant import get_master_session, UsuarioAuth
 from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.error_utils import raise_safe_500
 
 
 router = APIRouter(prefix="/api/usuarios", tags=["usuarios"])
@@ -308,7 +309,7 @@ def crear_usuario(body: UsuarioCreateIn, tenant: TenantContext = Depends(get_ten
         if master_session:
             master_session.rollback()
         tenant.db.rollback()
-        raise HTTPException(500, f"Error creando usuario: {e}")
+        raise_safe_500(e, "crear usuario")
     finally:
         if master_session:
             master_session.close()
@@ -393,7 +394,7 @@ def actualizar_usuario(
         if master_session:
             master_session.rollback()
         tenant.db.rollback()
-        raise HTTPException(500, f"Error actualizando usuario: {e}")
+        raise_safe_500(e, "actualizar usuario")
     finally:
         if master_session:
             master_session.close()
@@ -446,7 +447,7 @@ def cambiar_password(
         if master_session:
             master_session.rollback()
         tenant.db.rollback()
-        raise HTTPException(500, f"Error cambiando contraseña: {e}")
+        raise_safe_500(e, "cambiar contraseña")
     finally:
         if master_session:
             master_session.close()
@@ -496,7 +497,7 @@ def desactivar_usuario(usuario_id: str, tenant: TenantContext = Depends(get_tena
         if master_session:
             master_session.rollback()
         tenant.db.rollback()
-        raise HTTPException(500, f"Error desactivando usuario: {e}")
+        raise_safe_500(e, "desactivar usuario")
     finally:
         if master_session:
             master_session.close()

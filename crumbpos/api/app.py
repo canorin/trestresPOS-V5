@@ -4,13 +4,16 @@ Sistema multi-tenant con aislamiento total por empresa y ambiente (certificacion
 """
 import logging
 import os
+import secrets
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from crumbpos.db.multi_tenant import init_multi_tenant, ensure_super_admin
 from crumbpos.api.scheduler import iniciar_scheduler, detener_scheduler
@@ -86,6 +89,27 @@ app = FastAPI(
     docs_url=None,
     redoc_url=None,
 )
+
+# ── D3: handler global para excepciones no controladas ────────────────────────
+# Cualquier excepción que no sea HTTPException y que no sea capturada por los
+# handlers de ruta llega aquí. Se loguea el traceback completo server-side y
+# se devuelve un error_id al cliente — nunca el detalle interno.
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, StarletteHTTPException):
+        # HTTPExceptions son respuestas intencionadas — no las interceptamos.
+        raise exc
+    error_id = secrets.token_hex(8)
+    logger.error(
+        "Excepción no controlada [error_id=%s] %s %s: %s\n%s",
+        error_id, request.method, request.url.path,
+        exc, traceback.format_exc(),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Error interno del servidor (error_id={error_id}). Consulte los logs."},
+    )
+
 
 # Archivos estáticos (logo, assets)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
