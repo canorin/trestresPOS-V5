@@ -1053,6 +1053,192 @@ def _resolve_cert(empresa: Empresa) -> tuple[str, str]:
     raise HTTPException(500, "Certificado no encontrado")
 
 
+# ── Anulación automática ──────────────────────────────────────────────────────
+
+class AnularDteIn(BaseModel):
+    tipo_dte: int
+    """Tipo del DTE a anular: 33 (Factura) o 34 (Factura Exenta)."""
+    motivo: str = "Anula documento"
+    """Texto que aparece en el campo Razón de la Referencia del XML."""
+    sucursal_id: str | None = None
+    enviar_sii: bool = True
+
+
+class AnularDteOut(BaseModel):
+    ok: bool
+    folio_nc: int | None = None
+    """Folio de la Nota de Crédito T61 emitida."""
+    track_id: str | None = None
+    monto_total: int | None = None
+    error: str | None = None
+
+
+@router.post("/{folio}/anular", response_model=AnularDteOut)
+def anular_dte(
+    folio: int,
+    body: AnularDteIn,
+    request: Request,
+    tenant: TenantContext = Depends(get_tenant),
+):
+    """Emite una Nota de Crédito T61 CodRef=1 anulando el DTE especificado.
+
+    Extrae automáticamente los ítems del XML firmado del DTE original y
+    construye la NC con la misma composición de ítems y la referencia
+    CódigoRef=1 (Anula Documento Referenciado).
+
+    Solo aplica a T33 (Factura) y T34 (Factura Exenta). Requiere que el
+    DTE original tenga XML firmado almacenado.
+
+    C2: endpoint de anulación para producción — no requiere que el master
+    arme la NC a mano ni recuerde los ítems originales.
+    """
+    _TIPOS_ANULABLES = {33, 34}
+
+    if body.tipo_dte not in _TIPOS_ANULABLES:
+        raise HTTPException(
+            422,
+            f"Solo se pueden anular T33 y T34 con este endpoint. "
+            f"Recibido: T{body.tipo_dte}.",
+        )
+
+    try:
+        db = tenant.db
+        sucursal_id = body.sucursal_id or tenant.sucursal_id
+
+        empresa = db.query(Empresa).filter(Empresa.rut == tenant.empresa_rut).first()
+        if not empresa:
+            raise HTTPException(404, "Empresa no encontrada")
+
+        # ── 1. Buscar DTE original ────────────────────────────────────
+        original = db.query(DteEmitido).filter(
+            DteEmitido.empresa_id == empresa.id,
+            DteEmitido.tipo_dte == body.tipo_dte,
+            DteEmitido.folio == folio,
+        ).first()
+        if not original:
+            raise HTTPException(
+                404,
+                f"No se encontró DTE T{body.tipo_dte} folio {folio}.",
+            )
+
+        # ── 2. Verificar que tiene XML ────────────────────────────────
+        if not original.xml_firmado:
+            raise HTTPException(
+                422,
+                f"El DTE T{body.tipo_dte} folio {folio} no tiene XML firmado "
+                f"almacenado. No se puede generar la NC automática.",
+            )
+
+        # ── 3. Extraer ítems del XML original ─────────────────────────
+        xml_bytes = base64.b64decode(original.xml_firmado)
+        try:
+            items = ServicioEmisionDTE._extraer_items_del_xml_firmado(xml_bytes)
+        except Exception as exc:
+            raise HTTPException(
+                422,
+                f"Error extrayendo ítems del DTE original: {exc}",
+            )
+        if not items:
+            raise HTTPException(
+                422,
+                f"No se encontraron ítems en el DTE T{body.tipo_dte} folio {folio}.",
+            )
+
+        # ── 4. Fecha del DTE original para FchRef ─────────────────────
+        fecha_orig = original.fecha_emision
+        fecha_ref_str = (
+            fecha_orig.strftime("%Y-%m-%d")
+            if hasattr(fecha_orig, "strftime")
+            else str(fecha_orig)
+        )
+
+        # ── 5. Construir FacturaRequest T61 ───────────────────────────
+        req = FacturaRequest(
+            tipo_dte=61,
+            receptor_rut=original.receptor_rut or "66666666-6",
+            receptor_razon=original.receptor_razon or "Consumidor Final",
+            receptor_giro=empresa.giro,
+            receptor_dir=empresa.direccion,
+            receptor_comuna=empresa.comuna,
+            receptor_ciudad=empresa.ciudad or "",
+            items=items,
+            referencias=[{
+                "tipo_doc": body.tipo_dte,
+                "folio": folio,
+                "fecha": fecha_ref_str,
+                "cod_ref": 1,
+                "razon": body.motivo,
+            }],
+        )
+
+        # ── 6. Emitir via servicio ────────────────────────────────────
+        servicio, _ = _get_servicio(tenant, sucursal_id=sucursal_id)
+        try:
+            resultado = servicio.emitir_factura(
+                req,
+                enviar_sii=body.enviar_sii,
+                session=db,
+                empresa_id=empresa.id,
+            )
+        except FoliosAgotadosError as e:
+            raise HTTPException(
+                409,
+                detail={
+                    "error": "folios_agotados",
+                    "tipo_dte": 61,
+                    "sucursal_id": e.sucursal_id,
+                    "mensaje": str(e),
+                },
+            )
+
+        # ── 7. Persistir DteEmitido para la NC ───────────────────────
+        ip_origen = request.client.host if request.client else None
+        user_agent = request.headers.get("user-agent")
+        usuario_id = tenant.user.id if tenant.user else None
+        try:
+            _persist_dte_emitido(
+                db=db,
+                empresa=empresa,
+                body=req,
+                resultado=resultado,
+                sucursal_id=sucursal_id,
+                usuario_id=usuario_id,
+                ip_origen=ip_origen,
+                user_agent=user_agent,
+            )
+            db.commit()
+        except Exception as exc:
+            logger.error("Error persistiendo NC T61 (anulación): %s", exc, exc_info=True)
+
+        if not resultado.ok:
+            return AnularDteOut(ok=False, error=resultado.error)
+
+        return AnularDteOut(
+            ok=True,
+            folio_nc=resultado.folio,
+            track_id=resultado.track_id,
+            monto_total=resultado.monto_total,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import secrets
+        error_id = secrets.token_hex(8)
+        logger.error(
+            "Error anulando DTE [error_id=%s] T%s F%s empresa=%s: %s",
+            error_id, body.tipo_dte, folio, tenant.empresa_rut, e,
+            exc_info=True,
+        )
+        raise HTTPException(
+            500,
+            f"Error al anular DTE (error_id={error_id}). "
+            f"Consulte los logs del servidor.",
+        )
+    finally:
+        tenant.close()
+
+
 @router.get("/info")
 def info_facturacion(tenant: TenantContext = Depends(get_tenant)):
     """Info del servicio de facturación para la empresa actual."""
