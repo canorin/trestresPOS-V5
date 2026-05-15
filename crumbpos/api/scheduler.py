@@ -31,7 +31,7 @@ from crumbpos.db.multi_tenant import (
     get_empresa_db_session,
     EmpresaRegistro,
 )
-from crumbpos.db.models import Empresa, DteEmitido
+from crumbpos.db.models import Empresa, DteEmitido, RcofDiario
 from crumbpos.api.services.rcof_service import ServicioRCOF
 from crumbpos.config import settings
 
@@ -169,6 +169,217 @@ def ejecutar_rcof_todas_empresas(fecha: date | None = None) -> list[dict]:
     return resultados
 
 
+# ══════════════════════════════════════════════════════════════
+# A6 — Reintento intra-día + backfill al boot (RCOF)
+# ══════════════════════════════════════════════════════════════
+#
+# Problema: si el SII está caído entre las 22:30 y las 22:34 (ventana
+# de disparo del scheduler), el RCOF del día se pierde.  Boletas emitidas
+# después de las 22:30 también quedan sin reporte hasta el intento del día
+# siguiente, momento en el que el SII ya no acepta RCOFs viejos.
+#
+# Solución en tres capas:
+# 1. _empresa_necesita_reintento_rcof  — comprueba en BD si falta enviado.
+# 2. reintentar_rcof_fallidos           — itera empresas y reintenta.
+# 3. _loop_reintentos_rcof_intraday     — llama al anterior cada 30 min
+#    desde las 22:30 hasta las 23:55 del mismo día.
+# 4. ejecutar_rcof_backfill             — al arrancar, revisa los últimos
+#    7 días por si algún RCOF quedó en error_envio.
+
+_RCOF_REINTENTO_LIMITE_HORA = 23
+_RCOF_REINTENTO_LIMITE_MINUTO = 55
+_RCOF_REINTENTO_INTERVALO_SEG = 30 * 60  # 30 minutos entre reintentos
+
+
+def _empresa_necesita_reintento_rcof(registro: EmpresaRegistro, fecha: date) -> bool:
+    """Determina si la empresa necesita reintento de RCOF para *fecha*.
+
+    Devuelve ``True`` si:
+    - Existen boletas (T39/T41) del día **y**
+    - No hay ningún ``RcofDiario`` con ``estado_sii='enviado'`` para ese día.
+
+    Cubre tanto el caso "registro con error_envio" como el caso "crash antes
+    de guardar" (sin registro alguno en la tabla).
+    """
+    db = get_empresa_db_session(registro.rut, registro.ambiente_activo)
+    try:
+        tiene_boletas = (
+            db.query(DteEmitido)
+            .filter(
+                DteEmitido.tipo_dte.in_([39, 41]),
+                DteEmitido.fecha_emision == fecha,
+            )
+            .limit(1)
+            .count() > 0
+        )
+        if not tiene_boletas:
+            return False
+
+        rcof_enviado = (
+            db.query(RcofDiario)
+            .filter(
+                RcofDiario.fecha == fecha,
+                RcofDiario.estado_sii == "enviado",
+            )
+            .first()
+        )
+        return rcof_enviado is None
+    except Exception as exc:
+        logger.warning(
+            "No se pudo verificar RCOF de %s para %s: %s",
+            registro.rut, fecha, exc,
+        )
+        return False
+    finally:
+        db.close()
+
+
+def reintentar_rcof_fallidos(fecha: date) -> list[dict]:
+    """Reintenta el RCOF de *fecha* para empresas sin envío exitoso.
+
+    Detecta dos situaciones:
+    - Existe un ``RcofDiario`` con ``estado_sii='error_envio'``.
+    - Hay boletas del día pero ningún registro con ``estado_sii='enviado'``
+      (crash antes de persistir el resultado).
+
+    Returns:
+        Lista de resultados para las empresas que se reintentaron.
+        Vacía si no hubo nada que reintentar.
+    """
+    resultados = []
+    for reg in listar_empresas():
+        if not reg.activa:
+            continue
+        if not _empresa_necesita_reintento_rcof(reg, fecha):
+            continue
+
+        logger.info(
+            "RCOF reintento: %s (%s) para %s",
+            reg.rut, reg.razon_social, fecha,
+        )
+        resultado = _generar_rcof_empresa(reg, fecha)
+        resultado["empresa_rut"] = reg.rut
+        resultado["empresa_nombre"] = reg.razon_social
+        resultado["es_reintento"] = True
+        resultados.append(resultado)
+
+        if resultado.get("ok"):
+            logger.info(
+                "  -> %s: reintento OK, track_id=%s",
+                reg.rut, resultado.get("track_id"),
+            )
+        else:
+            logger.warning(
+                "  -> %s: reintento fallido — %s",
+                reg.rut, resultado.get("error"),
+            )
+
+    return resultados
+
+
+def ejecutar_rcof_backfill(dias: int = 7) -> list[dict]:
+    """Al arrancar, reintenta RCOFs de los últimos N días que no se enviaron.
+
+    Revisa desde ayer hacia atrás hasta ``dias`` días.  No procesa el día
+    actual (eso es responsabilidad del loop diario de las 22:30).
+
+    Args:
+        dias: Días hacia atrás a revisar (default 7).
+
+    Returns:
+        Lista consolidada de resultados de todos los reintentos efectuados.
+    """
+    hoy = datetime.now(TZ_CHILE).date()
+    todos: list[dict] = []
+
+    for delta in range(1, dias + 1):
+        fecha = hoy - timedelta(days=delta)
+        reint = reintentar_rcof_fallidos(fecha)
+        for r in reint:
+            r["backfill_fecha"] = fecha.isoformat()
+        todos.extend(reint)
+
+    if todos:
+        ok = sum(1 for r in todos if r.get("ok"))
+        err = sum(1 for r in todos if not r.get("ok"))
+        logger.info(
+            "RCOF backfill (últimos %d días): %d OK, %d errores",
+            dias, ok, err,
+        )
+    else:
+        logger.info("RCOF backfill: sin pendientes en los últimos %d días", dias)
+
+    return todos
+
+
+async def _loop_reintentos_rcof_intraday(fecha: date) -> None:
+    """Reintentos intra-día: cada 30 min desde el disparo inicial hasta las 23:55.
+
+    Se llama justo después de ``ejecutar_rcof_todas_empresas``.  Termina si:
+    - Se supera el límite horario (23:55).
+    - No quedan empresas con RCOF pendiente.
+    - El task es cancelado (shutdown).
+    """
+    while True:
+        ahora = datetime.now(TZ_CHILE)
+        limite = ahora.replace(
+            hour=_RCOF_REINTENTO_LIMITE_HORA,
+            minute=_RCOF_REINTENTO_LIMITE_MINUTO,
+            second=0,
+            microsecond=0,
+        )
+
+        if ahora >= limite:
+            break
+
+        segundos_restantes = (limite - ahora).total_seconds()
+        espera = min(_RCOF_REINTENTO_INTERVALO_SEG, segundos_restantes)
+
+        await asyncio.sleep(espera)
+
+        # Re-evaluar límite después del sleep (podría haber pasado DST)
+        ahora = datetime.now(TZ_CHILE)
+        limite = ahora.replace(
+            hour=_RCOF_REINTENTO_LIMITE_HORA,
+            minute=_RCOF_REINTENTO_LIMITE_MINUTO,
+            second=0,
+            microsecond=0,
+        )
+        if ahora >= limite:
+            break
+
+        reint = reintentar_rcof_fallidos(fecha)
+        if not reint:
+            logger.info("RCOF reintentos intra-día: sin pendientes para %s", fecha)
+            break
+
+        ok = sum(1 for r in reint if r.get("ok"))
+        err = sum(1 for r in reint if not r.get("ok"))
+        logger.info(
+            "RCOF reintentos intra-día (%s): %d OK, %d errores",
+            fecha, ok, err,
+        )
+        if err == 0:
+            break  # Todos resueltos
+
+
+async def _backfill_rcof_al_boot() -> None:
+    """Reintenta RCOFs fallidos de los últimos 7 días al arrancar el servidor.
+
+    Espera 30 s para que la app complete su inicialización (sesiones de BD,
+    super-admin, etc.) antes de intentar acceder a las BDs de tenant.
+    """
+    try:
+        await asyncio.sleep(30)
+        logger.info("=== RCOF backfill al boot: verificando últimos 7 días ===")
+        ejecutar_rcof_backfill(dias=7)
+    except asyncio.CancelledError:
+        logger.info("RCOF backfill al boot cancelado")
+        raise
+    except Exception as exc:
+        logger.error("Error en RCOF backfill al boot: %s", exc, exc_info=True)
+
+
 def _segundos_hasta(hora: int, minuto: int) -> float:
     """Calcula segundos hasta la próxima ocurrencia de hora:minuto en Chile.
 
@@ -210,8 +421,11 @@ async def _loop_rcof_diario():
 
             await asyncio.sleep(espera)
 
-            logger.info("=== Ejecutando RCOF diario ===")
-            resultados = ejecutar_rcof_todas_empresas()
+            # Capturar la fecha DESPUÉS de despertar (en Chile puede ser otro día
+            # si el server estaba en UTC y dormimos cerca de la medianoche).
+            fecha_rcof = datetime.now(TZ_CHILE).date()
+            logger.info("=== Ejecutando RCOF diario %s ===", fecha_rcof)
+            resultados = ejecutar_rcof_todas_empresas(fecha=fecha_rcof)
 
             ok = sum(1 for r in resultados if r.get("ok"))
             err = sum(1 for r in resultados if not r.get("ok"))
@@ -219,6 +433,14 @@ async def _loop_rcof_diario():
                 "=== RCOF diario completado: %d OK, %d errores ===",
                 ok, err,
             )
+
+            # A6: reintentos intra-día cada 30 min hasta las 23:55
+            if err > 0 or any(r.get("estado_sii") == "error_envio" for r in resultados):
+                logger.info(
+                    "RCOF: %d empresas con error, iniciando reintentos hasta 23:55",
+                    err,
+                )
+                await _loop_reintentos_rcof_intraday(fecha_rcof)
 
         except asyncio.CancelledError:
             logger.info("Scheduler RCOF detenido")
@@ -384,6 +606,7 @@ async def _loop_iecv_mensual():
 _rcof_task: asyncio.Task | None = None
 _iecv_task: asyncio.Task | None = None
 _polling_task: asyncio.Task | None = None
+_backfill_task: asyncio.Task | None = None
 
 
 # ══════════════════════════════════════════════════════════════
@@ -544,16 +767,18 @@ def iniciar_scheduler():
 
     Llamar desde el lifespan de FastAPI.
     """
-    global _rcof_task, _iecv_task, _polling_task
+    global _rcof_task, _iecv_task, _polling_task, _backfill_task
     _rcof_task = asyncio.create_task(_loop_rcof_diario())
     _iecv_task = asyncio.create_task(_loop_iecv_mensual())
     _polling_task = asyncio.create_task(_loop_polling_sii())
+    # A6: backfill de RCOFs fallidos de los últimos 7 días (espera 30s al boot)
+    _backfill_task = asyncio.create_task(_backfill_rcof_al_boot())
     return _rcof_task
 
 
 def detener_scheduler():
     """Detiene el scheduler RCOF, el recordatorio IECV mensual y el polling SII."""
-    global _rcof_task, _iecv_task, _polling_task
+    global _rcof_task, _iecv_task, _polling_task, _backfill_task
     if _rcof_task and not _rcof_task.done():
         _rcof_task.cancel()
         _rcof_task = None
@@ -563,3 +788,6 @@ def detener_scheduler():
     if _polling_task and not _polling_task.done():
         _polling_task.cancel()
         _polling_task = None
+    if _backfill_task and not _backfill_task.done():
+        _backfill_task.cancel()
+        _backfill_task = None

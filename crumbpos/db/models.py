@@ -646,7 +646,9 @@ class RcofDiario(Base):
     xml_firmado: Mapped[str | None] = mapped_column(Text)
     track_id: Mapped[str | None] = mapped_column(String(20))
     estado_sii: Mapped[str] = mapped_column(String(15), default="pendiente")
-    # Estados: pendiente, enviado, aceptado, rechazado
+    # Estados: pendiente | enviado | aceptado | rechazado | error_envio
+    # error_envio: el RCOF se generó y firmó pero el envío al SII falló;
+    #   el scheduler lo reintentará cada 30 min hasta las 23:55.
     resumen: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
