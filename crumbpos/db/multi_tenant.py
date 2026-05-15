@@ -215,6 +215,34 @@ class SchedulerEstado(BaseMaster):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
+class SolicitudArco(BaseMaster):
+    """Solicitudes de derechos ARCO (Acceso / Rectificación / Cancelación / Oposición).
+
+    Ley 19.628 (Protección de la Vida Privada, Chile) obliga al responsable
+    del tratamiento de datos a dar respuesta a solicitudes del titular.
+
+    Cada solicitud queda persistida en master.db con estado ``pendiente``.
+    El operador de trestresPOS debe procesarla en un plazo razonable (máximo
+    5 días hábiles según la ley) y actualizar ``estado`` a ``completada``.
+    """
+    __tablename__ = "solicitud_arco"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    usuario_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    # UID del UsuarioAuth que originó la solicitud.
+    empresa_rut: Mapped[str] = mapped_column(String(12), nullable=False)
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Tipos: acceso | rectificacion | cancelacion | oposicion
+    motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Descripción libre del titular sobre qué datos afectan la solicitud.
+    estado: Mapped[str] = mapped_column(String(20), default="pendiente", nullable=False)
+    # pendiente | en_proceso | completada | rechazada
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    resuelto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Nota interna del operador al resolver.
+
+
 class UsuarioAuth(BaseMaster):
     """Usuarios para autenticación centralizada — solo en master.db.
 
