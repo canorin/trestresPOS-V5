@@ -1,8 +1,10 @@
 """Envío de DTEs al SII."""
+import asyncio
 import json
 import logging
 import time
 import requests
+import httpx
 from lxml import etree
 
 from crumbpos.config.settings import get_sii_url, RUT_SII
@@ -271,6 +273,194 @@ def enviar_boleta(
         if xml_track:
             track_id = xml_track.group(1)
 
+        return {
+            "status": "OK" if track_id else "ERROR",
+            "track_id": track_id,
+            "estado": None,
+            "raw": text,
+        }
+
+
+async def enviar_dte_async(
+    xml_bytes: bytes,
+    token: str,
+    rut_emisor: str,
+    ambiente: str,
+    rut_envia: str | None = None,
+    es_boleta: bool = False,
+) -> dict:
+    """Versión asíncrona de ``enviar_dte`` — usa ``httpx.AsyncClient``.
+
+    Libera el event loop durante los reintentos al SII (hasta 340 s con la
+    versión síncrona).  La firma y el parsing de respuesta son idénticos.
+    """
+    if rut_envia is None:
+        rut_envia = rut_emisor
+
+    if es_boleta:
+        logger.warning(
+            "enviar_dte_async() llamado con es_boleta=True — usar "
+            "enviar_boleta_async() para boletas T39/T41."
+        )
+
+    sender_num, sender_dv = rut_envia.split("-")
+    company_num, company_dv = rut_emisor.split("-")
+    servicio = "boleta_upload" if es_boleta else "upload"
+    url = get_sii_url(servicio, ambiente)
+
+    headers = {
+        "Cookie": f"TOKEN={token}",
+        "User-Agent": "Mozilla/4.0 (compatible; PROG 1.0; CrumbPOS)",
+    }
+
+    data = {
+        "rutSender": sender_num,
+        "dvSender": sender_dv,
+        "rutCompany": company_num,
+        "dvCompany": company_dv,
+    }
+    files = {"archivo": ("envio.xml", xml_bytes, "text/xml")}
+
+    max_retries = 5
+    response = None
+    async with httpx.AsyncClient() as client:
+        for attempt in range(max_retries):
+            try:
+                response = await client.post(
+                    url, data=data, files=files, headers=headers, timeout=90.0,
+                )
+                response.raise_for_status()
+                break
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                if attempt < max_retries - 1:
+                    wait = 10 * (attempt + 1)
+                    logger.warning(
+                        "Reintento %d/%d en %ds... (%s)",
+                        attempt + 2, max_retries, wait, e.__class__.__name__,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
+
+    import re
+    text = response.text
+    track_id = None
+    glosa = ""
+    status_code = None
+
+    xml_track = re.search(r'<TRACKID>(\d+)</TRACKID>', text, re.IGNORECASE)
+    xml_status = re.search(r'<STATUS>(\d+)</STATUS>', text, re.IGNORECASE)
+    if xml_track:
+        track_id = xml_track.group(1)
+    if xml_status:
+        status_code = xml_status.group(1)
+
+    if not track_id:
+        for pat in (
+            r'Trackid\s+(\d+)',
+            r'TRACKID\s*[:=]\s*(\d+)',
+            r'Identificador de env[^:]*:\s*<strong>(\d+)</strong>',
+        ):
+            m = re.search(pat, text, re.IGNORECASE)
+            if m:
+                track_id = m.group(1)
+                break
+
+    status = "OK" if (status_code == "0" or track_id) else "ERROR"
+
+    glosa_match = re.search(r'<GLOSA>([^<]+)</GLOSA>', text, re.IGNORECASE)
+    if glosa_match:
+        glosa = glosa_match.group(1).strip()
+    else:
+        td_matches = re.findall(r'<TD>(.+?)</TD>', text, re.DOTALL)
+        if td_matches:
+            glosa = " | ".join(m.strip() for m in td_matches if m.strip())
+        if not glosa:
+            h3_match = re.search(
+                r'<h3[^>]*><font[^>]*>\s*(.+?)\s*</font></h3>', text, re.DOTALL,
+            )
+            if h3_match:
+                glosa = re.sub(r'<[^>]+>', '', h3_match.group(1)).strip()
+
+    return {
+        "status": status,
+        "status_code": status_code,
+        "track_id": track_id,
+        "glosa": glosa,
+        "raw": text,
+    }
+
+
+async def enviar_boleta_async(
+    xml_bytes: bytes,
+    token: str,
+    rut_emisor: str,
+    ambiente: str,
+    rut_envia: str | None = None,
+) -> dict:
+    """Versión asíncrona de ``enviar_boleta`` — usa ``httpx.AsyncClient``.
+
+    Libera el event loop durante los reintentos al endpoint REST de boletas.
+    """
+    if rut_envia is None:
+        rut_envia = rut_emisor
+
+    sender_num, sender_dv = rut_envia.split("-")
+    company_num, company_dv = rut_emisor.split("-")
+    url = get_sii_url("boleta_upload", ambiente)
+
+    headers = {
+        "Cookie": f"TOKEN={token}",
+        "User-Agent": "Mozilla/4.0 (compatible; PROG 1.0; CrumbPOS)",
+        "Accept": "application/json",
+    }
+
+    data = {
+        "rutSender": sender_num,
+        "dvSender": sender_dv,
+        "rutCompany": company_num,
+        "dvCompany": company_dv,
+    }
+    files = {"archivo": ("envio_boleta.xml", xml_bytes, "text/xml")}
+
+    max_retries = 5
+    response = None
+    async with httpx.AsyncClient() as client:
+        for attempt in range(max_retries):
+            try:
+                response = await client.post(
+                    url, data=data, files=files, headers=headers, timeout=90.0,
+                )
+                response.raise_for_status()
+                break
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                if attempt < max_retries - 1:
+                    wait = 10 * (attempt + 1)
+                    logger.warning(
+                        "Reintento %d/%d en %ds... (%s)",
+                        attempt + 2, max_retries, wait, e.__class__.__name__,
+                    )
+                    await asyncio.sleep(wait)
+                else:
+                    raise
+
+    text = response.text
+    try:
+        resp_json = json.loads(text)
+        track_id = resp_json.get("trackid")
+        estado = resp_json.get("estado")
+        estadistica = resp_json.get("estadistica", [])
+        return {
+            "status": "OK" if track_id else "ERROR",
+            "track_id": str(track_id) if track_id else None,
+            "estado": estado,
+            "estadistica": estadistica,
+            "raw": text,
+        }
+    except json.JSONDecodeError:
+        import re
+        xml_track = re.search(r'<TRACKID>(\d+)</TRACKID>', text, re.IGNORECASE)
+        track_id = xml_track.group(1) if xml_track else None
         return {
             "status": "OK" if track_id else "ERROR",
             "track_id": track_id,

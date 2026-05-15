@@ -545,7 +545,7 @@ def listar_pendientes(tenant: TenantContext = Depends(get_tenant)):
 
 
 @router.post("/enviar-pendientes")
-def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
+async def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
     """Envía al SII todos los DTEs pendientes (generados pero no enviados).
 
     Usa el XML firmado ya guardado — NO genera ni consume folios nuevos.
@@ -553,7 +553,7 @@ def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
     """
     try:
         from crumbpos.core.sii_client.autenticacion import obtener_token, obtener_token_boleta
-        from crumbpos.core.sii_client.envio import enviar_dte, enviar_boleta
+        from crumbpos.core.sii_client.envio import enviar_dte_async, enviar_boleta_async
         from crumbpos.core.firma.firma_digital import cargar_certificado_pfx
         from facturacion_electronica.firma import Firma as FirmaLib
 
@@ -597,7 +597,7 @@ def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
             rut_envia = empresa.cert_rut_firmante or empresa.rut
             es_boleta = dte_record.tipo_dte in (39, 41)
             if es_boleta:
-                resultado_sii = enviar_boleta(
+                resultado_sii = await enviar_boleta_async(
                     xml_bytes=xml_bytes,
                     token=token_boleta,
                     rut_emisor=empresa.rut,
@@ -605,7 +605,7 @@ def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
                     rut_envia=rut_envia,
                 )
             else:
-                resultado_sii = enviar_dte(
+                resultado_sii = await enviar_dte_async(
                     xml_bytes=xml_bytes,
                     token=token_dte,
                     rut_emisor=empresa.rut,
@@ -653,7 +653,7 @@ class EnviarSetIn(BaseModel):
 
 
 @router.post("/enviar-set")
-def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(get_tenant)):
+async def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(get_tenant)):
     """Agrupa DTEs pendientes en un solo EnvioDTE y envía al SII.
 
     Para certificación SII: todos los casos de un set deben ir
@@ -669,7 +669,7 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
     try:
         from lxml import etree
         from crumbpos.core.sii_client.autenticacion import obtener_token, obtener_token_boleta
-        from crumbpos.core.sii_client.envio import enviar_dte, enviar_boleta
+        from crumbpos.core.sii_client.envio import enviar_dte_async, enviar_boleta_async
         from crumbpos.core.firma.firma_digital import cargar_certificado_pfx
         from crumbpos.core.dte.generador_xml import generar_envio_dte, xml_to_string, SII_NS
         from facturacion_electronica.firma import Firma as FirmaLib
@@ -776,8 +776,10 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
                 )
             return "".join(parts)
 
-        def _firmar_y_enviar(dte_records, env_tag, schema, send_fn, token, firma_type="env"):
-            """Construye sobre, firma y envía."""
+        async def _firmar_y_enviar_async(
+            dte_records, env_tag, schema, send_fn_async, token, firma_type="env",
+        ):
+            """Construye sobre, firma y envía (versión asíncrona)."""
             dte_strings = _extraer_dte_strings(dte_records)
             if not dte_strings:
                 return None
@@ -838,7 +840,8 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
 
             logger.info("Sobre %s construido: %d bytes, %d DTEs", env_tag, len(xml_bytes), len(dte_strings))
 
-            return send_fn(
+            # Llamada asíncrona — libera el event loop durante el upload al SII
+            return await send_fn_async(
                 xml_bytes=xml_bytes,
                 token=token,
                 rut_emisor=empresa.rut,
@@ -851,9 +854,9 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
             private_key, _, cert_der = cargar_certificado_pfx(cert_path, cert_password)
             token_dte = obtener_token(private_key, cert_der, empresa.ambiente_sii)
 
-            resultado_sii = _firmar_y_enviar(
+            resultado_sii = await _firmar_y_enviar_async(
                 dtes_normales, "EnvioDTE", "EnvioDTE_v10.xsd",
-                enviar_dte, token_dte,
+                enviar_dte_async, token_dte,
             )
             if resultado_sii:
                 track_id = resultado_sii.get("track_id")
@@ -889,9 +892,9 @@ def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(
             })
             token_bol = obtener_token_boleta(firma_bol, empresa.ambiente_sii)
 
-            resultado_sii = _firmar_y_enviar(
+            resultado_sii = await _firmar_y_enviar_async(
                 boletas, "EnvioBOLETA", "EnvioBOLETA_v11.xsd",
-                enviar_boleta, token_bol, firma_type="env_boleta",
+                enviar_boleta_async, token_bol, firma_type="env_boleta",
             )
             if resultado_sii:
                 track_id = resultado_sii.get("track_id")
