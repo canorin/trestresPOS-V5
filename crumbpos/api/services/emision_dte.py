@@ -1301,5 +1301,19 @@ class ServicioEmisionDTE:
             )
 
         except Exception as e:
+            # D3: nunca exponer stack traces al cliente — paths internos, tablas
+            # y hosts SII son información sensible. Generamos un error_id único
+            # para correlacionar el log server-side con lo que ve el cliente.
             import traceback
-            return EmisionResult(ok=False, error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}")
+            import secrets
+            error_id = secrets.token_hex(8)
+            logger.error(
+                "Emisión fallida [error_id=%s] folio=%s empresa=%s: %s\n%s",
+                error_id, locals().get("folio", "?"),
+                self.config.rut, e, traceback.format_exc(),
+            )
+            return EmisionResult(
+                ok=False,
+                error=f"Error interno al emitir DTE (error_id={error_id}). "
+                      f"Consulte los logs del servidor.",
+            )

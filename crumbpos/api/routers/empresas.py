@@ -441,6 +441,17 @@ async def subir_certificado(
         if len(contenido) == 0:
             raise HTTPException(400, "Archivo vacío")
 
+        # D4: un PFX del SII pesa típicamente 2-4 KB; 100 KB es más que suficiente.
+        # Rechazar archivos más grandes protege contra subir certificados erróneos
+        # o intentos de subir archivos ejecutables.
+        _MAX_CERT_BYTES = 100 * 1024  # 100 KB
+        if len(contenido) > _MAX_CERT_BYTES:
+            raise HTTPException(
+                400,
+                f"Certificado demasiado grande: {len(contenido):,} bytes "
+                f"(máximo {_MAX_CERT_BYTES:,} bytes / 100 KB).",
+            )
+
         # Validar certificado
         try:
             from cryptography.hazmat.primitives.serialization.pkcs12 import (

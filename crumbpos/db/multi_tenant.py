@@ -287,6 +287,14 @@ def _ensure_master():
     _master_engine = create_engine(
         db_url, connect_args={"check_same_thread": False}, echo=False,
     )
+    # D2: WAL + synchronous=FULL en master.db (mismo criterio que tenant DBs).
+    @event.listens_for(_master_engine, "connect")
+    def _set_master_pragmas(dbapi_conn, _connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=FULL")
+        cursor.close()
+
     BaseMaster.metadata.create_all(bind=_master_engine)
     _migrate_master_schema(_master_engine)
     _MasterSessionFactory = sessionmaker(
@@ -853,14 +861,18 @@ def get_empresa_engine(rut: str, ambiente: str):
             echo=False,
         )
 
-        # Activar WAL mode y synchronous=NORMAL en cada conexión nueva.
-        # WAL permite lecturas concurrentes mientras hay escrituras activas
-        # y es el modo recomendado para aplicaciones web con SQLite.
+        # D2: WAL mode + synchronous=FULL en cada conexión nueva.
+        # WAL permite lecturas concurrentes mientras hay escrituras activas.
+        # synchronous=FULL garantiza que cada commit quede físicamente en disco
+        # antes de continuar — crítico para datos contables con valor legal (DTEs,
+        # libros SII). Rendimiento: ~2× más lento que NORMAL en escritura, pero
+        # en SQLite el cuello de botella es habitualmente el round-trip HTTP, no
+        # el fsync, así que el impacto práctico en POS es mínimo.
         @event.listens_for(engine, "connect")
         def _set_sqlite_pragmas(dbapi_conn, _connection_record):
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA synchronous=FULL")
             cursor.close()
 
         # Import local para evitar ciclo con crumbpos.db.models
