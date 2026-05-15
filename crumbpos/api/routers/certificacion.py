@@ -19,7 +19,7 @@ import logging
 import os
 import tempfile
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
@@ -378,7 +378,7 @@ def actualizar_run(rut: str, run_id: str, patch: RunPatchIn) -> dict:
         if patch.estado is not None:
             run.estado = patch.estado
             if patch.estado == "completado":
-                run.completed_at = datetime.utcnow()
+                run.completed_at = datetime.now(timezone.utc)
                 nueva_etapa = "produccion"
         if patch.screen_actual is not None:
             run.screen_actual = patch.screen_actual
@@ -462,7 +462,7 @@ def actualizar_caso(rut: str, caso_id: str, patch: CasoPatchIn) -> dict:
         if patch.estado is not None:
             caso.estado = patch.estado
             if patch.estado in ("emitido", "aprobado"):
-                caso.emitido_at = caso.emitido_at or datetime.utcnow()
+                caso.emitido_at = caso.emitido_at or datetime.now(timezone.utc)
         if patch.folio is not None:
             caso.folio = patch.folio
         if patch.dte_emitido_id is not None:
@@ -673,7 +673,7 @@ def emitir_caso(
         caso.folio = resultado.folio
         caso.dte_emitido_id = dte_record.id
         caso.estado = "emitido"
-        caso.emitido_at = datetime.utcnow()
+        caso.emitido_at = datetime.now(timezone.utc)
         caso.error_mensaje = None
         # Limpiar trackid viejo: el sobre anterior fue rechazado, el
         # próximo envío pedirá uno nuevo.
@@ -1330,7 +1330,7 @@ def actualizar_libro(rut: str, libro_id: str, patch: LibroPatchIn) -> dict:
         if patch.estado is not None:
             libro.estado = patch.estado
             if patch.estado in ("enviado", "aprobado"):
-                libro.enviado_at = libro.enviado_at or datetime.utcnow()
+                libro.enviado_at = libro.enviado_at or datetime.now(timezone.utc)
         if patch.trackid is not None:
             libro.trackid = patch.trackid
         if patch.estado_sii is not None:

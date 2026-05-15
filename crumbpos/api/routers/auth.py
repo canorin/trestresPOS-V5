@@ -1,5 +1,5 @@
 """Endpoints de autenticación — usa master.db para auth centralizado."""
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -18,7 +18,7 @@ from crumbpos.api.dependencies import (
 
 import bcrypt
 from jose import jwt
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -86,7 +86,7 @@ def _verify_password(plain: str, hashed: str) -> bool:
 
 def _create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode["exp"] = expire
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -338,7 +338,7 @@ def cambiar_mi_password(
     user_master.password_hash = nuevo_hash
     # Cambio exitoso: limpiar flag y registrar timestamp.
     user_master.must_change_password = False
-    user_master.password_changed_at = datetime.utcnow()
+    user_master.password_changed_at = datetime.now(timezone.utc)
     master_db.commit()
 
     # 3. Replicar en tenant.db (solo si no es super_admin / SYSTEM).

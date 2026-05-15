@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from crumbpos.db.models import (
@@ -136,7 +136,7 @@ def limpiar_certificacion(
         session.close()
 
     # ── Marcar en master.db ──────────────────────────────────────
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     _marcar_archivada(rut, now)
     _log_evento(
         rut=rut,
@@ -206,7 +206,7 @@ def _log_evento(
             evento=evento,
             user_id=user_id,
             user_email=user_email,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             detalle_json=json.dumps(detalle or {}, default=str),
         ))
         master.commit()

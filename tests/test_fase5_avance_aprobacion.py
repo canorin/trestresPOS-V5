@@ -9,7 +9,7 @@ los campos persistidos (timestamps, estado) y los mensajes de error.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -319,7 +319,7 @@ class TestMarcarAprobadoLibro:
     def test_falla_run_mismatch(self, session, run, run_otra):
         """Error si el libro pertenece a otra run."""
         lib = _make_libro(session, run_otra, "ventas", trackid="TL-001")
-        lib.avance_declarado_at = datetime.utcnow()
+        lib.avance_declarado_at = datetime.now(timezone.utc)
         session.commit()
 
         with pytest.raises(ValueError, match="no pertenece"):

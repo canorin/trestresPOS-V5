@@ -8,7 +8,7 @@ mientras DTEs tradicionales usan SOAP.
 """
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from lxml import etree
 from sqlalchemy.orm import Session
@@ -257,7 +257,7 @@ def poll_dtes(
 
             dte.estado_sii = nuevo_estado
             dte.glosa_sii = glosa or estado_sii
-            dte.fecha_consulta_sii = datetime.utcnow()
+            dte.fecha_consulta_sii = datetime.now(timezone.utc)
 
             if nuevo_estado == estado_anterior:
                 resumen["sin_cambio"] += 1
@@ -350,7 +350,7 @@ def poll_dtes(
 
                 dte.estado_sii = nuevo_estado
                 dte.glosa_sii = glosa or estado_sii
-                dte.fecha_consulta_sii = datetime.utcnow()
+                dte.fecha_consulta_sii = datetime.now(timezone.utc)
 
                 if nuevo_estado == estado_anterior:
                     resumen["sin_cambio"] += 1

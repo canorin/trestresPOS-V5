@@ -35,7 +35,7 @@ import base64
 import hashlib
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from crumbpos.api.services.emision_dte import ServicioEmisionDTE
@@ -599,7 +599,7 @@ def enviar_libro(
     libro.trackid = trackid
     libro.estado = "enviado"
     libro.estado_sii = "enviado"
-    libro.enviado_at = datetime.utcnow()
+    libro.enviado_at = datetime.now(timezone.utc)
     libro.error_mensaje = None
     # Registrar la PRIMERA vez que el SII aceptó (generó trackid) — el
     # timestamp sobrevive a ``reiniciar_envio_libro`` y sirve como
@@ -716,7 +716,7 @@ def declarar_avance_libro(
             "Hay que enviarlo primero."
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     libro.avance_declarado_at = now
     session.commit()
 
@@ -754,7 +754,7 @@ def marcar_aprobado_libro(
             "Declara el avance en la web del SII primero."
         )
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     libro.aprobado_at = now
     libro.estado = "aprobado"
     session.commit()

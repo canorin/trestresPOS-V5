@@ -24,7 +24,7 @@ import base64
 import logging
 import os
 import tempfile
-from datetime import datetime, date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
@@ -273,7 +273,7 @@ async def upload_dte_recibido(
                     )
                     xml_acuse = armar_envio_recibos(sobre, contacto, private_key_pem, cert_der)
                     xml_acuse_b64 = base64.b64encode(xml_acuse).decode("ascii")
-                    now = datetime.utcnow()
+                    now = datetime.now(timezone.utc)
                     for dte_row in recibidos:
                         dte_row.xml_acuse = xml_acuse_b64
                         dte_row.acuse_enviado_at = now
@@ -400,7 +400,7 @@ def reclamar_dte_recibido(
         if body.accion in {"reclamar", "rechazar"} and not body.motivo:
             raise HTTPException(422, f"El campo 'motivo' es obligatorio para acción '{body.accion}'")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if body.accion == "aceptar":
             dte.estado_recepcion = "aceptado"

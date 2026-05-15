@@ -19,7 +19,7 @@ Al recuperar conexión, sincroniza bidireccionalmente:
     - Movimientos de stock (descontados por ventas)
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -429,7 +429,7 @@ def pull_completo(caja_id: str, tenant: TenantContext = Depends(get_tenant)):
             cafs=cafs_out,
             clientes=[ClienteSync.model_validate(c) for c in clientes],
             stock=[StockSync.model_validate(s) for s in stock_items],
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
     finally:
         tenant.close()
@@ -562,7 +562,7 @@ def pull_incremental(body: PullIncrementalIn, tenant: TenantContext = Depends(ge
             clientes_actualizados=[ClienteSync.model_validate(c) for c in clientes_mod],
             cafs_nuevos=cafs_out,
             stock_actualizado=[StockSync.model_validate(s) for s in stock_mod],
-            timestamp=datetime.utcnow().isoformat(),
+            timestamp=datetime.now(timezone.utc).isoformat(),
         )
     finally:
         tenant.close()

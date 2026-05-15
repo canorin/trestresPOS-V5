@@ -1,5 +1,5 @@
 """Endpoints de Sesion de Caja (cash register shift) — multi-tenant."""
-from datetime import datetime, date
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -266,7 +266,7 @@ def cerrar_sesion(
         sesion.diferencia = body.monto_cierre_real - monto_cierre_esperado
         sesion.observacion = body.observacion
         sesion.estado = "cerrada"
-        sesion.cierre_at = datetime.utcnow()
+        sesion.cierre_at = datetime.now(timezone.utc)
         sesion.reporte_z = reporte_z
 
         db.commit()
@@ -396,7 +396,7 @@ def forzar_cierre(
             raise HTTPException(409, "La sesion ya esta cerrada")
 
         sesion.estado = "cerrada_forzada"
-        sesion.cierre_at = datetime.utcnow()
+        sesion.cierre_at = datetime.now(timezone.utc)
 
         db.commit()
         db.refresh(sesion)

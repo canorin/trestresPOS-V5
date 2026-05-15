@@ -15,7 +15,7 @@ excepciones contables y tributarias de la ley.
 """
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -152,7 +152,7 @@ def solicitar_cancelacion(
         )
 
     solicitud_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     session = get_master_session()
     try:

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -698,7 +698,7 @@ class TestReiniciarEnvioLibro:
         lib.estado = "enviado"
         lib.estado_sii = "LOK"
         lib.error_mensaje = "LBR - 2 - Reparo en Calculo de [MntTotal]"
-        lib.enviado_at = datetime.utcnow()
+        lib.enviado_at = datetime.now(timezone.utc)
         for k, v in kwargs.items():
             setattr(lib, k, v)
         session.commit()
@@ -744,7 +744,7 @@ class TestReiniciarEnvioLibro:
 
     def test_bloquea_si_avance_declarado(self, session, run):
         libro = self._libro_enviado(session, run)
-        libro.avance_declarado_at = datetime.utcnow()
+        libro.avance_declarado_at = datetime.now(timezone.utc)
         session.commit()
 
         with pytest.raises(ValueError, match="avance"):
@@ -756,7 +756,7 @@ class TestReiniciarEnvioLibro:
 
     def test_bloquea_si_aprobado(self, session, run):
         libro = self._libro_enviado(session, run)
-        libro.aprobado_at = datetime.utcnow()
+        libro.aprobado_at = datetime.now(timezone.utc)
         session.commit()
 
         with pytest.raises(ValueError, match="aprobado"):
@@ -821,7 +821,7 @@ def _make_caso(
     sin avance, avance declarado sin aprobar) deben construir el
     CertificacionCaso directamente, no usar este helper.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     c = CertificacionCaso(
         run_id=run.id,
         set_nombre=set_nombre,
@@ -1026,7 +1026,7 @@ class TestFiltroLibroGuiasPorRunAprobado:
             dte_emitido_id=_dte_id_by_folio(session, empresa, 52, 101),
             estado="emitido",  # ← no aprobado
             estado_sii="EPR",
-            emitido_at=datetime.utcnow(),
+            emitido_at=datetime.now(timezone.utc),
             # avance_declarado_at y aprobado_at quedan en None
         )
         session.add(caso_emitido)
@@ -1176,9 +1176,9 @@ class TestPrimerEnvioSiiAtAuditTrail:
             lambda **kw: {"track_id": "TRACK-FIRST", "status": "OK", "raw": ""},
         )
 
-        before = datetime.utcnow()
+        before = datetime.now(timezone.utc).replace(tzinfo=None)
         enviar_libro(session, run, libro.id, servicio_fake, empresa)
-        after = datetime.utcnow()
+        after = datetime.now(timezone.utc).replace(tzinfo=None)
 
         session.refresh(libro)
         assert libro.primer_envio_sii_at is not None
@@ -1284,7 +1284,7 @@ class TestLibrosEspecialesSiempreTotal:
         certificación NO emitimos AJUSTE automáticamente."""
         _make_dtes(session, empresa, [(33, 100)])
         libro = _make_libro(session, run, "ventas", numero_atencion=4788484)
-        libro.primer_envio_sii_at = datetime.utcnow()
+        libro.primer_envio_sii_at = datetime.now(timezone.utc)
         session.commit()
 
         generar_libro(session, run, libro.id, servicio_fake, empresa)
@@ -1301,7 +1301,7 @@ class TestLibrosEspecialesSiempreTotal:
         Este test asegura que nunca emitimos AJUSTE para guías."""
         _make_dtes(session, empresa, [(52, 80)])
         libro = _make_libro(session, run, "guias", numero_atencion=4788487)
-        libro.primer_envio_sii_at = datetime.utcnow()
+        libro.primer_envio_sii_at = datetime.now(timezone.utc)
         session.commit()
 
         generar_libro(session, run, libro.id, servicio_fake, empresa)
@@ -1326,7 +1326,7 @@ class TestLibrosEspecialesSiempreTotal:
             datos=datos,
             numero_atencion=4788488,
         )
-        libro.primer_envio_sii_at = datetime.utcnow()
+        libro.primer_envio_sii_at = datetime.now(timezone.utc)
         session.commit()
 
         generar_libro(session, run, libro.id, servicio_fake, empresa)

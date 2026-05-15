@@ -17,7 +17,7 @@ invocan los endpoints/dependencies como funciones con fixtures.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import pytest
@@ -113,13 +113,13 @@ class TestEntrarConsolaClienteClaims:
     def test_token_trae_claims_correctos(
         self, master_session, super_admin, empresa_activa,
     ):
-        before = datetime.utcnow()
+        before = datetime.now(timezone.utc)
         resp = entrar_consola_cliente(
             rut=empresa_activa.rut,
             admin=super_admin,
             master_db=master_session,
         )
-        after = datetime.utcnow()
+        after = datetime.now(timezone.utc)
 
         decoded = jwt.decode(
             resp.access_token, SECRET_KEY, algorithms=[ALGORITHM],
@@ -131,7 +131,7 @@ class TestEntrarConsolaClienteClaims:
         assert decoded["sucursal_id"] is None
 
         # exp ≈ now + SHADOW_TOKEN_EXPIRE_MINUTES
-        exp = datetime.utcfromtimestamp(decoded["exp"])
+        exp = datetime.fromtimestamp(decoded["exp"], timezone.utc)
         expected_min = before + timedelta(
             minutes=SHADOW_TOKEN_EXPIRE_MINUTES,
         ) - timedelta(seconds=5)

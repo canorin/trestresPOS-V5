@@ -67,7 +67,7 @@ import logging
 import shutil
 import uuid
 import zipfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -186,7 +186,7 @@ def _log_evento(
             evento=evento,
             user_id=user_id,
             user_email=user_email,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             detalle_json=json.dumps(detalle or {}, default=str),
         ))
         master.commit()
@@ -618,7 +618,7 @@ def _construir_zip(
         # Metadata del evento
         eliminacion_meta = {
             "rut": rut,
-            "exportado_at": datetime.utcnow().isoformat() + "Z",
+            "exportado_at": datetime.now(timezone.utc).isoformat() + "Z",
             "exportado_por": {
                 "user_id": admin_user_id,
                 "email": admin_email,
@@ -707,7 +707,7 @@ def exportar_zip(
             f"No queda data en disco para exportar."
         )
 
-    timestamp = datetime.utcnow()
+    timestamp = datetime.now(timezone.utc)
     stamp = timestamp.strftime("%Y%m%d_%H%M%S")
     zip_dir = _zip_dir_for(rut)
     zip_dir.mkdir(parents=True, exist_ok=True)
@@ -849,7 +849,7 @@ def confirmar_baja(
             f"inconsistente entre master.db y el filesystem."
         )
 
-    timestamp = datetime.utcnow()
+    timestamp = datetime.now(timezone.utc)
     trash_dir = _trash_dir_for(rut, timestamp)
     if trash_dir.exists():
         raise RuntimeError(
@@ -1030,7 +1030,7 @@ def eliminar_definitivo(
             f"Empresa {rut}: el campo puede_eliminarse_desde está vacío. "
             f"No se puede calcular si pasó el período de gracia."
         )
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if now < reg.puede_eliminarse_desde:
         falta = reg.puede_eliminarse_desde - now
         raise RuntimeError(
@@ -1096,7 +1096,7 @@ def listar_papelera_con_resumen() -> list[dict[str, Any]]:
     from crumbpos.db.multi_tenant import listar_papelera as _listar_papelera
 
     out: list[dict[str, Any]] = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for reg in _listar_papelera():
         dias_restantes: int | None = None
         puede_eliminarse_ya = False

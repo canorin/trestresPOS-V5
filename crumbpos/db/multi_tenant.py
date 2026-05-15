@@ -19,7 +19,7 @@ Flujo:
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import (
@@ -104,7 +104,7 @@ class EmpresaRegistro(BaseMaster):
     )  # plan comercial — hoy solo "full_free" (plan de cortesía)
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc),
     )
 
     # ── Ciclo de vida: baja / papelera / eliminación definitiva ──
@@ -190,7 +190,7 @@ class EmpresaEliminacionLog(BaseMaster):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False)
     user_email: Mapped[str | None] = mapped_column(String(120))
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc),
     )
     detalle_json: Mapped[str | None] = mapped_column(Text)
     # detalle_json: contexto libre. Ej:
@@ -212,7 +212,7 @@ class SchedulerEstado(BaseMaster):
 
     clave: Mapped[str] = mapped_column(String(60), primary_key=True)
     valor: Mapped[str | None] = mapped_column(Text, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class SolicitudArco(BaseMaster):
@@ -237,7 +237,7 @@ class SolicitudArco(BaseMaster):
     # Descripción libre del titular sobre qué datos afectan la solicitud.
     estado: Mapped[str] = mapped_column(String(20), default="pendiente", nullable=False)
     # pendiente | en_proceso | completada | rechazada
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     resuelto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     resolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Nota interna del operador al resolver.
@@ -292,7 +292,7 @@ class UsuarioAuth(BaseMaster):
         DateTime, nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -1452,7 +1452,7 @@ def set_scheduler_estado(clave: str, valor: str) -> None:
         )
         if fila:
             fila.valor = valor
-            fila.updated_at = datetime.utcnow()
+            fila.updated_at = datetime.now(timezone.utc)
         else:
             session.add(SchedulerEstado(clave=clave, valor=valor))
         session.commit()

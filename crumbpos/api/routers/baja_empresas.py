@@ -21,7 +21,7 @@ Todas las operaciones son super_admin-only vía ``require_super_admin``.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -323,7 +323,7 @@ def entrar_consola_cliente(
             f"{registro.estado}). No se puede abrir su consola.",
         )
 
-    expire = datetime.utcnow() + timedelta(minutes=SHADOW_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=SHADOW_TOKEN_EXPIRE_MINUTES)
     payload = {
         "sub": admin.id,
         "empresa_rut": rut,

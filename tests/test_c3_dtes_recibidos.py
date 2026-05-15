@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -287,7 +287,7 @@ def _setup_dte_recibido(tenant: TenantContext, session: Session) -> str:
         monto_total=100000,
         estado_recepcion="pendiente",
         firma_valida=True,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     session.add(dte)
     session.commit()

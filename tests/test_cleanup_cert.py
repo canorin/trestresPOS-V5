@@ -13,7 +13,7 @@ get_master_session para evitar dependencia del filesystem.
 from __future__ import annotations
 
 import ast
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -356,7 +356,7 @@ class TestPrecondiciones:
             rut=RUT,
             razon_social="Test SPA",
             etapa="produccion",
-            cert_archivada_at=datetime.utcnow(),
+            cert_archivada_at=datetime.now(timezone.utc),
         )
         master_session.add(reg)
         master_session.commit()

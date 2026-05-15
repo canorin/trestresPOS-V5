@@ -8,7 +8,7 @@ Estructura multi-tenant:
   Sucursal → SesionCaja → Venta
 """
 import uuid
-from datetime import datetime, date
+from datetime import date, datetime, timezone
 
 import hashlib
 import json as _json
@@ -59,7 +59,7 @@ class Empresa(Base):
     # Config
     tasa_iva: Mapped[int] = mapped_column(Integer, default=19)
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relaciones
     sucursales: Mapped[list["Sucursal"]] = relationship(back_populates="empresa")
@@ -80,7 +80,7 @@ class Sucursal(Base):
     ciudad: Mapped[str] = mapped_column(String(50), nullable=False)
     sii_sucursal: Mapped[str] = mapped_column(String(50), default="SANTIAGO ORIENTE")
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Relaciones
     empresa: Mapped["Empresa"] = relationship(back_populates="sucursales")
@@ -120,7 +120,7 @@ class Usuario(Base):
     #   super_admin · master_client · administrador ·
     #   administrador_tienda · cajero
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     empresa: Mapped["Empresa"] = relationship(back_populates="usuarios")
     sucursales_acceso: Mapped[list["UsuarioSucursal"]] = relationship(
@@ -166,8 +166,8 @@ class Cliente(Base):
     condicion_pago: Mapped[int | None] = mapped_column(Integer)  # dias: 0=contado, 15, 30, 60
     notas: Mapped[str | None] = mapped_column(Text)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     empresa: Mapped["Empresa"] = relationship()
 
@@ -240,9 +240,9 @@ class Articulo(Base):
     es_compuesto: Mapped[bool] = mapped_column(Boolean, default=False)  # fase 3
     imagen_url: Mapped[str | None] = mapped_column(String(255))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     empresa: Mapped["Empresa"] = relationship(back_populates="articulos")
@@ -271,7 +271,7 @@ class ArticuloSucursal(Base):
     precio_venta: Mapped[int | None] = mapped_column(Integer)  # NULL = usa default
     costo: Mapped[int | None] = mapped_column(Integer)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
     articulo: Mapped["Articulo"] = relationship(back_populates="sucursales")
@@ -288,7 +288,7 @@ class PrecioHistorial(Base):
     precio_anterior: Mapped[int] = mapped_column(Integer)
     precio_nuevo: Mapped[int] = mapped_column(Integer)
     usuario_id: Mapped[str | None] = mapped_column(ForeignKey("usuario.id"))
-    fecha: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_precio_hist_articulo", "articulo_id", "fecha"),
@@ -306,7 +306,7 @@ class SesionCaja(Base):
     sucursal_id: Mapped[str] = mapped_column(ForeignKey("sucursal.id"), nullable=False)
     caja_id: Mapped[str] = mapped_column(ForeignKey("caja.id"), nullable=False)
     usuario_id: Mapped[str] = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    apertura_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    apertura_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     cierre_at: Mapped[datetime | None] = mapped_column(DateTime)
     monto_apertura: Mapped[int] = mapped_column(Integer, default=0)
     monto_cierre_esperado: Mapped[int | None] = mapped_column(Integer)
@@ -332,7 +332,7 @@ class Venta(Base):
     sucursal_id: Mapped[str] = mapped_column(ForeignKey("sucursal.id"), nullable=False)
     sesion_caja_id: Mapped[str | None] = mapped_column(ForeignKey("sesion_caja.id"))
     usuario_id: Mapped[str] = mapped_column(ForeignKey("usuario.id"), nullable=False)
-    fecha: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     # DTE
     tipo_dte: Mapped[int] = mapped_column(Integer, nullable=False)  # 39, 41, 33, 34...
     folio: Mapped[int | None] = mapped_column(Integer)
@@ -464,7 +464,7 @@ class CafFolio(Base):
     # producción y viceversa. Se detecta automáticamente de empresa.ambiente_sii
     # en el momento del upload (registrar_caf). Las DBs existentes lo reciben
     # via _migrate_empresa_schema con backfill desde empresa.ambiente_sii.
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     asignaciones: Mapped[list["CafAsignacion"]] = relationship(
         back_populates="caf", cascade="all, delete-orphan",
@@ -518,9 +518,9 @@ class CafAsignacion(Base):
     folio_actual: Mapped[int] = mapped_column(Integer, nullable=False)
     estado: Mapped[str] = mapped_column(String(10), default="activo")
     # Estados: activo, agotado
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
     )
 
     caf: Mapped["CafFolio"] = relationship(back_populates="asignaciones")
@@ -577,7 +577,7 @@ class CafEventoSync(Base):
     #   {"tipo_dte": 39, "folio": 124}
     #   {"rango_desde": 89, "rango_hasta": 98, "folio_actual": 89}
     timestamp: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc),
     )
 
     __table_args__ = (
@@ -629,7 +629,7 @@ class DteEmitido(Base):
     # Sync
     sync_status: Mapped[str] = mapped_column(String(15), default="local")
     # Sync: local, enviado, confirmado
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     # TmstFirmaEnv del envoltorio: se preserva para re-envíos idempotentes.
     # Si tenemos que reenviar al SII porque el primer intento falló mid-flight,
     # debemos usar EXACTAMENTE el mismo timestamp para que el SII reconozca el
@@ -661,7 +661,7 @@ class RcofDiario(Base):
     # error_envio: el RCOF se generó y firmó pero el envío al SII falló;
     #   el scheduler lo reintentará cada 30 min hasta las 23:55.
     resumen: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         UniqueConstraint("empresa_id", "sucursal_id", "fecha", name="uq_rcof_dia"),
@@ -681,7 +681,7 @@ class LibroGenerado(Base):
     estado_sii: Mapped[str] = mapped_column(String(15), default="pendiente")
     # Estados: pendiente, enviado, aceptado, rechazado
     resumen_json: Mapped[str | None] = mapped_column(Text)  # JSON with summary data
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     empresa: Mapped["Empresa"] = relationship()
 
@@ -733,7 +733,7 @@ class Stock(Base):
     cantidad: Mapped[float] = mapped_column(Float, default=0)
     stock_minimo: Mapped[float] = mapped_column(Float, default=0)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
     )
 
 
@@ -749,7 +749,7 @@ class MovimientoStock(Base):
     referencia_id: Mapped[str | None] = mapped_column(String(36))
     referencia_tipo: Mapped[str | None] = mapped_column(String(20))
     usuario_id: Mapped[str | None] = mapped_column(ForeignKey("usuario.id"))
-    fecha: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    fecha: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("ix_mov_bodega_fecha", "bodega_id", "fecha"),
@@ -807,9 +807,9 @@ class CertificacionRun(Base):
     datos_parseados: Mapped[dict | None] = mapped_column(JSON)
     # Metadatos del setup (datos empresa, cert, CAFs) — NO guardar el PFX crudo
     datos_setup: Mapped[dict | None] = mapped_column(JSON)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
@@ -859,7 +859,7 @@ class CertificacionCaso(Base):
     aprobado_at: Mapped[datetime | None] = mapped_column(DateTime)
     observaciones: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
     )
 
     run: Mapped["CertificacionRun"] = relationship(back_populates="casos")
@@ -904,7 +904,7 @@ class CertificacionLibro(Base):
     aprobado_at: Mapped[datetime | None] = mapped_column(DateTime)
     observaciones: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc),
     )
 
     run: Mapped["CertificacionRun"] = relationship(back_populates="libros")
@@ -955,7 +955,7 @@ class AuditoriaEvento(Base):
     # NULL solo en el primer evento de la empresa (génesis).
     hash_row: Mapped[str] = mapped_column(CHAR(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow,
+        DateTime, default=lambda: datetime.now(timezone.utc),
     )
 
     __table_args__ = (
@@ -1009,7 +1009,7 @@ def registrar_evento(
     )
     hash_prev = ultimo.hash_row if ultimo else None
     event_id = new_uuid()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
 
     hash_row = _hash_evento(hash_prev, event_id, tipo, payload, now_iso)
@@ -1080,7 +1080,7 @@ class DteRecibido(Base):
     # Aceptación explícita (plazo 30 días)
     aceptado_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         # Un DTE de un proveedor es único por empresa+tipo+folio+emisor

@@ -20,7 +20,7 @@ Reglas:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -93,7 +93,7 @@ def _mk_caso_emitido(
     tipo_dte: int = 33,
 ) -> tuple[CertificacionCaso, DteEmitido]:
     """Crea un caso que simula 'emitido con sobre rechazado'."""
-    from datetime import date as _date
+    from datetime import date as _date, timezone
 
     dte = DteEmitido(
         empresa_id=empresa_id,
@@ -121,7 +121,7 @@ def _mk_caso_emitido(
         estado="emitido",
         folio=folio,
         dte_emitido_id=dte.id,
-        emitido_at=datetime.utcnow(),
+        emitido_at=datetime.now(timezone.utc),
         error_mensaje="Rechazo SII sobre 'BASICO' [status=ERROR]: 7",
     )
     session.add(caso)
@@ -245,7 +245,7 @@ class TestRouterReemitirCasoEmitido:
             run.id, empresa.id, session,
             numero="4788482-1", folio=53,
         )
-        caso.avance_declarado_at = datetime.utcnow()
+        caso.avance_declarado_at = datetime.now(timezone.utc)
         session.commit()
 
         from crumbpos.api.routers import certificacion as cert_router
@@ -266,7 +266,7 @@ class TestRouterReemitirCasoEmitido:
             run.id, empresa.id, session,
             numero="4788482-1", folio=53,
         )
-        caso.aprobado_at = datetime.utcnow()
+        caso.aprobado_at = datetime.now(timezone.utc)
         session.commit()
 
         from crumbpos.api.routers import certificacion as cert_router

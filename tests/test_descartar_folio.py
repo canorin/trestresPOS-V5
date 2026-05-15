@@ -31,7 +31,7 @@ Reglas de gating del descarte:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -104,7 +104,7 @@ def _mk_caso_emitido(
     tipo_dte: int = 61,
 ) -> tuple[CertificacionCaso, DteEmitido]:
     """Caso emitido con DteEmitido asociado — listo para descartar."""
-    from datetime import date as _date
+    from datetime import date as _date, timezone
 
     dte = DteEmitido(
         empresa_id=empresa_id,
@@ -132,7 +132,7 @@ def _mk_caso_emitido(
         estado="emitido",
         folio=folio,
         dte_emitido_id=dte.id,
-        emitido_at=datetime.utcnow(),
+        emitido_at=datetime.now(timezone.utc),
         trackid="0247737678",
         estado_sii="EPR",
         error_mensaje=None,
@@ -225,7 +225,7 @@ class TestEndpointDescartarFolio:
     ):
         """No se puede descartar un caso con avance ya declarado al SII."""
         caso, _dte = _mk_caso_emitido(run.id, empresa.id, session)
-        caso.avance_declarado_at = datetime.utcnow()
+        caso.avance_declarado_at = datetime.now(timezone.utc)
         session.flush()
 
         from crumbpos.api.routers import certificacion as cert_router
@@ -243,7 +243,7 @@ class TestEndpointDescartarFolio:
     def test_descartar_bloqueado_si_aprobado(self, session, run, empresa):
         """No se puede descartar un caso ya aprobado."""
         caso, _dte = _mk_caso_emitido(run.id, empresa.id, session)
-        caso.aprobado_at = datetime.utcnow()
+        caso.aprobado_at = datetime.now(timezone.utc)
         session.flush()
 
         from crumbpos.api.routers import certificacion as cert_router

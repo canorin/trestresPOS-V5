@@ -18,7 +18,7 @@ vs EnvioDTE).
 import json
 import logging
 import base64
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -218,7 +218,7 @@ class ServicioLibros:
                 existing.track_id = track_id
                 existing.estado_sii = estado_sii
                 existing.resumen_json = json.dumps(resumen, ensure_ascii=False)
-                existing.created_at = datetime.utcnow()
+                existing.created_at = datetime.now(timezone.utc)
                 libro_record = existing
             else:
                 libro_record = LibroGenerado(
@@ -390,7 +390,7 @@ class ServicioLibros:
                 existing.track_id = track_id
                 existing.estado_sii = estado_sii
                 existing.resumen_json = json.dumps(resumen, ensure_ascii=False)
-                existing.created_at = datetime.utcnow()
+                existing.created_at = datetime.now(timezone.utc)
                 libro_record = existing
             else:
                 libro_record = LibroGenerado(
@@ -506,7 +506,7 @@ class ServicioLibros:
                 existing.track_id = track_id
                 existing.estado_sii = estado_sii
                 existing.resumen_json = json.dumps(resumen, ensure_ascii=False)
-                existing.created_at = datetime.utcnow()
+                existing.created_at = datetime.now(timezone.utc)
             else:
                 db.add(LibroGenerado(
                     empresa_id=self.empresa.id,

@@ -6,7 +6,7 @@ según la empresa y ambiente del usuario autenticado.
 import logging
 import os
 import base64
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -229,7 +229,7 @@ def _persist_dte_emitido(
         track_id=resultado.track_id,
         estado_sii=estado_sii,
         glosa_sii=(resultado.error or "")[:255] if resultado.error else None,
-        timestamp_envio=datetime.utcnow(),
+        timestamp_envio=datetime.now(timezone.utc),
     )
     db.add(dte_record)
     return dte_record

@@ -315,7 +315,7 @@ def consultar_estado_dte_especifico(
             try:
                 from crumbpos.core.sii_client.polling import _parse_estado_envio, ESTADO_DTE_MAP
                 from crumbpos.core.sii_client.envio import consultar_estado_envio
-                from datetime import datetime
+                from datetime import datetime, timezone
 
                 es_boleta = dte.tipo_dte in (39, 41)
 
@@ -348,7 +348,7 @@ def consultar_estado_dte_especifico(
                     nuevo_estado = estado_map.get(estado_sii_code, "pendiente")
                     dte.estado_sii = nuevo_estado
                     dte.glosa_sii = glosa or estado_sii_code
-                    dte.fecha_consulta_sii = datetime.utcnow()
+                    dte.fecha_consulta_sii = datetime.now(timezone.utc)
                     tenant.db.commit()
 
                     result["estado_sii"] = nuevo_estado
@@ -409,7 +409,7 @@ def consultar_estado_envio_boleta(
         # Actualizar DTEs con ese track_id
         dtes_actualizados = 0
         if estado_sii_code:
-            from datetime import datetime
+            from datetime import datetime, timezone
             nuevo_estado = ESTADO_BOLETA_MAP.get(estado_sii_code, "pendiente")
 
             dtes = (
@@ -424,7 +424,7 @@ def consultar_estado_envio_boleta(
             for dte in dtes:
                 dte.estado_sii = nuevo_estado
                 dte.glosa_sii = glosa or estado_sii_code
-                dte.fecha_consulta_sii = datetime.utcnow()
+                dte.fecha_consulta_sii = datetime.now(timezone.utc)
                 dtes_actualizados += 1
 
             if dtes:

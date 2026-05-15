@@ -15,7 +15,7 @@ import time
 import base64
 import re
 import requests
-from datetime import datetime, date
+from datetime import date, datetime, timezone
 
 from cryptography.hazmat.primitives.serialization import (
     pkcs12, Encoding, PrivateFormat, NoEncryption,
@@ -216,7 +216,7 @@ class ServicioRCOF:
                 existing.track_id = track_id
                 existing.estado_sii = estado_sii
                 existing.resumen = resumen
-                existing.created_at = datetime.utcnow()
+                existing.created_at = datetime.now(timezone.utc)
             else:
                 rcof_record = RcofDiario(
                     empresa_id=self.empresa.id,
