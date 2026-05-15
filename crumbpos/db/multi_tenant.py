@@ -198,6 +198,23 @@ class EmpresaEliminacionLog(BaseMaster):
     #   {"dtes_exportados": 220, "libros_exportados": 12, "rcofs": 45}
 
 
+class SchedulerEstado(BaseMaster):
+    """Persistencia de estado del scheduler en master.db.
+
+    Tabla key-value que permite al scheduler recordar qué tareas ejecutó para
+    evitar repeticiones o detectar períodos perdidos al reiniciar (catch-up).
+
+    Claves canónicas:
+      ``iecv_ultimo_periodo_recordado``  → "YYYY-MM" del período que se
+          recordó por última vez (usado por el catch-up IECV al boot).
+    """
+    __tablename__ = "scheduler_estado"
+
+    clave: Mapped[str] = mapped_column(String(60), primary_key=True)
+    valor: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class UsuarioAuth(BaseMaster):
     """Usuarios para autenticación centralizada — solo en master.db.
 
@@ -1277,6 +1294,51 @@ def get_empresa_registro(rut: str) -> EmpresaRegistro | None:
         ).first()
     finally:
         master.close()
+
+
+def get_scheduler_estado(clave: str) -> str | None:
+    """Lee el valor de una clave del scheduler en master.db.
+
+    Devuelve ``None`` si la clave no existe o si la tabla aún no fue creada
+    (primera ejecución antes de cualquier tarea de scheduler).
+    """
+    _ensure_master()
+    session = _MasterSessionFactory()
+    try:
+        fila = (
+            session.query(SchedulerEstado)
+            .filter(SchedulerEstado.clave == clave)
+            .first()
+        )
+        return fila.valor if fila else None
+    except Exception:
+        return None
+    finally:
+        session.close()
+
+
+def set_scheduler_estado(clave: str, valor: str) -> None:
+    """Escribe (upsert) el valor de una clave del scheduler en master.db."""
+    _ensure_master()
+    session = _MasterSessionFactory()
+    try:
+        fila = (
+            session.query(SchedulerEstado)
+            .filter(SchedulerEstado.clave == clave)
+            .first()
+        )
+        if fila:
+            fila.valor = valor
+            fila.updated_at = datetime.utcnow()
+        else:
+            session.add(SchedulerEstado(clave=clave, valor=valor))
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        logger.error("set_scheduler_estado(%r): %s", clave, exc)
+        raise
+    finally:
+        session.close()
 
 
 def listar_empresas(

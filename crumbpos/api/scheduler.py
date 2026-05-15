@@ -30,6 +30,8 @@ from crumbpos.db.multi_tenant import (
     listar_empresas,
     get_empresa_db_session,
     EmpresaRegistro,
+    get_scheduler_estado,
+    set_scheduler_estado,
 )
 from crumbpos.db.models import Empresa, DteEmitido, RcofDiario
 from crumbpos.api.services.rcof_service import ServicioRCOF
@@ -510,8 +512,15 @@ def recordar_iecv_mensual():
 
     Itera todas las empresas activas. Para cada una que tenga DTEs del mes
     anterior, emite un WARNING indicando qué libros deben enviarse y cómo.
+
+    A7: tras emitir los avisos, persiste el periodo en ``SchedulerEstado``
+    con la clave ``iecv_ultimo_periodo_recordado``. Esto permite el catch-up
+    al boot: si el server estuvo caído el día 1 a las 09:00, al reiniciar
+    detecta que el periodo aún no fue recordado y dispara aquí.
     """
-    hoy = date.today()
+    # Anclar a TZ_CHILE para evitar que a las 22:30 CLT (= 01:30 UTC+1)
+    # date.today() devuelva el día siguiente.
+    hoy = datetime.now(TZ_CHILE).date()
     periodo = _mes_anterior(hoy)
     registros = listar_empresas()
 
@@ -548,6 +557,13 @@ def recordar_iecv_mensual():
                 "IECV: %s (%s) sin DTEs en %s — no requiere envío.",
                 reg.rut, reg.razon_social, periodo,
             )
+
+    # A7: marcar el periodo como recordado para que el catch-up al boot
+    # no lo vuelva a disparar si el server reinicia durante el mismo mes.
+    try:
+        set_scheduler_estado("iecv_ultimo_periodo_recordado", periodo)
+    except Exception as exc:
+        logger.warning("No se pudo persistir estado IECV: %s", exc)
 
 
 # Hora del recordatorio mensual (día 1, 09:00)
@@ -598,6 +614,62 @@ async def _loop_iecv_mensual():
             await asyncio.sleep(300)
 
 
+async def _iecv_catch_up_al_boot() -> None:
+    """A7: si el server estuvo caído el día 1 a las IECV_HORA, dispara el
+    recordatorio IECV para el periodo anterior al arrancar.
+
+    Lógica:
+    - Si ``ahora < día_1_este_mes_a_IECV_HORA`` → el loop normal aún lo
+      disparará; no hacer nada.
+    - Si ``ahora >= día_1_este_mes_a_IECV_HORA`` y el estado persistido
+      indica que el periodo anterior YA fue recordado → no hacer nada.
+    - En cualquier otro caso → disparar ``recordar_iecv_mensual()`` ahora.
+    """
+    try:
+        # Pequeña espera para no competir con el arranque de la app
+        await asyncio.sleep(35)
+
+        ahora = datetime.now(TZ_CHILE)
+        candidato_este_mes = datetime(
+            ahora.year, ahora.month, 1,
+            IECV_HORA, IECV_MINUTO,
+            tzinfo=TZ_CHILE,
+        )
+
+        if ahora < candidato_este_mes:
+            # Todavía no llegó la hora del recordatorio de este mes:
+            # el loop _loop_iecv_mensual lo disparará. Nada que hacer.
+            logger.debug(
+                "IECV catch-up: aún antes del candidato (%s) — loop normal se encarga",
+                candidato_este_mes.strftime("%Y-%m-%d %H:%M"),
+            )
+            return
+
+        periodo_pendiente = _mes_anterior(ahora.date())
+        ultimo_recordado = get_scheduler_estado("iecv_ultimo_periodo_recordado")
+
+        if ultimo_recordado == periodo_pendiente:
+            logger.debug(
+                "IECV catch-up: periodo %s ya fue recordado, nada que hacer",
+                periodo_pendiente,
+            )
+            return
+
+        logger.info(
+            "=== IECV catch-up al boot: server caído el día 1 — "
+            "disparando recordatorio para %s (último recordado: %s) ===",
+            periodo_pendiente, ultimo_recordado,
+        )
+        recordar_iecv_mensual()
+        logger.info("=== IECV catch-up completado para %s ===", periodo_pendiente)
+
+    except asyncio.CancelledError:
+        logger.info("IECV catch-up al boot cancelado")
+        raise
+    except Exception as exc:
+        logger.error("Error en IECV catch-up al boot: %s", exc, exc_info=True)
+
+
 # ══════════════════════════════════════════════════════════════
 # Control de tasks
 # ══════════════════════════════════════════════════════════════
@@ -607,6 +679,7 @@ _rcof_task: asyncio.Task | None = None
 _iecv_task: asyncio.Task | None = None
 _polling_task: asyncio.Task | None = None
 _backfill_task: asyncio.Task | None = None
+_iecv_catch_up_task: asyncio.Task | None = None
 
 
 # ══════════════════════════════════════════════════════════════
@@ -767,18 +840,20 @@ def iniciar_scheduler():
 
     Llamar desde el lifespan de FastAPI.
     """
-    global _rcof_task, _iecv_task, _polling_task, _backfill_task
+    global _rcof_task, _iecv_task, _polling_task, _backfill_task, _iecv_catch_up_task
     _rcof_task = asyncio.create_task(_loop_rcof_diario())
     _iecv_task = asyncio.create_task(_loop_iecv_mensual())
     _polling_task = asyncio.create_task(_loop_polling_sii())
     # A6: backfill de RCOFs fallidos de los últimos 7 días (espera 30s al boot)
     _backfill_task = asyncio.create_task(_backfill_rcof_al_boot())
+    # A7: catch-up IECV si el server estuvo caído el día 1 (espera 35s al boot)
+    _iecv_catch_up_task = asyncio.create_task(_iecv_catch_up_al_boot())
     return _rcof_task
 
 
 def detener_scheduler():
     """Detiene el scheduler RCOF, el recordatorio IECV mensual y el polling SII."""
-    global _rcof_task, _iecv_task, _polling_task, _backfill_task
+    global _rcof_task, _iecv_task, _polling_task, _backfill_task, _iecv_catch_up_task
     if _rcof_task and not _rcof_task.done():
         _rcof_task.cancel()
         _rcof_task = None
@@ -791,3 +866,6 @@ def detener_scheduler():
     if _backfill_task and not _backfill_task.done():
         _backfill_task.cancel()
         _backfill_task = None
+    if _iecv_catch_up_task and not _iecv_catch_up_task.done():
+        _iecv_catch_up_task.cancel()
+        _iecv_catch_up_task = None
