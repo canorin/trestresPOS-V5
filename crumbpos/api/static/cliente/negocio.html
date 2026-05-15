@@ -516,18 +516,36 @@
 
     function pintarLogo(tieneLogo) {
       const img = document.getElementById('logo-img');
-      const ph = document.getElementById('logo-placeholder');
+      const ph  = document.getElementById('logo-placeholder');
       const delBtn = document.getElementById('logo-delete-btn');
       if (tieneLogo) {
-        // Cache bust para que el browser refresque tras re-upload.
-        img.src = `/api/empresas/mi-empresa/logo?v=${Date.now()}`;
-        img.style.display = 'block';
-        ph.style.display = 'none';
+        // El endpoint requiere JWT + X-Empresa-Rut — no se puede usar img.src
+        // directamente porque el browser no manda esos headers. Se hace fetch
+        // con auth, se convierte a blob URL y se asigna al <img>.
         delBtn.disabled = false;
+        fetch(`/api/empresas/mi-empresa/logo?v=${Date.now()}`, {
+          headers: {
+            'Authorization': `Bearer ${auth.token}`,
+            'X-Empresa-Rut': EMPRESA_RUT,
+          },
+        })
+          .then(r => r.ok ? r.blob() : Promise.reject(r.status))
+          .then(blob => {
+            // Revocar URL previa para evitar leaks de memoria.
+            if (img.src && img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+            img.src = URL.createObjectURL(blob);
+            img.style.display = 'block';
+            ph.style.display  = 'none';
+          })
+          .catch(() => {
+            img.style.display = 'none';
+            ph.style.display  = 'block';
+          });
       } else {
+        if (img.src && img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
         img.style.display = 'none';
-        ph.style.display = 'block';
-        delBtn.disabled = true;
+        ph.style.display  = 'block';
+        delBtn.disabled   = true;
       }
     }
 

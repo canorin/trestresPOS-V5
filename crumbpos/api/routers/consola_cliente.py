@@ -176,3 +176,23 @@ async def caf_master_cliente(
     """
     _validar_empresa_existe(empresa_rut, master_db)
     return _servir_html("caf.html")
+
+
+@router.get("/{empresa_rut}/sucursales", include_in_schema=False)
+async def sucursales_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Módulo de gestión de sucursales."""
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("sucursales.html")
+
+
+@router.get("/{empresa_rut}/usuarios", include_in_schema=False)
+async def usuarios_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Módulo de gestión de usuarios."""
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("usuarios.html")

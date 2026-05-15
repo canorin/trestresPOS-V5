@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Usuarios · trestresPOS</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <style>
+    main { padding: 40px 24px 80px; max-width: 900px; margin: 0 auto; }
+
+    /* ── Topnav ────────────────────────────────────────────────── */
+    nav.topnav {
+      background: var(--color-text);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    nav.topnav img { height: 24px; }
+    nav.topnav .right { display: flex; align-items: center; gap: 12px; }
+    nav.topnav span { color: #fff; font-size: var(--text-caption); opacity: 0.85; }
+
+    /* ── Breadcrumb ────────────────────────────────────────────── */
+    .breadcrumb {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      text-decoration: none;
+      margin-bottom: 18px;
+      transition: color 150ms var(--ease);
+    }
+    .breadcrumb:hover { color: var(--color-accent); }
+    .breadcrumb svg { width: 14px; height: 14px; }
+
+    /* ── Page header ────────────────────────────────────────────── */
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      margin-bottom: 16px;
+    }
+    .page-header h1 {
+      font-size: var(--text-title);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      color: var(--color-text);
+      margin-bottom: 6px;
+    }
+    .page-header .subtitle { color: var(--color-text-secondary); font-size: var(--text-body); }
+
+    /* ── Filtro activos / inactivos ─────────────────────────────── */
+    .filter-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .filter-pill {
+      font: inherit;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      padding: 6px 16px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      border: 1px solid var(--color-border);
+      background: var(--color-bg);
+      color: var(--color-text-secondary);
+      transition: all 150ms var(--ease);
+    }
+    .filter-pill.active {
+      background: var(--color-text);
+      color: #fff;
+      border-color: var(--color-text);
+    }
+
+    /* ── Banner de feedback ─────────────────────────────────────── */
+    .banner {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: var(--text-caption);
+      display: none;
+      margin-bottom: 20px;
+    }
+    .banner.visible { display: block; }
+    .banner.success {
+      background: var(--color-etapa-produccion-bg);
+      color: var(--color-etapa-produccion-fg);
+    }
+    .banner.error {
+      background: var(--color-etapa-pendiente-bg);
+      color: var(--color-etapa-pendiente-fg);
+    }
+
+    /* ── Badges de rol ──────────────────────────────────────────── */
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 9px;
+      border-radius: var(--radius-pill);
+    }
+    .badge-dark   { background: #1d1d1f; color: #fff; }
+    .badge-blue   { background: var(--color-etapa-proceso-bg); color: var(--color-etapa-proceso-fg); }
+    .badge-orange { background: #fff3e6; color: #b35a00; }
+    .badge-gray   { background: var(--color-bg-alt, #f5f5f7); color: var(--color-text-secondary); }
+    .badge-red    { background: var(--color-etapa-pendiente-bg); color: var(--color-etapa-pendiente-fg); }
+
+    /* ── Chips de sucursal ──────────────────────────────────────── */
+    .suc-chip {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      background: var(--color-bg-alt, #f5f5f7);
+      color: var(--color-text-secondary);
+      border: 1px solid var(--color-border-light);
+      margin: 2px 2px 2px 0;
+    }
+
+    /* ── Tarjetas de usuario ────────────────────────────────────── */
+    .usuarios-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .usr-card {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 18px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .usr-card-info { flex: 1; min-width: 0; }
+    .usr-card-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 4px;
+    }
+    .usr-card-name strong {
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      color: var(--color-text);
+    }
+    .usr-card-email {
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      margin-bottom: 6px;
+    }
+    .usr-card-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    /* ── Botones ────────────────────────────────────────────────── */
+    .btn {
+      font: inherit;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      padding: 9px 18px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 150ms var(--ease);
+    }
+    .btn-primary   { background: var(--color-accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--color-accent-hover); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: var(--color-bg); color: var(--color-accent); border-color: var(--color-accent); }
+    .btn-secondary:hover { background: rgba(0, 113, 227, 0.08); }
+    .btn-danger    { background: var(--color-bg); color: var(--color-error, #bf4800); border-color: var(--color-border); }
+    .btn-danger:hover { background: rgba(191, 72, 0, 0.06); }
+
+    /* ── Estado vacío ────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--color-text-secondary);
+    }
+    .empty-state p { font-size: var(--text-body); margin-top: 8px; }
+
+    /* ── Modal ───────────────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    .modal-backdrop.visible { display: flex; }
+    .modal-card {
+      background: var(--color-bg);
+      border-radius: var(--radius-lg);
+      padding: 32px 32px 28px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: var(--text-heading);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--color-text);
+      margin-bottom: 4px;
+    }
+    .modal-subtitle {
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      margin-bottom: 24px;
+    }
+    .form-row { margin-bottom: 14px; }
+    .form-row:last-of-type { margin-bottom: 0; }
+    .form-label {
+      display: block;
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      font-weight: 500;
+      margin-bottom: 5px;
+    }
+    .form-input, .form-select {
+      width: 100%;
+      font: inherit;
+      font-size: var(--text-body);
+      color: var(--color-text);
+      padding: 10px 12px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+      box-sizing: border-box;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+    .form-input.error, .form-select.error { border-color: var(--color-error, #bf4800); }
+    .form-error {
+      font-size: var(--text-small);
+      color: var(--color-error, #bf4800);
+      margin-top: 4px;
+      display: none;
+    }
+    .form-error.visible { display: block; }
+    .form-hint {
+      font-size: var(--text-small);
+      color: var(--color-text-tertiary, #aeaeb2);
+      margin-top: 4px;
+    }
+
+    /* Checkbox group para sucursales */
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+    }
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: var(--text-caption);
+      color: var(--color-text);
+      cursor: pointer;
+    }
+    .checkbox-item input[type=checkbox] { cursor: pointer; }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    /* Línea divisoria entre secciones del modal */
+    .modal-divider {
+      border: none;
+      border-top: 1px solid var(--color-border-light);
+      margin: 18px 0;
+    }
+    .modal-section-label {
+      font-size: var(--text-small);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--color-text-secondary);
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+    <div class="right">
+      <span id="nav-razon">—</span>
+    </div>
+  </nav>
+
+  <main>
+    <a class="breadcrumb" id="back-link" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+      Consola del cliente
+    </a>
+
+    <div class="page-header">
+      <div>
+        <h1>Usuarios</h1>
+        <p class="subtitle">Administra los accesos a la consola y al punto de venta.</p>
+      </div>
+      <button class="btn btn-primary" id="btn-nuevo-usuario" style="display:none;">
+        Nuevo usuario
+      </button>
+    </div>
+
+    <div class="filter-row">
+      <button class="filter-pill active" id="pill-activos">Activos</button>
+      <button class="filter-pill" id="pill-inactivos">Inactivos</button>
+    </div>
+
+    <div class="banner" id="page-banner"></div>
+    <div class="usuarios-list" id="usuarios-list"></div>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Modal: Crear usuario
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="modal-crear" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-crear-title">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-crear-title">Nuevo usuario</div>
+      <div class="modal-subtitle">Completa los datos del nuevo usuario.</div>
+
+      <form id="form-crear" autocomplete="off" novalidate>
+        <div class="form-row">
+          <label class="form-label" for="crear-nombre">Nombre completo <span aria-hidden="true">*</span></label>
+          <input type="text" id="crear-nombre" class="form-input" required placeholder="Ej.: María González">
+          <div class="form-error" id="err-crear-nombre">Introduce el nombre del usuario.</div>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="crear-email">Correo electrónico <span aria-hidden="true">*</span></label>
+          <input type="email" id="crear-email" class="form-input" required placeholder="correo@empresa.cl">
+          <div class="form-error" id="err-crear-email">Introduce un correo electrónico válido.</div>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="crear-password">Contraseña <span aria-hidden="true">*</span></label>
+          <input type="password" id="crear-password" class="form-input" required minlength="8" autocomplete="new-password">
+          <div class="form-hint">Mínimo 8 caracteres.</div>
+          <div class="form-error" id="err-crear-password">La contraseña debe tener al menos 8 caracteres.</div>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="crear-rol">Rol <span aria-hidden="true">*</span></label>
+          <select id="crear-rol" class="form-select" required></select>
+          <div class="form-error" id="err-crear-rol">Selecciona un rol.</div>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="crear-rut">RUT personal <span style="font-weight:400;opacity:.7;">(opcional)</span></label>
+          <input type="text" id="crear-rut" class="form-input" placeholder="Ej.: 12345678-9">
+        </div>
+
+        <hr class="modal-divider" id="crear-suc-divider" style="display:none;">
+        <div id="crear-suc-section" style="display:none;">
+          <div class="modal-section-label">Sucursales asignadas</div>
+          <div class="checkbox-group" id="crear-suc-checks"></div>
+          <div class="form-hint" style="margin-top:6px;">Selecciona una o más sucursales para este usuario.</div>
+        </div>
+      </form>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-crear-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary"   id="btn-crear-guardar">Crear usuario</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Modal: Editar usuario
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="modal-editar" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-editar-title">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-editar-title">Editar usuario</div>
+      <div class="modal-subtitle">Modifica los datos del usuario.</div>
+
+      <form id="form-editar" autocomplete="off" novalidate>
+        <div class="form-row">
+          <label class="form-label" for="editar-nombre">Nombre completo <span aria-hidden="true">*</span></label>
+          <input type="text" id="editar-nombre" class="form-input" required>
+          <div class="form-error" id="err-editar-nombre">Introduce el nombre del usuario.</div>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="editar-email">Correo electrónico</label>
+          <input type="email" id="editar-email" class="form-input">
+          <div class="form-error" id="err-editar-email">Introduce un correo electrónico válido.</div>
+        </div>
+        <div class="form-row" id="editar-rol-row">
+          <label class="form-label" for="editar-rol">Rol</label>
+          <select id="editar-rol" class="form-select"></select>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="editar-rut">RUT personal <span style="font-weight:400;opacity:.7;">(opcional)</span></label>
+          <input type="text" id="editar-rut" class="form-input" placeholder="Ej.: 12345678-9">
+        </div>
+        <div class="form-row">
+          <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="editar-activo"> Cuenta activa
+          </label>
+        </div>
+
+        <hr class="modal-divider" id="editar-suc-divider" style="display:none;">
+        <div id="editar-suc-section" style="display:none;">
+          <div class="modal-section-label">Sucursales asignadas</div>
+          <div class="checkbox-group" id="editar-suc-checks"></div>
+          <div class="form-hint" style="margin-top:6px;">Selecciona una o más sucursales para este usuario.</div>
+        </div>
+      </form>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-editar-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary"   id="btn-editar-guardar">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       Modal: Cambiar contraseña
+  ════════════════════════════════════════════════════════════════ -->
+  <div id="modal-pwd" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-pwd-title">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-pwd-title">Nueva contraseña</div>
+      <div class="modal-subtitle" id="modal-pwd-subtitle">Introduce la nueva contraseña para el usuario.</div>
+
+      <form id="form-pwd" autocomplete="off" novalidate>
+        <div class="form-row">
+          <label class="form-label" for="pwd-nueva">Nueva contraseña <span aria-hidden="true">*</span></label>
+          <input type="password" id="pwd-nueva" class="form-input" required minlength="8" autocomplete="new-password">
+          <div class="form-hint">Mínimo 8 caracteres.</div>
+          <div class="form-error" id="err-pwd-nueva">La contraseña debe tener al menos 8 caracteres.</div>
+        </div>
+        <div class="form-row">
+          <label class="form-label" for="pwd-repetir">Repetir contraseña <span aria-hidden="true">*</span></label>
+          <input type="password" id="pwd-repetir" class="form-input" required autocomplete="new-password">
+          <div class="form-error" id="err-pwd-repetir">Las contraseñas no coinciden.</div>
+        </div>
+      </form>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-pwd-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary"   id="btn-pwd-guardar">Guardar contraseña</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ── Auth ─────────────────────────────────────────────────────── */
+    const EMPRESA_RUT = window.location.pathname.split('/')[1];
+    const TOKEN_KEY   = `ttpos_token_${EMPRESA_RUT}`;
+    const USER_KEY    = `ttpos_user_${EMPRESA_RUT}`;
+
+    function requireAuth() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const raw   = localStorage.getItem(USER_KEY);
+      if (!token || !raw) { window.location.replace(`/${EMPRESA_RUT}/login`); return null; }
+      try {
+        const user = JSON.parse(raw);
+        if (!user || user.empresa_rut !== EMPRESA_RUT) {
+          localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+        }
+        if (user.rol === 'super_admin' && !user.shadow) {
+          localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+        }
+        return { token, user };
+      } catch {
+        window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+      }
+    }
+
+    const auth = requireAuth();
+    if (!auth) throw new Error('no auth');
+
+    /* ── Nivel de rol ────────────────────────────────────────────── */
+    const NIVEL_ROL = { super_admin: 5, master_client: 4, administrador: 3, administrador_tienda: 2, cajero: 1 };
+    function nivelRol(rol) { return NIVEL_ROL[rol] || 0; }
+
+    /* Roles que puede crear el actor según su propio rol */
+    const ROLES_CREABLES = {
+      super_admin:          ['master_client', 'administrador', 'administrador_tienda', 'cajero'],
+      master_client:        ['master_client', 'administrador', 'administrador_tienda', 'cajero'],
+      administrador:        ['administrador_tienda', 'cajero'],
+      administrador_tienda: [],
+      cajero:               [],
+    };
+    const ROLES_LABEL = {
+      master_client:        'Master client',
+      administrador:        'Administrador',
+      administrador_tienda: 'Administrador de tienda',
+      cajero:               'Cajero',
+    };
+    const ROL_BADGE_CLASS = {
+      master_client:        'badge-dark',
+      administrador:        'badge-blue',
+      administrador_tienda: 'badge-orange',
+      cajero:               'badge-gray',
+    };
+    /* Roles que requieren sucursal asignada */
+    const ROL_NECESITA_SUCURSAL = new Set(['administrador_tienda', 'cajero']);
+
+    const rolesCreables = ROLES_CREABLES[auth.user.rol] || [];
+    const puedeCrear    = rolesCreables.length > 0;
+
+    /* ── Helpers ─────────────────────────────────────────────────── */
+    function apiHeaders(extra) {
+      return Object.assign({
+        'Authorization': `Bearer ${auth.token}`,
+        'X-Empresa-Rut': EMPRESA_RUT,
+      }, extra);
+    }
+
+    function mostrarBanner(msg, tipo) {
+      const b = document.getElementById('page-banner');
+      b.textContent = msg;
+      b.className = `banner visible ${tipo}`;
+      setTimeout(() => { b.className = 'banner'; }, 5000);
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /* ── Topnav / breadcrumb ─────────────────────────────────────── */
+    document.getElementById('back-link').href = `/${EMPRESA_RUT}/dashboard`;
+
+    fetch('/api/empresas/mi-empresa', { headers: apiHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        document.getElementById('nav-razon').textContent = d.razon_social;
+        document.title = `Usuarios · ${d.razon_social}`;
+      })
+      .catch(() => {});
+
+    /* ── Estado compartido ───────────────────────────────────────── */
+    let todosUsuarios = [];
+    let sucursalesDisponibles = [];
+    let mostrandoActivos = true;
+
+    /* ── Filtro ──────────────────────────────────────────────────── */
+    document.getElementById('pill-activos').addEventListener('click', () => {
+      mostrandoActivos = true;
+      document.getElementById('pill-activos').classList.add('active');
+      document.getElementById('pill-inactivos').classList.remove('active');
+      renderUsuarios();
+    });
+    document.getElementById('pill-inactivos').addEventListener('click', () => {
+      mostrandoActivos = false;
+      document.getElementById('pill-inactivos').classList.add('active');
+      document.getElementById('pill-activos').classList.remove('active');
+      renderUsuarios();
+    });
+
+    /* ── Botón nuevo usuario ─────────────────────────────────────── */
+    const btnNuevo = document.getElementById('btn-nuevo-usuario');
+    if (puedeCrear) btnNuevo.style.display = '';
+    btnNuevo.addEventListener('click', abrirModalCrear);
+
+    /* ── Render de la lista ──────────────────────────────────────── */
+    function renderUsuarios() {
+      const filtrados = todosUsuarios.filter(u => u.activo === mostrandoActivos);
+      const container = document.getElementById('usuarios-list');
+
+      if (!filtrados.length) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                 style="margin: 0 auto 12px; display: block; opacity: .35;">
+              <path d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/>
+            </svg>
+            <p>No hay usuarios ${mostrandoActivos ? 'activos' : 'inactivos'}.</p>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = filtrados.map(u => {
+        const badgeClase  = ROL_BADGE_CLASS[u.rol] || 'badge-gray';
+        const rolLabel    = ROLES_LABEL[u.rol] || u.rol_label || u.rol;
+        const inactivaBadge = !u.activo
+          ? `<span class="badge badge-red">Inactivo</span>`
+          : '';
+
+        const sucChips = (u.sucursales || []).map(s =>
+          `<span class="suc-chip">${escapeHtml(s.sucursal_nombre)}</span>`
+        ).join('');
+
+        /* Determinar qué botones mostrar */
+        const esYo = u.id === auth.user.id;
+        /* Solo puede editar a quien tiene nivel <= su nivel */
+        const puedeTocar = nivelRol(auth.user.rol) > nivelRol(u.rol) ||
+                           (auth.user.rol === 'master_client' && u.rol !== 'super_admin');
+        const puedeTocarOAdmin = auth.user.rol === 'master_client' || puedeTocar;
+
+        const btnEditar     = puedeTocarOAdmin
+          ? `<button class="btn btn-secondary" data-action="editar"      data-id="${u.id}">Editar</button>`
+          : '';
+        const btnPassword   = puedeTocarOAdmin
+          ? `<button class="btn btn-secondary" data-action="password"    data-id="${u.id}">Contraseña</button>`
+          : '';
+        const btnDesactivar = (!esYo && puedeTocarOAdmin && u.activo)
+          ? `<button class="btn btn-danger"     data-action="desactivar" data-id="${u.id}">Desactivar</button>`
+          : '';
+
+        return `
+          <div class="usr-card" data-id="${u.id}">
+            <div class="usr-card-info">
+              <div class="usr-card-name">
+                <strong>${escapeHtml(u.nombre)}</strong>
+                <span class="badge ${badgeClase}">${escapeHtml(rolLabel)}</span>
+                ${inactivaBadge}
+              </div>
+              <div class="usr-card-email">${escapeHtml(u.email)}</div>
+              <div>${sucChips}</div>
+            </div>
+            <div class="usr-card-actions">
+              ${btnEditar}${btnPassword}${btnDesactivar}
+            </div>
+          </div>`;
+      }).join('');
+
+      /* Eventos */
+      container.querySelectorAll('[data-action="editar"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const u = todosUsuarios.find(x => x.id === btn.dataset.id);
+          if (u) abrirModalEditar(u);
+        });
+      });
+      container.querySelectorAll('[data-action="password"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const u = todosUsuarios.find(x => x.id === btn.dataset.id);
+          if (u) abrirModalPassword(u);
+        });
+      });
+      container.querySelectorAll('[data-action="desactivar"]').forEach(btn => {
+        btn.addEventListener('click', () => confirmarDesactivar(btn.dataset.id));
+      });
+    }
+
+    /* ── Carga inicial ───────────────────────────────────────────── */
+    async function cargarDatos() {
+      try {
+        const [resUs, resSuc] = await Promise.all([
+          fetch('/api/usuarios/',    { headers: apiHeaders() }),
+          fetch('/api/sucursales/',  { headers: apiHeaders() }),
+        ]);
+        if (!resUs.ok)  throw new Error(`Usuarios: HTTP ${resUs.status}`);
+        if (!resSuc.ok) throw new Error(`Sucursales: HTTP ${resSuc.status}`);
+        todosUsuarios          = await resUs.json();
+        sucursalesDisponibles  = (await resSuc.json()).filter(s => s.activa);
+        renderUsuarios();
+      } catch (e) {
+        mostrarBanner(`Error al cargar datos: ${e.message}`, 'error');
+      }
+    }
+
+    /* ─────────────────────────────────────────────────────────────────
+       MODAL: CREAR USUARIO
+    ───────────────────────────────────────────────────────────────── */
+    function poblarRolesSelect(selectId, roles) {
+      const sel = document.getElementById(selectId);
+      sel.innerHTML = '<option value="">Selecciona un rol…</option>' +
+        roles.map(r => `<option value="${r}">${ROLES_LABEL[r]}</option>`).join('');
+    }
+
+    function toggleSeccionSucursales(rolVal, checksId, divId, sectionId) {
+      const mostrar = ROL_NECESITA_SUCURSAL.has(rolVal);
+      document.getElementById(divId).style.display     = mostrar ? '' : 'none';
+      document.getElementById(sectionId).style.display = mostrar ? '' : 'none';
+    }
+
+    function poblarChecksSucursales(checksId, seleccionadas) {
+      const container = document.getElementById(checksId);
+      if (!sucursalesDisponibles.length) {
+        container.innerHTML = '<span style="font-size:var(--text-caption);color:var(--color-text-secondary);">No hay sucursales activas.</span>';
+        return;
+      }
+      const selSet = new Set(seleccionadas || []);
+      container.innerHTML = sucursalesDisponibles.map(s => `
+        <label class="checkbox-item">
+          <input type="checkbox" name="${checksId}" value="${s.id}" ${selSet.has(s.id) ? 'checked' : ''}>
+          ${escapeHtml(s.nombre)}
+          ${s.codigo ? `<span style="opacity:.6;">(${escapeHtml(s.codigo)})</span>` : ''}
+        </label>`).join('');
+    }
+
+    function leerChecksSucursales(checksId) {
+      return Array.from(
+        document.querySelectorAll(`#${checksId} input[type=checkbox]:checked`)
+      ).map(c => c.value);
+    }
+
+    function abrirModalCrear() {
+      poblarRolesSelect('crear-rol', rolesCreables);
+      poblarChecksSucursales('crear-suc-checks', []);
+      toggleSeccionSucursales('', 'crear-suc-checks', 'crear-suc-divider', 'crear-suc-section');
+      ['crear-nombre', 'crear-email', 'crear-password', 'crear-rut'].forEach(id => {
+        document.getElementById(id).value = '';
+        document.getElementById(id).classList.remove('error');
+      });
+      document.getElementById('crear-rol').value = '';
+      document.getElementById('crear-rol').classList.remove('error');
+      ['err-crear-nombre', 'err-crear-email', 'err-crear-password', 'err-crear-rol'].forEach(id =>
+        document.getElementById(id).classList.remove('visible'));
+
+      document.getElementById('modal-crear').classList.add('visible');
+      document.getElementById('crear-nombre').focus();
+    }
+
+    document.getElementById('crear-rol').addEventListener('change', function () {
+      poblarChecksSucursales('crear-suc-checks', []);
+      toggleSeccionSucursales(this.value, 'crear-suc-checks', 'crear-suc-divider', 'crear-suc-section');
+    });
+
+    document.getElementById('btn-crear-cancelar').addEventListener('click', () =>
+      document.getElementById('modal-crear').classList.remove('visible'));
+    document.getElementById('modal-crear').addEventListener('click', e => {
+      if (e.target === document.getElementById('modal-crear'))
+        document.getElementById('modal-crear').classList.remove('visible');
+    });
+
+    document.getElementById('btn-crear-guardar').addEventListener('click', async () => {
+      let valido = true;
+
+      /* Nombre */
+      const nombre = document.getElementById('crear-nombre').value.trim();
+      if (!nombre) {
+        document.getElementById('crear-nombre').classList.add('error');
+        document.getElementById('err-crear-nombre').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('crear-nombre').classList.remove('error');
+        document.getElementById('err-crear-nombre').classList.remove('visible');
+      }
+      /* Email */
+      const email = document.getElementById('crear-email').value.trim();
+      const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+      if (!emailOk) {
+        document.getElementById('crear-email').classList.add('error');
+        document.getElementById('err-crear-email').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('crear-email').classList.remove('error');
+        document.getElementById('err-crear-email').classList.remove('visible');
+      }
+      /* Password */
+      const pwd = document.getElementById('crear-password').value;
+      if (!pwd || pwd.length < 8) {
+        document.getElementById('crear-password').classList.add('error');
+        document.getElementById('err-crear-password').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('crear-password').classList.remove('error');
+        document.getElementById('err-crear-password').classList.remove('visible');
+      }
+      /* Rol */
+      const rol = document.getElementById('crear-rol').value;
+      if (!rol) {
+        document.getElementById('crear-rol').classList.add('error');
+        document.getElementById('err-crear-rol').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('crear-rol').classList.remove('error');
+        document.getElementById('err-crear-rol').classList.remove('visible');
+      }
+      if (!valido) return;
+
+      const sucursalIds = leerChecksSucursales('crear-suc-checks');
+      const body = {
+        nombre,
+        email,
+        password:      pwd,
+        rol,
+        rut_personal:  document.getElementById('crear-rut').value.trim() || undefined,
+        sucursal_ids:  sucursalIds,
+      };
+
+      const btn = document.getElementById('btn-crear-guardar');
+      btn.disabled = true; btn.textContent = 'Creando…';
+      try {
+        const res = await fetch('/api/usuarios/', {
+          method: 'POST',
+          headers: apiHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        document.getElementById('modal-crear').classList.remove('visible');
+        mostrarBanner('Usuario creado correctamente.', 'success');
+        await cargarDatos();
+      } catch (e) {
+        mostrarBanner(`Error: ${e.message}`, 'error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Crear usuario';
+      }
+    });
+
+    /* ─────────────────────────────────────────────────────────────────
+       MODAL: EDITAR USUARIO
+    ───────────────────────────────────────────────────────────────── */
+    let editandoUserId = null;
+
+    function abrirModalEditar(u) {
+      editandoUserId = u.id;
+
+      document.getElementById('editar-nombre').value = u.nombre;
+      document.getElementById('editar-email').value  = u.email;
+      document.getElementById('editar-rut').value    = u.rut_personal || '';
+      document.getElementById('editar-activo').checked = u.activo;
+
+      /* Rol: solo editable si el actor puede crearle un rol */
+      const rolesEditables = rolesCreables;
+      if (rolesEditables.length > 0) {
+        poblarRolesSelect('editar-rol', rolesEditables);
+        /* Incluir el rol actual aunque no esté en rolesEditables (para mostrar) */
+        if (!rolesEditables.includes(u.rol)) {
+          const opt = document.createElement('option');
+          opt.value = u.rol; opt.textContent = ROLES_LABEL[u.rol] || u.rol;
+          document.getElementById('editar-rol').insertBefore(opt, document.getElementById('editar-rol').firstChild);
+        }
+        document.getElementById('editar-rol').value = u.rol;
+        document.getElementById('editar-rol-row').style.display = '';
+      } else {
+        document.getElementById('editar-rol-row').style.display = 'none';
+      }
+
+      /* Sucursales */
+      const sucAsignadas = (u.sucursales || []).map(s => s.sucursal_id);
+      poblarChecksSucursales('editar-suc-checks', sucAsignadas);
+      toggleSeccionSucursales(u.rol, 'editar-suc-checks', 'editar-suc-divider', 'editar-suc-section');
+
+      /* Limpiar errores */
+      ['editar-nombre', 'editar-email'].forEach(id => document.getElementById(id).classList.remove('error'));
+      ['err-editar-nombre', 'err-editar-email'].forEach(id => document.getElementById(id).classList.remove('visible'));
+
+      document.getElementById('modal-editar').classList.add('visible');
+      document.getElementById('editar-nombre').focus();
+    }
+
+    document.getElementById('editar-rol').addEventListener('change', function () {
+      const sucAsig = leerChecksSucursales('editar-suc-checks');
+      poblarChecksSucursales('editar-suc-checks', sucAsig);
+      toggleSeccionSucursales(this.value, 'editar-suc-checks', 'editar-suc-divider', 'editar-suc-section');
+    });
+
+    document.getElementById('btn-editar-cancelar').addEventListener('click', () =>
+      document.getElementById('modal-editar').classList.remove('visible'));
+    document.getElementById('modal-editar').addEventListener('click', e => {
+      if (e.target === document.getElementById('modal-editar'))
+        document.getElementById('modal-editar').classList.remove('visible');
+    });
+
+    document.getElementById('btn-editar-guardar').addEventListener('click', async () => {
+      let valido = true;
+      const nombre = document.getElementById('editar-nombre').value.trim();
+      if (!nombre) {
+        document.getElementById('editar-nombre').classList.add('error');
+        document.getElementById('err-editar-nombre').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('editar-nombre').classList.remove('error');
+        document.getElementById('err-editar-nombre').classList.remove('visible');
+      }
+      const email = document.getElementById('editar-email').value.trim();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        document.getElementById('editar-email').classList.add('error');
+        document.getElementById('err-editar-email').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('editar-email').classList.remove('error');
+        document.getElementById('err-editar-email').classList.remove('visible');
+      }
+      if (!valido) return;
+
+      const body = {
+        nombre,
+        activo: document.getElementById('editar-activo').checked,
+      };
+      if (email) body.email = email;
+      const rut = document.getElementById('editar-rut').value.trim();
+      if (rut) body.rut_personal = rut;
+      const rolEl = document.getElementById('editar-rol');
+      if (document.getElementById('editar-rol-row').style.display !== 'none' && rolEl.value) {
+        body.rol = rolEl.value;
+      }
+
+      const btn = document.getElementById('btn-editar-guardar');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+
+      try {
+        /* Actualizar datos base */
+        const resBase = await fetch(`/api/usuarios/${editandoUserId}`, {
+          method: 'PUT',
+          headers: apiHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(body),
+        });
+        if (!resBase.ok) {
+          const err = await resBase.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${resBase.status}`);
+        }
+        /* Actualizar sucursales si la sección está visible */
+        const secSuc = document.getElementById('editar-suc-section');
+        if (secSuc.style.display !== 'none') {
+          const sucIds = leerChecksSucursales('editar-suc-checks');
+          const resSuc = await fetch(`/api/usuarios/${editandoUserId}/sucursales`, {
+            method: 'PUT',
+            headers: apiHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ sucursal_ids: sucIds }),
+          });
+          if (!resSuc.ok) {
+            const err = await resSuc.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${resSuc.status}`);
+          }
+        }
+        document.getElementById('modal-editar').classList.remove('visible');
+        mostrarBanner('Usuario actualizado correctamente.', 'success');
+        await cargarDatos();
+      } catch (e) {
+        mostrarBanner(`Error: ${e.message}`, 'error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Guardar cambios';
+      }
+    });
+
+    /* ─────────────────────────────────────────────────────────────────
+       MODAL: CONTRASEÑA
+    ───────────────────────────────────────────────────────────────── */
+    let cambiandoPwdUserId = null;
+
+    function abrirModalPassword(u) {
+      cambiandoPwdUserId = u.id;
+      document.getElementById('modal-pwd-subtitle').textContent =
+        `Nueva contraseña para ${u.nombre}.`;
+      ['pwd-nueva', 'pwd-repetir'].forEach(id => {
+        document.getElementById(id).value = '';
+        document.getElementById(id).classList.remove('error');
+      });
+      ['err-pwd-nueva', 'err-pwd-repetir'].forEach(id =>
+        document.getElementById(id).classList.remove('visible'));
+      document.getElementById('modal-pwd').classList.add('visible');
+      document.getElementById('pwd-nueva').focus();
+    }
+
+    document.getElementById('btn-pwd-cancelar').addEventListener('click', () =>
+      document.getElementById('modal-pwd').classList.remove('visible'));
+    document.getElementById('modal-pwd').addEventListener('click', e => {
+      if (e.target === document.getElementById('modal-pwd'))
+        document.getElementById('modal-pwd').classList.remove('visible');
+    });
+
+    document.getElementById('btn-pwd-guardar').addEventListener('click', async () => {
+      let valido = true;
+      const nueva   = document.getElementById('pwd-nueva').value;
+      const repetir = document.getElementById('pwd-repetir').value;
+      if (!nueva || nueva.length < 8) {
+        document.getElementById('pwd-nueva').classList.add('error');
+        document.getElementById('err-pwd-nueva').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('pwd-nueva').classList.remove('error');
+        document.getElementById('err-pwd-nueva').classList.remove('visible');
+      }
+      if (nueva !== repetir) {
+        document.getElementById('pwd-repetir').classList.add('error');
+        document.getElementById('err-pwd-repetir').classList.add('visible');
+        valido = false;
+      } else {
+        document.getElementById('pwd-repetir').classList.remove('error');
+        document.getElementById('err-pwd-repetir').classList.remove('visible');
+      }
+      if (!valido) return;
+
+      const btn = document.getElementById('btn-pwd-guardar');
+      btn.disabled = true; btn.textContent = 'Guardando…';
+      try {
+        const res = await fetch(`/api/usuarios/${cambiandoPwdUserId}/password`, {
+          method: 'PUT',
+          headers: apiHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ new_password: nueva }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        document.getElementById('modal-pwd').classList.remove('visible');
+        mostrarBanner('Contraseña actualizada correctamente.', 'success');
+      } catch (e) {
+        mostrarBanner(`Error: ${e.message}`, 'error');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Guardar contraseña';
+      }
+    });
+
+    /* ── Desactivar usuario ──────────────────────────────────────── */
+    async function confirmarDesactivar(id) {
+      const u = todosUsuarios.find(x => x.id === id);
+      const nombre = u ? u.nombre : id;
+      if (!confirm(`¿Desactivar la cuenta de "${nombre}"?\n\nEl usuario ya no podrá iniciar sesión.`)) return;
+      try {
+        const res = await fetch(`/api/usuarios/${id}`, {
+          method: 'DELETE',
+          headers: apiHeaders(),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        mostrarBanner('Cuenta desactivada.', 'success');
+        await cargarDatos();
+      } catch (e) {
+        mostrarBanner(`Error: ${e.message}`, 'error');
+      }
+    }
+
+    /* ── Arranque ────────────────────────────────────────────────── */
+    cargarDatos();
+  </script>
+</body>
+</html>

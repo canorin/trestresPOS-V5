@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sucursales · trestresPOS</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <style>
+    main { padding: 40px 24px 80px; max-width: 900px; margin: 0 auto; }
+
+    /* ── Topnav ────────────────────────────────────────────────── */
+    nav.topnav {
+      background: var(--color-text);
+      padding: 0 24px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    nav.topnav img { height: 24px; }
+    nav.topnav .right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    nav.topnav span {
+      color: #fff;
+      font-size: var(--text-caption);
+      opacity: 0.85;
+    }
+
+    /* ── Breadcrumb ────────────────────────────────────────────── */
+    .breadcrumb {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      text-decoration: none;
+      margin-bottom: 18px;
+      transition: color 150ms var(--ease);
+    }
+    .breadcrumb:hover { color: var(--color-accent); }
+    .breadcrumb svg { width: 14px; height: 14px; }
+
+    /* ── Page header ────────────────────────────────────────────── */
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      margin-bottom: 12px;
+    }
+    .page-header h1 {
+      font-size: var(--text-title);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.1;
+      color: var(--color-text);
+      margin-bottom: 6px;
+    }
+    .page-header .subtitle {
+      color: var(--color-text-secondary);
+      font-size: var(--text-body);
+    }
+
+    /* ── Banner de feedback ─────────────────────────────────────── */
+    .banner {
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      font-size: var(--text-caption);
+      display: none;
+      margin-bottom: 20px;
+    }
+    .banner.visible { display: block; }
+    .banner.success {
+      background: var(--color-etapa-produccion-bg);
+      color: var(--color-etapa-produccion-fg);
+    }
+    .banner.error {
+      background: var(--color-etapa-pendiente-bg);
+      color: var(--color-etapa-pendiente-fg);
+    }
+
+    /* ── Tarjetas de sucursal ────────────────────────────────────── */
+    .sucursales-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 24px;
+    }
+    .suc-card {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg);
+      padding: 22px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+    .suc-card-info { flex: 1; min-width: 0; }
+    .suc-card-name {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .suc-card-name strong {
+      font-size: var(--text-subheading);
+      font-weight: 600;
+      color: var(--color-text);
+    }
+    .badge-codigo {
+      font-size: var(--text-small);
+      font-weight: 500;
+      background: var(--color-bg-alt);
+      color: var(--color-text-secondary);
+      padding: 2px 9px;
+      border-radius: var(--radius-pill);
+      border: 1px solid var(--color-border-light);
+    }
+    .suc-card-dir {
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      margin-bottom: 4px;
+    }
+    .suc-card-sii {
+      font-size: var(--text-small);
+      color: var(--color-text-tertiary, #aeaeb2);
+    }
+    .suc-card-actions {
+      display: flex;
+      gap: 8px;
+      flex-shrink: 0;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    /* ── Botones ────────────────────────────────────────────────── */
+    .btn {
+      font: inherit;
+      font-size: var(--text-caption);
+      font-weight: 500;
+      padding: 9px 18px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 150ms var(--ease);
+    }
+    .btn-primary {
+      background: var(--color-accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--color-accent-hover); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary {
+      background: var(--color-bg);
+      color: var(--color-accent);
+      border-color: var(--color-accent);
+    }
+    .btn-secondary:hover { background: rgba(0, 113, 227, 0.08); }
+    .btn-danger {
+      background: var(--color-bg);
+      color: var(--color-error, #bf4800);
+      border-color: var(--color-border);
+    }
+    .btn-danger:hover { background: rgba(191, 72, 0, 0.06); }
+
+    /* ── Estado vacío ────────────────────────────────────────────── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--color-text-secondary);
+    }
+    .empty-state p { font-size: var(--text-body); margin-top: 8px; }
+
+    /* ── Modal ───────────────────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+    .modal-backdrop.visible { display: flex; }
+    .modal-card {
+      background: var(--color-bg);
+      border-radius: var(--radius-lg);
+      padding: 32px 32px 28px;
+      width: 100%;
+      max-width: 500px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: var(--text-heading);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--color-text);
+      margin-bottom: 4px;
+    }
+    .modal-subtitle {
+      color: var(--color-text-secondary);
+      font-size: var(--text-caption);
+      margin-bottom: 24px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .form-grid .full { grid-column: 1 / -1; }
+    @media (max-width: 480px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .form-grid .full { grid-column: auto; }
+    }
+    .form-row { display: flex; flex-direction: column; gap: 5px; }
+    .form-label {
+      font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+      font-weight: 500;
+    }
+    .form-input {
+      font: inherit;
+      font-size: var(--text-body);
+      color: var(--color-text);
+      padding: 10px 12px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm);
+      outline: none;
+      transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
+    }
+    .form-input:focus {
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+    .form-input.error { border-color: var(--color-error, #bf4800); }
+    .form-error {
+      font-size: var(--text-small);
+      color: var(--color-error, #bf4800);
+      display: none;
+    }
+    .form-error.visible { display: block; }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+    <div class="right">
+      <span id="nav-razon">—</span>
+    </div>
+  </nav>
+
+  <main>
+    <a class="breadcrumb" id="back-link" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+      Consola del cliente
+    </a>
+
+    <div class="page-header">
+      <div>
+        <h1>Sucursales</h1>
+        <p class="subtitle">Gestiona las sucursales de tu empresa y sus datos fiscales.</p>
+      </div>
+      <button class="btn btn-primary" id="btn-nueva" style="display:none;">
+        Nueva sucursal
+      </button>
+    </div>
+
+    <div class="banner" id="page-banner"></div>
+
+    <div class="sucursales-list" id="sucursales-list"></div>
+  </main>
+
+  <!-- ── Modal crear / editar sucursal ──────────────────────────── -->
+  <div id="modal-suc" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-suc-title">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-suc-title">Nueva sucursal</div>
+      <div class="modal-subtitle" id="modal-suc-subtitle">Completa los datos de la nueva sucursal.</div>
+
+      <form id="form-suc" autocomplete="off" novalidate>
+        <div class="form-grid">
+          <!-- Nombre -->
+          <div class="form-row full">
+            <label class="form-label" for="suc-nombre">Nombre <span aria-hidden="true">*</span></label>
+            <input type="text" id="suc-nombre" class="form-input" required placeholder="Ej.: Casa matriz">
+            <div class="form-error" id="err-nombre">Introduce el nombre de la sucursal.</div>
+          </div>
+          <!-- Código -->
+          <div class="form-row">
+            <label class="form-label" for="suc-codigo">Código <span style="font-weight:400;opacity:.7;">(opcional)</span></label>
+            <input type="text" id="suc-codigo" class="form-input" placeholder="Ej.: SUC-01">
+          </div>
+          <!-- Oficina SII -->
+          <div class="form-row">
+            <label class="form-label" for="suc-sii">Oficina SII <span aria-hidden="true">*</span></label>
+            <input type="text" id="suc-sii" class="form-input" required placeholder="SANTIAGO ORIENTE" value="SANTIAGO ORIENTE">
+            <div class="form-error" id="err-sii">Introduce el código de la oficina SII.</div>
+          </div>
+          <!-- Dirección -->
+          <div class="form-row full">
+            <label class="form-label" for="suc-direccion">Dirección <span aria-hidden="true">*</span></label>
+            <input type="text" id="suc-direccion" class="form-input" required placeholder="Ej.: Av. Providencia 1234">
+            <div class="form-error" id="err-direccion">Introduce la dirección.</div>
+          </div>
+          <!-- Comuna -->
+          <div class="form-row">
+            <label class="form-label" for="suc-comuna">Comuna <span aria-hidden="true">*</span></label>
+            <input type="text" id="suc-comuna" class="form-input" required placeholder="Ej.: Providencia">
+            <div class="form-error" id="err-comuna">Introduce la comuna.</div>
+          </div>
+          <!-- Ciudad -->
+          <div class="form-row">
+            <label class="form-label" for="suc-ciudad">Ciudad <span aria-hidden="true">*</span></label>
+            <input type="text" id="suc-ciudad" class="form-input" required placeholder="Ej.: Santiago">
+            <div class="form-error" id="err-ciudad">Introduce la ciudad.</div>
+          </div>
+        </div>
+      </form>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" id="btn-suc-cancelar">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-suc-guardar">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ── Auth ─────────────────────────────────────────────────────── */
+    const EMPRESA_RUT = window.location.pathname.split('/')[1];
+    const TOKEN_KEY   = `ttpos_token_${EMPRESA_RUT}`;
+    const USER_KEY    = `ttpos_user_${EMPRESA_RUT}`;
+
+    function requireAuth() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const raw   = localStorage.getItem(USER_KEY);
+      if (!token || !raw) { window.location.replace(`/${EMPRESA_RUT}/login`); return null; }
+      try {
+        const user = JSON.parse(raw);
+        if (!user || user.empresa_rut !== EMPRESA_RUT) {
+          localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+        }
+        if (user.rol === 'super_admin' && !user.shadow) {
+          localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+        }
+        return { token, user };
+      } catch {
+        window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+      }
+    }
+
+    const auth = requireAuth();
+    if (!auth) throw new Error('no auth');
+
+    /* ── Nivel de rol ────────────────────────────────────────────── */
+    const NIVEL_ROL = { super_admin: 5, master_client: 4, administrador: 3, administrador_tienda: 2, cajero: 1 };
+    function nivelRol(rol) { return NIVEL_ROL[rol] || 0; }
+    const puedeEditar = nivelRol(auth.user.rol) >= 3;
+
+    /* ── Helpers ─────────────────────────────────────────────────── */
+    function apiHeaders(extra) {
+      return Object.assign({
+        'Authorization': `Bearer ${auth.token}`,
+        'X-Empresa-Rut': EMPRESA_RUT,
+      }, extra);
+    }
+
+    function mostrarBanner(msg, tipo) {
+      const b = document.getElementById('page-banner');
+      b.textContent = msg;
+      b.className = `banner visible ${tipo}`;
+      setTimeout(() => { b.className = 'banner'; }, 5000);
+    }
+
+    /* ── Topnav / breadcrumb ─────────────────────────────────────── */
+    document.getElementById('back-link').href = `/${EMPRESA_RUT}/dashboard`;
+
+    fetch('/api/empresas/mi-empresa', { headers: apiHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        document.getElementById('nav-razon').textContent = d.razon_social;
+        document.title = `Sucursales · ${d.razon_social}`;
+      })
+      .catch(() => {});
+
+    /* ── Renderizado de lista ────────────────────────────────────── */
+    let sucursalesData = [];
+
+    function renderSucursales(lista) {
+      sucursalesData = lista;
+      const container = document.getElementById('sucursales-list');
+      const activas   = lista.filter(s => s.activa);
+
+      if (!lista.length) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                 style="margin: 0 auto 12px; display: block; opacity: .35;">
+              <path d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/>
+              <path d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/>
+            </svg>
+            <p>No hay sucursales registradas.</p>
+          </div>`;
+        return;
+      }
+
+      container.innerHTML = lista.map(s => {
+        const codigoBadge = s.codigo
+          ? `<span class="badge-codigo">${escapeHtml(s.codigo)}</span>`
+          : '';
+        const inactivaBadge = !s.activa
+          ? `<span class="badge-codigo" style="background:var(--color-etapa-pendiente-bg);color:var(--color-etapa-pendiente-fg);border:0;">Inactiva</span>`
+          : '';
+
+        const soloUnaActiva = activas.length <= 1 && s.activa;
+        const botonesAdmin = puedeEditar ? `
+          <button class="btn btn-secondary" data-action="editar" data-id="${s.id}">Editar</button>
+          ${!soloUnaActiva ? `<button class="btn btn-danger" data-action="desactivar" data-id="${s.id}">Desactivar</button>` : ''}
+        ` : '';
+
+        return `
+          <div class="suc-card" data-id="${s.id}">
+            <div class="suc-card-info">
+              <div class="suc-card-name">
+                <strong>${escapeHtml(s.nombre)}</strong>
+                ${codigoBadge}
+                ${inactivaBadge}
+              </div>
+              <div class="suc-card-dir">${escapeHtml(s.direccion)} · ${escapeHtml(s.comuna)}, ${escapeHtml(s.ciudad)}</div>
+              <div class="suc-card-sii">Oficina SII: ${escapeHtml(s.sii_sucursal)}</div>
+            </div>
+            <div class="suc-card-actions">${botonesAdmin}</div>
+          </div>`;
+      }).join('');
+
+      /* Eventos de botones en la lista */
+      container.querySelectorAll('[data-action="editar"]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const suc = sucursalesData.find(s => s.id === btn.dataset.id);
+          if (suc) abrirModalEditar(suc);
+        });
+      });
+      container.querySelectorAll('[data-action="desactivar"]').forEach(btn => {
+        btn.addEventListener('click', () => confirmarDesactivar(btn.dataset.id));
+      });
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    /* ── Carga inicial ───────────────────────────────────────────── */
+    async function cargarSucursales() {
+      try {
+        const res = await fetch('/api/sucursales/', { headers: apiHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        renderSucursales(data);
+      } catch (e) {
+        mostrarBanner(`Error al cargar sucursales: ${e.message}`, 'error');
+      }
+    }
+
+    /* ── Botón "Nueva sucursal" ──────────────────────────────────── */
+    const btnNueva = document.getElementById('btn-nueva');
+    if (puedeEditar) btnNueva.style.display = '';
+
+    let modoModal = 'crear';
+    let editandoId = null;
+
+    btnNueva.addEventListener('click', abrirModalCrear);
+
+    function abrirModalCrear() {
+      modoModal = 'crear';
+      editandoId = null;
+      document.getElementById('modal-suc-title').textContent   = 'Nueva sucursal';
+      document.getElementById('modal-suc-subtitle').textContent = 'Completa los datos de la nueva sucursal.';
+      limpiarFormulario();
+      document.getElementById('suc-sii').value = 'SANTIAGO ORIENTE';
+      abrirModal();
+    }
+
+    function abrirModalEditar(suc) {
+      modoModal = 'editar';
+      editandoId = suc.id;
+      document.getElementById('modal-suc-title').textContent   = 'Editar sucursal';
+      document.getElementById('modal-suc-subtitle').textContent = 'Modifica los datos de la sucursal.';
+      document.getElementById('suc-nombre').value    = suc.nombre;
+      document.getElementById('suc-codigo').value    = suc.codigo || '';
+      document.getElementById('suc-sii').value       = suc.sii_sucursal;
+      document.getElementById('suc-direccion').value = suc.direccion;
+      document.getElementById('suc-comuna').value    = suc.comuna;
+      document.getElementById('suc-ciudad').value    = suc.ciudad;
+      limpiarErrores();
+      abrirModal();
+    }
+
+    function abrirModal() {
+      document.getElementById('modal-suc').classList.add('visible');
+      document.getElementById('suc-nombre').focus();
+    }
+
+    function cerrarModal() {
+      document.getElementById('modal-suc').classList.remove('visible');
+    }
+
+    function limpiarFormulario() {
+      ['suc-nombre', 'suc-codigo', 'suc-sii', 'suc-direccion', 'suc-comuna', 'suc-ciudad']
+        .forEach(id => { document.getElementById(id).value = ''; });
+      limpiarErrores();
+    }
+
+    function limpiarErrores() {
+      ['suc-nombre', 'suc-sii', 'suc-direccion', 'suc-comuna', 'suc-ciudad']
+        .forEach(id => {
+          document.getElementById(id).classList.remove('error');
+        });
+      ['err-nombre', 'err-sii', 'err-direccion', 'err-comuna', 'err-ciudad']
+        .forEach(id => { document.getElementById(id).classList.remove('visible'); });
+    }
+
+    document.getElementById('btn-suc-cancelar').addEventListener('click', cerrarModal);
+    document.getElementById('modal-suc').addEventListener('click', e => {
+      if (e.target === document.getElementById('modal-suc')) cerrarModal();
+    });
+
+    /* ── Guardar (crear o editar) ────────────────────────────────── */
+    document.getElementById('btn-suc-guardar').addEventListener('click', async () => {
+      limpiarErrores();
+      let valido = true;
+
+      const campos = [
+        { id: 'suc-nombre',    errId: 'err-nombre' },
+        { id: 'suc-sii',       errId: 'err-sii' },
+        { id: 'suc-direccion', errId: 'err-direccion' },
+        { id: 'suc-comuna',    errId: 'err-comuna' },
+        { id: 'suc-ciudad',    errId: 'err-ciudad' },
+      ];
+      campos.forEach(c => {
+        const el = document.getElementById(c.id);
+        if (!el.value.trim()) {
+          el.classList.add('error');
+          document.getElementById(c.errId).classList.add('visible');
+          valido = false;
+        }
+      });
+      if (!valido) return;
+
+      const body = {
+        nombre:       document.getElementById('suc-nombre').value.trim(),
+        codigo:       document.getElementById('suc-codigo').value.trim() || null,
+        sii_sucursal: document.getElementById('suc-sii').value.trim(),
+        direccion:    document.getElementById('suc-direccion').value.trim(),
+        comuna:       document.getElementById('suc-comuna').value.trim(),
+        ciudad:       document.getElementById('suc-ciudad').value.trim(),
+      };
+
+      const btn = document.getElementById('btn-suc-guardar');
+      btn.disabled = true;
+      btn.textContent = 'Guardando…';
+
+      try {
+        let url = '/api/sucursales/';
+        let method = 'POST';
+        if (modoModal === 'editar') { url += editandoId; method = 'PUT'; }
+        const res = await fetch(url, {
+          method,
+          headers: apiHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        cerrarModal();
+        mostrarBanner(
+          modoModal === 'crear' ? 'Sucursal creada correctamente.' : 'Sucursal actualizada.',
+          'success',
+        );
+        await cargarSucursales();
+      } catch (e) {
+        mostrarBanner(`Error: ${e.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Guardar';
+      }
+    });
+
+    /* ── Desactivar (soft delete) ────────────────────────────────── */
+    async function confirmarDesactivar(id) {
+      const suc = sucursalesData.find(s => s.id === id);
+      const nombre = suc ? suc.nombre : id;
+      if (!confirm(`¿Desactivar la sucursal "${nombre}"?\n\nNo se eliminará, solo quedará inactiva.`)) return;
+      try {
+        const res = await fetch(`/api/sucursales/${id}`, {
+          method: 'DELETE',
+          headers: apiHeaders(),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        mostrarBanner('Sucursal desactivada.', 'success');
+        await cargarSucursales();
+      } catch (e) {
+        mostrarBanner(`Error: ${e.message}`, 'error');
+      }
+    }
+
+    /* ── Arranque ────────────────────────────────────────────────── */
+    cargarSucursales();
+  </script>
+</body>
+</html>
