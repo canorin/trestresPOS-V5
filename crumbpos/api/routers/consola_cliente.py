@@ -196,3 +196,33 @@ async def usuarios_master_cliente(
     """Módulo de gestión de usuarios."""
     _validar_empresa_existe(empresa_rut, master_db)
     return _servir_html("usuarios.html")
+
+
+@router.get("/{empresa_rut}/facturacion/emitidos", include_in_schema=False)
+async def facturacion_emitidos_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Historial de DTEs emitidos con estado SII y filtros."""
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("facturacion_emitidos.html")
+
+
+@router.get("/{empresa_rut}/facturacion/recibidas", include_in_schema=False)
+async def facturacion_recibidas_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """DTEs recibidos de proveedores — acuses y reclamos Ley 19.983."""
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("facturacion_recibidas.html")
+
+
+@router.get("/{empresa_rut}/facturacion/libros", include_in_schema=False)
+async def facturacion_libros_master_cliente(
+    empresa_rut: str = Path(..., pattern=_RUT_PATTERN),
+    master_db: Session = Depends(get_master_db),
+):
+    """Libros IECV (ventas, compras, guías) y RCOF de boletas."""
+    _validar_empresa_existe(empresa_rut, master_db)
+    return _servir_html("facturacion_libros.html")

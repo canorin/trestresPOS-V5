@@ -351,20 +351,18 @@
     <div class="section-header">Gestión</div>
     <div class="tiles">
       <!-- Documentos emitidos -->
-      <div class="tile coming-soon" data-slug="emitidos">
-        <span class="coming-badge">Próximamente</span>
+      <a class="tile" href="#" id="link-emitidos">
         <div class="tile-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
         </div>
         <div class="tile-title">Documentos emitidos</div>
         <div class="tile-desc">
-          Historial de DTEs enviados al SII, con su estado, track ID y PDF para descargar.
+          Historial de DTEs enviados al SII, con su estado, track ID y folio.
         </div>
-      </div>
+      </a>
 
       <!-- Facturas recibidas -->
-      <div class="tile coming-soon" data-slug="recibidas">
-        <span class="coming-badge">Próximamente</span>
+      <a class="tile" href="#" id="link-recibidas">
         <div class="tile-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.25 13.5A8.25 8.25 0 0110.5 5.25a8.25 8.25 0 018.25 8.25v.383a2.625 2.625 0 01-.817 1.905l-2.276 2.276a1.125 1.125 0 01-1.591 0l-2.44-2.44a1.125 1.125 0 00-1.592 0L7.595 17.84a1.125 1.125 0 01-1.59 0l-2.277-2.276a2.625 2.625 0 01-.818-1.905V13.5z"/><path d="M8.625 10.5a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375"/></svg>
         </div>
@@ -372,11 +370,10 @@
         <div class="tile-desc">
           DTEs que tus proveedores te enviaron. Acuses de recibo, aceptación, reclamos.
         </div>
-      </div>
+      </a>
 
       <!-- Libros y RCOF -->
-      <div class="tile coming-soon" data-slug="libros">
-        <span class="coming-badge">Próximamente</span>
+      <a class="tile" href="#" id="link-libros">
         <div class="tile-icon">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"/></svg>
         </div>
@@ -384,7 +381,7 @@
         <div class="tile-desc">
           Libro de compras y ventas (IECV) y RCOF de boletas. Envío mensual al SII.
         </div>
-      </div>
+      </a>
     </div>
   </main>
 
@@ -425,8 +422,11 @@
     const auth = requireAuth();
     if (!auth) throw new Error('no-auth');
 
-    document.getElementById('back-link').href = `/${EMPRESA_RUT}/dashboard`;
-    document.getElementById('btn-emitir').href = `/${EMPRESA_RUT}/facturacion/emision`;
+    document.getElementById('back-link').href  = `/${EMPRESA_RUT}/dashboard`;
+    document.getElementById('btn-emitir').href  = `/${EMPRESA_RUT}/facturacion/emision`;
+    document.getElementById('link-emitidos').href  = `/${EMPRESA_RUT}/facturacion/emitidos`;
+    document.getElementById('link-recibidas').href = `/${EMPRESA_RUT}/facturacion/recibidas`;
+    document.getElementById('link-libros').href    = `/${EMPRESA_RUT}/facturacion/libros`;
 
     async function apiFetch(url, opts = {}) {
       const headers = {
@@ -500,13 +500,6 @@
         // Silencioso — no bloqueamos la landing por el chip.
       }
     }
-
-    // Click en tiles próximamente = toast inline (no bloqueante).
-    document.querySelectorAll('.tile.coming-soon').forEach(tile => {
-      tile.addEventListener('click', () => {
-        showBanner('info', `"${tile.querySelector('.tile-title').textContent}" todavía no está disponible. Está en el roadmap.`);
-      });
-    });
 
     document.addEventListener('DOMContentLoaded', async () => {
       await cargarEmpresa();

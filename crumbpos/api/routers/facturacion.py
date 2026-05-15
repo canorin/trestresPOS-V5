@@ -9,7 +9,7 @@ import base64
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -540,6 +540,67 @@ def listar_pendientes(tenant: TenantContext = Depends(get_tenant)):
             "monto_total": d.monto_total,
             "tiene_xml": bool(d.xml_firmado),
         } for d in dtes]
+    finally:
+        tenant.close()
+
+
+@router.get("/emitidos")
+def listar_emitidos(
+    tipo_dte: int | None = Query(None, description="Tipo DTE (33, 34, 39, 41, 52, 56, 61)"),
+    estado_sii: str | None = Query(None, description="Estado SII (pendiente, enviado, aceptado, rechazado, reparo, error_envio)"),
+    fecha_desde: str | None = Query(None, description="Fecha desde YYYY-MM-DD"),
+    fecha_hasta: str | None = Query(None, description="Fecha hasta YYYY-MM-DD"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    tenant: TenantContext = Depends(get_tenant),
+):
+    """Lista todos los DTEs emitidos con filtros opcionales. Para historial en el panel master cliente."""
+    try:
+        q = tenant.db.query(DteEmitido).filter(
+            DteEmitido.empresa_id == tenant.empresa_id,
+        )
+        if tipo_dte is not None:
+            q = q.filter(DteEmitido.tipo_dte == tipo_dte)
+        if estado_sii:
+            q = q.filter(DteEmitido.estado_sii == estado_sii)
+        if fecha_desde:
+            try:
+                q = q.filter(DteEmitido.fecha_emision >= date.fromisoformat(fecha_desde))
+            except ValueError:
+                raise HTTPException(400, "fecha_desde inválida. Use YYYY-MM-DD")
+        if fecha_hasta:
+            try:
+                q = q.filter(DteEmitido.fecha_emision <= date.fromisoformat(fecha_hasta))
+            except ValueError:
+                raise HTTPException(400, "fecha_hasta inválida. Use YYYY-MM-DD")
+
+        total = q.count()
+        dtes = (
+            q.order_by(DteEmitido.fecha_emision.desc(), DteEmitido.folio.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+        return {
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "items": [
+                {
+                    "id": d.id,
+                    "tipo_dte": d.tipo_dte,
+                    "folio": d.folio,
+                    "fecha_emision": str(d.fecha_emision),
+                    "receptor_rut": d.receptor_rut,
+                    "receptor_razon": d.receptor_razon,
+                    "monto_total": d.monto_total,
+                    "estado_sii": d.estado_sii,
+                    "glosa_sii": d.glosa_sii,
+                    "track_id": d.track_id,
+                }
+                for d in dtes
+            ],
+        }
     finally:
         tenant.close()
 

@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Facturas recibidas · trestresPOS</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="apple-touch-icon" href="/static/favicon.png">
+  <link rel="stylesheet" href="/static/admin/theme.css">
+  <style>
+    main { padding: 36px 24px 80px; max-width: 1140px; margin: 0 auto; }
+
+    nav.topnav {
+      background: var(--color-text); padding: 0 24px; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    nav.topnav img { height: 24px; }
+    nav.topnav .right { display: flex; align-items: center; gap: 12px; }
+    nav.topnav span { color: #fff; font-size: var(--text-caption); opacity: .85; }
+
+    .breadcrumb {
+      display: inline-flex; align-items: center; gap: 6px;
+      color: var(--color-text-secondary); font-size: var(--text-caption);
+      text-decoration: none; margin-bottom: 18px;
+      transition: color 150ms var(--ease);
+    }
+    .breadcrumb:hover { color: var(--color-accent); }
+    .breadcrumb svg { width: 14px; height: 14px; }
+
+    .page-header { margin-bottom: 24px; }
+    .page-header h1 {
+      font-size: var(--text-title); font-weight: 600;
+      letter-spacing: -.025em; color: var(--color-text); margin-bottom: 4px;
+    }
+    .page-header p { color: var(--color-text-secondary); font-size: var(--text-body); }
+
+    /* Filtros */
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; align-items: center; }
+    .filter-select, .filter-input {
+      padding: 7px 11px; border: 1px solid var(--color-border);
+      border-radius: var(--radius-md); font-size: var(--text-caption);
+      color: var(--color-text); background: var(--color-bg); height: 34px;
+    }
+    .filter-select:focus, .filter-input:focus {
+      outline: none; border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+
+    /* Tabla */
+    .table-wrap {
+      background: var(--color-bg);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius-lg); overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: var(--text-caption); }
+    thead th {
+      background: var(--color-bg-alt); padding: 10px 14px; text-align: left;
+      font-weight: 500; color: var(--color-text-secondary);
+      border-bottom: 1px solid var(--color-border-light); white-space: nowrap;
+    }
+    tbody td { padding: 11px 14px; border-bottom: 1px solid var(--color-border-light); color: var(--color-text); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--color-bg-alt); }
+    .td-right { text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Badges */
+    .badge {
+      display: inline-flex; align-items: center;
+      padding: 2px 8px; border-radius: var(--radius-pill);
+      font-size: 11px; font-weight: 500; white-space: nowrap;
+    }
+    .b-pendiente     { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
+    .b-acuse         { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
+    .b-aceptado      { background: var(--color-etapa-produccion-bg); color: var(--color-etapa-produccion-fg); }
+    .b-reclamado     { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
+    .b-rechazado     { background: var(--color-etapa-pendiente-bg);  color: var(--color-etapa-pendiente-fg); }
+    .b-firma-ok      { background: var(--color-etapa-produccion-bg); color: var(--color-etapa-produccion-fg); }
+    .b-firma-nok     { background: var(--color-etapa-pendiente-bg);  color: var(--color-etapa-pendiente-fg); }
+
+    .badge-tipo {
+      display: inline-flex; padding: 2px 7px; border-radius: var(--radius-pill);
+      font-size: 11px; font-weight: 600; background: var(--color-bg-alt);
+      color: var(--color-text-secondary); border: 1px solid var(--color-border-light);
+      margin-right: 4px;
+    }
+
+    /* Botones de acción pequeños */
+    .btn-xs {
+      padding: 4px 10px; font-size: 11px; border-radius: var(--radius-md);
+      border: 1px solid var(--color-border); background: var(--color-bg);
+      color: var(--color-text); cursor: pointer; transition: background 100ms;
+      white-space: nowrap;
+    }
+    .btn-xs:hover { background: var(--color-bg-alt); }
+    .btn-xs:disabled { opacity: .4; cursor: default; }
+    .btn-xs.peligro { border-color: var(--color-etapa-pendiente-fg); color: var(--color-etapa-pendiente-fg); }
+    .btn-xs.peligro:hover { background: var(--color-etapa-pendiente-bg); }
+    .acciones { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    /* Paginación */
+    .pag-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; border-top: 1px solid var(--color-border-light);
+      background: var(--color-bg-alt); font-size: var(--text-caption);
+      color: var(--color-text-secondary);
+    }
+
+    .placeholder-row td {
+      text-align: center; padding: 56px 24px;
+      color: var(--color-text-secondary);
+    }
+    .placeholder-row svg { margin: 0 auto 12px; display: block; opacity: .3; }
+
+    /* Banner */
+    .banner {
+      display: none; padding: 12px 16px;
+      border-radius: var(--radius-md); font-size: var(--text-caption); margin-bottom: 16px;
+    }
+    .banner.visible { display: block; }
+    .banner.error   { background: var(--color-etapa-pendiente-bg); color: var(--color-etapa-pendiente-fg); }
+    .banner.success { background: var(--color-etapa-produccion-bg); color: var(--color-etapa-produccion-fg); }
+    .banner.info    { background: var(--color-etapa-proceso-bg);   color: var(--color-etapa-proceso-fg); }
+
+    /* Modal */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 200;
+      align-items: center; justify-content: center;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal {
+      background: var(--color-bg); border-radius: var(--radius-lg);
+      padding: 28px 32px; width: 420px; max-width: 90vw;
+      box-shadow: 0 24px 48px rgba(0,0,0,.2);
+    }
+    .modal h3 { font-size: var(--text-heading); font-weight: 600; margin-bottom: 8px; }
+    .modal p  { color: var(--color-text-secondary); font-size: var(--text-caption); margin-bottom: 16px; }
+    .modal textarea {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--color-border);
+      border-radius: var(--radius-md); font-size: var(--text-caption);
+      resize: vertical; min-height: 80px; font-family: inherit;
+      box-sizing: border-box;
+    }
+    .modal textarea:focus {
+      outline: none; border-color: var(--color-accent);
+      box-shadow: 0 0 0 3px var(--color-focus-ring);
+    }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .modal-error { color: var(--color-etapa-pendiente-fg); font-size: 11px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <nav class="topnav">
+    <img src="/static/logottpos.svg" alt="trestresPOS">
+    <div class="right">
+      <span id="nav-razon">—</span>
+      <a href="#" class="topnav-action" id="btn-logout">Salir</a>
+    </div>
+  </nav>
+
+  <main>
+    <a class="breadcrumb" href="#" id="back-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M15 18l-6-6 6-6"/>
+      </svg>
+      Facturación
+    </a>
+
+    <div class="page-header">
+      <h1>Facturas recibidas</h1>
+      <p>DTEs que tus proveedores te enviaron. Acepta, reclama o rechaza dentro de los plazos legales (Ley 19.983).</p>
+    </div>
+
+    <div id="page-banner" class="banner"></div>
+
+    <!-- Filtros -->
+    <div class="filters">
+      <select class="filter-select" id="f-estado">
+        <option value="">Todos los estados</option>
+        <option value="pendiente">Pendiente</option>
+        <option value="acuse_enviado">Acuse enviado</option>
+        <option value="aceptado">Aceptado</option>
+        <option value="reclamado">Reclamado</option>
+        <option value="rechazado">Rechazado</option>
+      </select>
+      <input class="filter-input" type="text" id="f-rut" placeholder="RUT proveedor" maxlength="12" style="width:140px;">
+      <button class="btn btn-secondary" id="btn-filtrar">Filtrar</button>
+      <button class="btn btn-ghost"      id="btn-limpiar">Limpiar</button>
+    </div>
+
+    <!-- Tabla -->
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Tipo / Folio</th>
+            <th>Proveedor</th>
+            <th>Fecha doc.</th>
+            <th class="td-right">Monto</th>
+            <th>Firma</th>
+            <th>Estado</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr class="placeholder-row"><td colspan="7">Cargando…</td></tr>
+        </tbody>
+      </table>
+      <div class="pag-row" id="pag-row" style="display:none;">
+        <span id="pag-info"></span>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost" id="btn-prev" disabled>← Anterior</button>
+          <button class="btn btn-ghost" id="btn-next">Siguiente →</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal reclamar / rechazar -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal">
+      <h3 id="modal-titulo">Reclamar DTE</h3>
+      <p id="modal-desc">Indica el motivo del reclamo. Plazo: 8 días corridos desde la recepción.</p>
+      <textarea id="modal-motivo" placeholder="Describe el motivo…"></textarea>
+      <div class="modal-error" id="modal-error" style="display:none;"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="modal-cancelar">Cancelar</button>
+        <button class="btn btn-primary"   id="modal-confirmar">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* ── Auth ─────────────────────────────────────────────────────── */
+    const EMPRESA_RUT = window.location.pathname.split('/')[1];
+    const TOKEN_KEY   = `ttpos_token_${EMPRESA_RUT}`;
+    const USER_KEY    = `ttpos_user_${EMPRESA_RUT}`;
+
+    function requireAuth() {
+      const token = localStorage.getItem(TOKEN_KEY);
+      const raw   = localStorage.getItem(USER_KEY);
+      if (!token || !raw) { window.location.replace(`/${EMPRESA_RUT}/login`); return null; }
+      try {
+        const user = JSON.parse(raw);
+        if (!user || user.empresa_rut !== EMPRESA_RUT) {
+          localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+        }
+        if (user.rol === 'super_admin' && !user.shadow) {
+          localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`); return null;
+        }
+        return { token, user };
+      } catch { window.location.replace(`/${EMPRESA_RUT}/login`); return null; }
+    }
+
+    const auth = requireAuth();
+    if (!auth) throw new Error('no-auth');
+
+    document.getElementById('back-link').href = `/${EMPRESA_RUT}/facturacion`;
+    document.getElementById('btn-logout').onclick = e => {
+      e.preventDefault();
+      localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+      window.location.replace(`/${EMPRESA_RUT}/login`);
+    };
+
+    function apiHeaders(extra) {
+      return Object.assign({
+        'Authorization': `Bearer ${auth.token}`,
+        'X-Empresa-Rut': EMPRESA_RUT,
+      }, extra);
+    }
+
+    function mostrarBanner(msg, tipo, autoCerrar = false) {
+      const b = document.getElementById('page-banner');
+      b.textContent = msg;
+      b.className = `banner visible ${tipo}`;
+      if (autoCerrar) setTimeout(() => { b.className = 'banner'; }, 5000);
+    }
+
+    /* ── Datos empresa ─────────────────────────────────────────── */
+    fetch('/api/empresas/mi-empresa', { headers: apiHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        document.getElementById('nav-razon').textContent = d.razon_social;
+        document.title = `Facturas recibidas · ${d.razon_social}`;
+      }).catch(() => {});
+
+    /* ── Helpers ────────────────────────────────────────────────── */
+    const TIPO_NOMBRE = {
+      33:'Factura', 34:'Fac. exenta', 39:'Boleta', 41:'Bol. exenta',
+      52:'Guía despacho', 56:'Nota débito', 61:'Nota crédito',
+    };
+
+    const ESTADO_META = {
+      pendiente:     { cls: 'b-pendiente', label: 'Pendiente' },
+      acuse_enviado: { cls: 'b-acuse',     label: 'Acuse enviado' },
+      aceptado:      { cls: 'b-aceptado',  label: 'Aceptado' },
+      reclamado:     { cls: 'b-reclamado', label: 'Reclamado' },
+      rechazado:     { cls: 'b-rechazado', label: 'Rechazado' },
+    };
+
+    const ESTADOS_FINALES = new Set(['aceptado', 'reclamado', 'rechazado']);
+
+    function badgeEstado(estado) {
+      const m = ESTADO_META[estado] || { cls: 'b-pendiente', label: estado };
+      return `<span class="badge ${m.cls}">${m.label}</span>`;
+    }
+
+    function badgeFirma(valida, error) {
+      if (valida) return `<span class="badge b-firma-ok">Válida</span>`;
+      return `<span class="badge b-firma-nok" title="${esc(error || '')}">No verificada</span>`;
+    }
+
+    function esc(s) {
+      if (s == null) return '—';
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function formatCLP(n) {
+      if (n == null) return '—';
+      return '$ ' + Number(n).toLocaleString('es-CL');
+    }
+
+    /* ── Tabla ───────────────────────────────────────────────── */
+    let offset = 0;
+    const LIMIT = 50;
+    let totalItems = 0;
+    let datos = [];
+
+    async function cargar() {
+      const estado = document.getElementById('f-estado').value;
+      const rut    = document.getElementById('f-rut').value.trim();
+
+      const p = new URLSearchParams({ limit: LIMIT, offset });
+      if (estado) p.set('estado',     estado);
+      if (rut)    p.set('rut_emisor', rut);
+
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = '<tr class="placeholder-row"><td colspan="7">Cargando…</td></tr>';
+
+      try {
+        const res = await fetch(`/api/dtes-recibidos/?${p}`, { headers: apiHeaders() });
+        if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY);
+          window.location.replace(`/${EMPRESA_RUT}/login`); return;
+        }
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          mostrarBanner(err.detail || 'Error cargando facturas recibidas', 'error');
+          tbody.innerHTML = '<tr class="placeholder-row"><td colspan="7">Error cargando datos.</td></tr>';
+          return;
+        }
+        datos = await res.json();
+        totalItems = datos.length; /* la API devuelve lista plana */
+
+        if (!datos.length) {
+          tbody.innerHTML = `
+            <tr class="placeholder-row"><td colspan="7">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.25 13.5A8.25 8.25 0 0110.5 5.25a8.25 8.25 0 018.25 8.25v.383a2.625 2.625 0 01-.817 1.905l-2.276 2.276a1.125 1.125 0 01-1.591 0l-2.44-2.44a1.125 1.125 0 00-1.592 0L7.595 17.84a1.125 1.125 0 01-1.59 0l-2.277-2.276a2.625 2.625 0 01-.818-1.905V13.5z"/>
+              </svg>
+              <p>No hay facturas recibidas con esos filtros.</p>
+            </td></tr>`;
+          document.getElementById('pag-row').style.display = 'none';
+          return;
+        }
+
+        renderTabla(datos);
+
+        /* Paginación (informativa — la API ya pagina) */
+        const pagRow = document.getElementById('pag-row');
+        pagRow.style.display = 'flex';
+        document.getElementById('pag-info').textContent =
+          `Mostrando ${datos.length} documento${datos.length !== 1 ? 's' : ''}`;
+        document.getElementById('btn-prev').disabled = offset === 0;
+        document.getElementById('btn-next').disabled = datos.length < LIMIT;
+      } catch(e) {
+        mostrarBanner('Error inesperado: ' + e.message, 'error');
+      }
+    }
+
+    function renderTabla(lista) {
+      const tbody = document.getElementById('tbody');
+      tbody.innerHTML = lista.map(d => {
+        const esFinal = ESTADOS_FINALES.has(d.estado_recepcion);
+        const accionAceptar  = esFinal ? '' :
+          `<button class="btn-xs" onclick="accion('${d.id}','aceptar')">Aceptar</button>`;
+        const accionReclamar = esFinal ? '' :
+          `<button class="btn-xs peligro" onclick="abrirModal('${d.id}','reclamar')">Reclamar</button>`;
+        const accionRechazar = esFinal ? '' :
+          `<button class="btn-xs peligro" onclick="abrirModal('${d.id}','rechazar')">Rechazar</button>`;
+        return `
+          <tr id="row-${d.id}">
+            <td>
+              <span class="badge-tipo">T${d.tipo_dte}</span>${esc(TIPO_NOMBRE[d.tipo_dte])}
+              <div style="color:var(--color-text-secondary);font-size:11px;">Folio ${d.folio}</div>
+            </td>
+            <td>
+              <div style="font-weight:500;">${esc(d.razon_social_emisor)}</div>
+              <div style="color:var(--color-text-secondary);font-size:11px;">${esc(d.rut_emisor)}</div>
+            </td>
+            <td style="white-space:nowrap;">${esc(d.fecha_emision_doc || '—')}</td>
+            <td class="td-right">${formatCLP(d.monto_total)}</td>
+            <td>${badgeFirma(d.firma_valida, d.firma_error)}</td>
+            <td>
+              ${badgeEstado(d.estado_recepcion)}
+              ${d.motivo_reclamo ? `<div style="color:var(--color-text-secondary);font-size:11px;margin-top:2px;">${esc(d.motivo_reclamo)}</div>` : ''}
+            </td>
+            <td>
+              <div class="acciones">
+                ${accionAceptar}${accionReclamar}${accionRechazar}
+              </div>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    /* ── Acción directa (aceptar) ────────────────────────────── */
+    async function accion(id, accionStr, motivo) {
+      const body = JSON.stringify({ accion: accionStr, motivo: motivo || null });
+      try {
+        const res = await fetch(`/api/dtes-recibidos/${id}/reclamar`, {
+          method: 'POST',
+          headers: apiHeaders({ 'Content-Type': 'application/json' }),
+          body,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          mostrarBanner(data.detail || `Error al ${accionStr}`, 'error', true);
+          return false;
+        }
+        mostrarBanner(`DTE ${accionStr === 'aceptar' ? 'aceptado' : accionStr === 'reclamar' ? 'reclamado' : 'rechazado'} correctamente.`, 'success', true);
+        cargar();
+        return true;
+      } catch(e) {
+        mostrarBanner('Error inesperado: ' + e.message, 'error', true);
+        return false;
+      }
+    }
+
+    /* ── Modal reclamar / rechazar ───────────────────────────── */
+    let modalDteId   = null;
+    let modalAccion  = null;
+
+    function abrirModal(id, accionStr) {
+      modalDteId  = id;
+      modalAccion = accionStr;
+      const esReclamar = accionStr === 'reclamar';
+      document.getElementById('modal-titulo').textContent =
+        esReclamar ? 'Reclamar DTE' : 'Rechazar DTE';
+      document.getElementById('modal-desc').textContent = esReclamar
+        ? 'Indica el motivo del reclamo. Plazo legal: 8 días corridos desde la recepción.'
+        : 'Indica el motivo del rechazo (RUT incorrecto, DTE dirigido a otro contribuyente, etc.).';
+      document.getElementById('modal-motivo').value = '';
+      document.getElementById('modal-error').style.display = 'none';
+      document.getElementById('modal-overlay').className = 'modal-overlay visible';
+      document.getElementById('modal-motivo').focus();
+    }
+
+    document.getElementById('modal-cancelar').onclick = () => {
+      document.getElementById('modal-overlay').className = 'modal-overlay';
+    };
+
+    document.getElementById('modal-confirmar').onclick = async () => {
+      const motivo = document.getElementById('modal-motivo').value.trim();
+      if (!motivo) {
+        const errEl = document.getElementById('modal-error');
+        errEl.textContent = 'El motivo es obligatorio.';
+        errEl.style.display = 'block';
+        return;
+      }
+      document.getElementById('modal-confirmar').disabled = true;
+      const ok = await accion(modalDteId, modalAccion, motivo);
+      document.getElementById('modal-confirmar').disabled = false;
+      if (ok) document.getElementById('modal-overlay').className = 'modal-overlay';
+    };
+
+    document.getElementById('modal-overlay').addEventListener('click', e => {
+      if (e.target === document.getElementById('modal-overlay')) {
+        document.getElementById('modal-overlay').className = 'modal-overlay';
+      }
+    });
+
+    /* ── Filtros y paginación ───────────────────────────────── */
+    document.getElementById('btn-filtrar').onclick = () => { offset = 0; cargar(); };
+    document.getElementById('btn-limpiar').onclick = () => {
+      document.getElementById('f-estado').value = '';
+      document.getElementById('f-rut').value    = '';
+      offset = 0; cargar();
+    };
+    document.getElementById('btn-prev').onclick = () => { offset = Math.max(0, offset - LIMIT); cargar(); };
+    document.getElementById('btn-next').onclick = () => { offset += LIMIT; cargar(); };
+
+    cargar();
+  </script>
+</body>
+</html>
