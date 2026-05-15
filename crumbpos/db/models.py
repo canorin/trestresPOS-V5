@@ -1028,3 +1028,67 @@ def registrar_evento(
     if flush:
         db.flush()
     return evento
+
+
+# ═══════════════════════════════════════════════════════════════════
+# C3 — Recepción de DTEs de proveedores (Ley 19.983)
+# ═══════════════════════════════════════════════════════════════════
+
+class DteRecibido(Base):
+    """DTE recibido de un proveedor (factura de compra, NC, ND, etc.).
+
+    Ciclo de vida del ``estado_recepcion``:
+        pendiente        → acuse aún no generado
+        acuse_enviado    → EnvioRecibos firmado y enviado al emisor
+        aceptado         → mercadería/servicio aceptado (plazo 30 días Ley 19.983)
+        reclamado        → reclamo de contenido enviado (plazo 8 días)
+        rechazado        → DTE rechazado (RUT receptor no coincide u otro error)
+    """
+    __tablename__ = "dte_recibido"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    empresa_id: Mapped[str] = mapped_column(ForeignKey("empresa.id"), nullable=False)
+
+    # Identificación del DTE recibido
+    tipo_dte: Mapped[int] = mapped_column(Integer, nullable=False)
+    folio: Mapped[int] = mapped_column(Integer, nullable=False)
+    rut_emisor: Mapped[str] = mapped_column(String(12), nullable=False)
+    razon_social_emisor: Mapped[str | None] = mapped_column(String(100))
+    fecha_emision_doc: Mapped[date | None] = mapped_column(Date)
+    monto_total: Mapped[int | None] = mapped_column(Integer)
+
+    # Estado del procesamiento del acuse (ver docstring)
+    estado_recepcion: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="pendiente",
+    )
+
+    # XML del sobre EnvioDTE recibido (base64) — conservación 6 años
+    xml_recibido: Mapped[str | None] = mapped_column(Text)
+
+    # Resultado de la verificación de firma del DTE
+    firma_valida: Mapped[bool] = mapped_column(Boolean, default=False)
+    firma_error: Mapped[str | None] = mapped_column(Text)
+
+    # Acuse EnvioRecibos (base64 del XML firmado enviado al proveedor)
+    xml_acuse: Mapped[str | None] = mapped_column(Text)
+    acuse_enviado_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    # Reclamo de contenido (Ley 19.983, plazo 8 días)
+    motivo_reclamo: Mapped[str | None] = mapped_column(Text)
+    reclamado_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    # Aceptación explícita (plazo 30 días)
+    aceptado_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        # Un DTE de un proveedor es único por empresa+tipo+folio+emisor
+        UniqueConstraint(
+            "empresa_id", "tipo_dte", "folio", "rut_emisor",
+            name="uq_dte_recibido_doc",
+        ),
+        Index("ix_dte_recibido_empresa_estado", "empresa_id", "estado_recepcion"),
+        Index("ix_dte_recibido_emisor", "empresa_id", "rut_emisor"),
+        Index("ix_dte_recibido_created", "empresa_id", "created_at"),
+    )

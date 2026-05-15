@@ -21,7 +21,7 @@ from crumbpos.api.routers import (
     auth, articulos, ventas, facturacion, folios, empresas, clientes,
     libros, sii_estado, envio_receptor, rcof, sesion_caja, reportes,
     dashboard, sucursales, usuarios, cajas, inventario, sync, certificacion,
-    baja_empresas, consola_cliente, pos, datos_personales,
+    baja_empresas, consola_cliente, pos, datos_personales, dtes_recibidos,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,6 +166,7 @@ app.include_router(certificacion.router)
 app.include_router(baja_empresas.router)
 app.include_router(pos.router)
 app.include_router(datos_personales.router)
+app.include_router(dtes_recibidos.router)
 # ── consola_cliente: include_router se hace AL FINAL del archivo ──
 # Sus rutas son /{empresa_rut}/login y /{empresa_rut}/dashboard con path
 # param regex-validado. Debe registrarse después de todos los @app.get
