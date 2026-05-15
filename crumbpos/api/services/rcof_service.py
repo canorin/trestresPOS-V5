@@ -247,6 +247,21 @@ class ServicioRCOF:
                 "error": f"{type(e).__name__}: {str(e)}",
             }
 
+    @staticmethod
+    def _es_error_token_expirado(resultado: dict) -> bool:
+        """Detecta si la respuesta del SII indica token expirado (STATUS=7).
+
+        A8: si el token SOAP está expirado, ``_enviar_consumo`` invalida el cache
+        y reintenta una vez.  No aplica a errores de rechazo de contenido (STATUS≠7).
+        """
+        glosa = resultado.get("glosa", "").upper()
+        raw = resultado.get("raw", "").upper()
+        return (
+            "TOKEN" in glosa
+            or "<STATUS>7</STATUS>" in raw
+            or "STATUS>7<" in raw
+        )
+
     def _enviar_consumo(self, xml_bytes: bytes) -> dict:
         """Envia RCOF al SII via upload SOAP tradicional (DTEUpload).
 
@@ -255,6 +270,8 @@ class ServicioRCOF:
         - Token: SOAP tradicional (no REST boleta)
 
         Segun instructivo SII: "No hay cambios en el envio de RCOF".
+        A8: si el token SOAP expiró (STATUS=7), invalida el cache y
+        reintenta UNA vez con token nuevo.
 
         Args:
             xml_bytes: XML del RCOF firmado como bytes
@@ -316,12 +333,46 @@ class ServicioRCOF:
         if glosa_match:
             glosa = glosa_match.group(1).strip()
 
-        return {
+        resultado = {
             "status": "OK" if (status_code == "0" or track_id) else "ERROR",
             "track_id": track_id,
             "glosa": glosa,
             "raw": text,
         }
+
+        # A8: token expirado → invalidar cache y reintentar UNA VEZ con token nuevo
+        if self._es_error_token_expirado(resultado):
+            logger.warning(
+                "Token SOAP RCOF expirado (STATUS=7), reintentando con token nuevo...",
+            )
+            self._token = None
+            self._token_time = None
+            token = self._obtener_token_soap()
+            headers["Cookie"] = f"TOKEN={token}"
+            try:
+                response2 = requests.post(url, files=files, headers=headers, timeout=90)
+                response2.raise_for_status()
+                text2 = response2.text
+                track_id2 = None
+                m = re.search(r'<TRACKID>(\d+)</TRACKID>', text2, re.IGNORECASE)
+                if m:
+                    track_id2 = m.group(1)
+                s = re.search(r'<STATUS>(\d+)</STATUS>', text2, re.IGNORECASE)
+                sc2 = s.group(1) if s else None
+                g2 = ""
+                gm = re.search(r'<GLOSA>([^<]+)</GLOSA>', text2, re.IGNORECASE)
+                if gm:
+                    g2 = gm.group(1).strip()
+                resultado = {
+                    "status": "OK" if (sc2 == "0" or track_id2) else "ERROR",
+                    "track_id": track_id2,
+                    "glosa": g2,
+                    "raw": text2,
+                }
+            except Exception as exc:
+                logger.error("Reintento RCOF con token nuevo falló: %s", exc)
+
+        return resultado
 
     def _calcular_sec_envio(self, db: Session, fecha: date) -> int:
         """Calcula el numero de secuencia de envio para el dia.

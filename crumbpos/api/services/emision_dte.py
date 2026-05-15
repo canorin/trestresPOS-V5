@@ -109,6 +109,25 @@ def _limpiar_namespaces(xml_str: str) -> str:
     return xml_str
 
 
+def _es_error_token_expirado(resultado_sii: dict) -> bool:
+    """Detecta si la respuesta del SII indica token expirado (STATUS=7).
+
+    El SII devuelve STATUS=7 cuando el token SOAP o el JWT de boletas ya no
+    es válido. En ese caso hay que obtener un token nuevo y reintentar una vez.
+
+    Indicadores detectados:
+    - ``<STATUS>7</STATUS>`` en el cuerpo XML de la respuesta.
+    - La glosa contiene "TOKEN" (ej. "TOKEN INVALIDO", "Token caducado").
+    """
+    glosa = resultado_sii.get("glosa", "").upper()
+    raw = resultado_sii.get("raw", "").upper()
+    return (
+        "TOKEN" in glosa
+        or "<STATUS>7</STATUS>" in raw
+        or "STATUS>7<" in raw  # sin espacio, alguna variante del SII
+    )
+
+
 class ServicioEmisionDTE:
     """Emite DTEs usando el MISMO flujo de firma aprobado por el SII."""
 
@@ -1152,6 +1171,22 @@ class ServicioEmisionDTE:
                         ambiente=self.config.ambiente,
                         rut_envia=rut_envia,
                     )
+                    # A8: token boleta expirado → invalidar cache y reintentar UNA VEZ
+                    if _es_error_token_expirado(resultado_sii):
+                        logger.warning(
+                            "Token boleta expirado (STATUS=7), reintentando con token nuevo "
+                            "(folio=%s)...", folio,
+                        )
+                        self._token_boleta = None
+                        self._token_boleta_time = None
+                        token = self._obtener_token_boleta()
+                        resultado_sii = enviar_boleta(
+                            xml_bytes=xml_bytes,
+                            token=token,
+                            rut_emisor=self.config.rut,
+                            ambiente=self.config.ambiente,
+                            rut_envia=rut_envia,
+                        )
                 else:
                     # DTEs: SOAP con token estándar
                     token = self._obtener_token()
@@ -1162,6 +1197,22 @@ class ServicioEmisionDTE:
                         ambiente=self.config.ambiente,
                         rut_envia=rut_envia,
                     )
+                    # A8: token SOAP expirado → invalidar cache y reintentar UNA VEZ
+                    if _es_error_token_expirado(resultado_sii):
+                        logger.warning(
+                            "Token SOAP expirado (STATUS=7), reintentando con token nuevo "
+                            "(folio=%s)...", folio,
+                        )
+                        self._token = None
+                        self._token_time = None
+                        token = self._obtener_token()
+                        resultado_sii = enviar_dte(
+                            xml_bytes=xml_bytes,
+                            token=token,
+                            rut_emisor=self.config.rut,
+                            ambiente=self.config.ambiente,
+                            rut_envia=rut_envia,
+                        )
 
                 track_id = resultado_sii.get("track_id")
                 logger.info("SII: status=%s, track_id=%s", resultado_sii.get('status'), track_id)
