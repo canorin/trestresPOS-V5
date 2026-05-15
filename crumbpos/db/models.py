@@ -453,6 +453,14 @@ class CafFolio(Base):
     fecha_autorizacion: Mapped[str | None] = mapped_column(String(10))
     estado: Mapped[str] = mapped_column(String(10), default="activo")
     # Estados: activo, agotado
+    ambiente: Mapped[str] = mapped_column(
+        String(15), nullable=False, default="certificacion",
+    )
+    # Ambiente SII donde se autorizó este CAF: 'certificacion' | 'produccion'.
+    # Inmutable tras upload. Previene uso accidental de CAFs de cert en
+    # producción y viceversa. Se detecta automáticamente de empresa.ambiente_sii
+    # en el momento del upload (registrar_caf). Las DBs existentes lo reciben
+    # via _migrate_empresa_schema con backfill desde empresa.ambiente_sii.
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     asignaciones: Mapped[list["CafAsignacion"]] = relationship(

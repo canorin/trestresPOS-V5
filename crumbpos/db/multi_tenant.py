@@ -695,6 +695,34 @@ def _migrate_empresa_schema(engine):
                     result.rowcount,
                 )
 
+        # ── caf_folio: ambiente (marcador cert/prod) ──────────────────────
+        # C1: un CAF autorizado en certificación no debe consumirse en
+        # producción y viceversa. La columna es NOT NULL DEFAULT 'certificacion'
+        # para que SQLite asigne un valor coherente al agregar la columna;
+        # el UPDATE posterior la corrige al ambiente real de la empresa.
+        if caf_cols and "ambiente" not in caf_cols:
+            conn.execute(text(
+                "ALTER TABLE caf_folio "
+                "ADD COLUMN ambiente VARCHAR(15) NOT NULL DEFAULT 'certificacion'"
+            ))
+            # Backfill: la empresa sabe en qué ambiente opera esta DB.
+            # COALESCE por si algún caf_folio tiene empresa_id huérfano.
+            conn.execute(text(
+                "UPDATE caf_folio SET ambiente = COALESCE("
+                "  (SELECT e.ambiente_sii FROM empresa e "
+                "   WHERE e.id = caf_folio.empresa_id),"
+                "  'certificacion'"
+                ")"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_caf_empresa_tipo_ambiente "
+                "ON caf_folio (empresa_id, tipo_dte, ambiente, estado)"
+            ))
+            logger.info(
+                "Empresa migrate: caf_folio.ambiente agregada "
+                "+ backfill desde empresa.ambiente_sii"
+            )
+
         # ── certificacion_caso: substates EPR / declarar avance / aprobado ──
         caso_cols = {
             row[1] for row in conn.execute(

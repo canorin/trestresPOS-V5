@@ -313,13 +313,22 @@ class CAFManagerDB:
         de esa coreografía y, si decide consumir, llama de nuevo con el
         ``sucursal_id`` explícito).
         """
+        # C1: filtrar CAFs por ambiente de la empresa para prevenir uso
+        # de CAFs de certificación en producción y viceversa.
+        from crumbpos.db.models import Empresa
+        empresa_row = self.db.execute(
+            select(Empresa).where(Empresa.id == self.empresa_id)
+        ).scalars().first()
+        ambiente = empresa_row.ambiente_sii if empresa_row else "certificacion"
+
         with _folio_lock(self.empresa_id):
-            return self._siguiente_folio_locked(tipo_dte, sucursal_id)
+            return self._siguiente_folio_locked(tipo_dte, sucursal_id, ambiente)
 
     def _siguiente_folio_locked(
         self,
         tipo_dte: int,
         sucursal_id: str | None,
+        ambiente: str = "certificacion",
     ) -> tuple[int, "CAF"]:
         """Lógica interna de siguiente_folio — debe llamarse bajo el lock."""
         sucursal_filter = (
@@ -336,6 +345,7 @@ class CAFManagerDB:
                     CafFolio.empresa_id == self.empresa_id,
                     CafFolio.tipo_dte == tipo_dte,
                     CafFolio.estado == "activo",
+                    CafFolio.ambiente == ambiente,  # C1: aísla cert vs producción
                     CafAsignacion.estado == "activo",
                     sucursal_filter,
                 ))
@@ -939,6 +949,9 @@ class CAFManagerDB:
             if folio_inicial_override is not None
             else folio_desde
         )
+        # C1: tomar el ambiente del CAF desde la empresa para que el marcador
+        # quede incrustado en la fila y nunca se pueda consumir en el otro ambiente.
+        ambiente_caf = empresa.ambiente_sii if empresa else "certificacion"
         caf_row = CafFolio(
             empresa_id=self.empresa_id,
             tipo_dte=tipo_dte,
@@ -949,6 +962,7 @@ class CAFManagerDB:
             rut_emisor=rut_emisor,
             fecha_autorizacion=fecha_auth,
             estado="activo",
+            ambiente=ambiente_caf,
         )
         self.db.add(caf_row)
         self.db.flush()
