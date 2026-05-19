@@ -1,6 +1,6 @@
 """
 Genera Libro de Ventas, Libro de Compras y Libro de Guias.
-Nueva Postulacion trestresPOS.
+Nueva Postulacion Crumb.
 
 Numeros de atencion (NUEVO SET - 2026-03-31):
 - Libro de Ventas: 4758673

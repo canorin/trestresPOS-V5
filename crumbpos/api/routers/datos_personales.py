@@ -135,7 +135,7 @@ def solicitar_cancelacion(
 ):
     """Registra una solicitud de derechos ARCO del usuario autenticado.
 
-    El operador de la plataforma (trestresPOS) queda obligado a procesar la
+    El operador de la plataforma (Crumb) queda obligado a procesar la
     solicitud en un plazo máximo de 5 días hábiles (Art. 13 Ley 19.628).
 
     Tipos aceptados: ``cancelacion`` (baja de datos), ``acceso`` (exportar),

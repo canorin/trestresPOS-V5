@@ -244,10 +244,10 @@ def _contar_documentos_produccion(rut: str) -> dict[str, int]:
 # CONSTRUCCIÓN DEL ZIP
 # ══════════════════════════════════════════════════════════════════
 
-_README_CONTENT = """# Respaldo de empresa — trestresPOS
+_README_CONTENT = """# Respaldo de empresa — Crumb
 
 Este archivo contiene la información tributaria de la empresa exportada
-desde trestresPOS antes de su baja del sistema.
+desde Crumb antes de su baja del sistema.
 
 ## Qué contiene
 
@@ -623,7 +623,7 @@ def _construir_zip(
                 "user_id": admin_user_id,
                 "email": admin_email,
             },
-            "software": "trestresPOS",
+            "software": "Crumb",
             "conteos": resumen,
         }
         _add_json_to_zip(

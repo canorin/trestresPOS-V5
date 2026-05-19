@@ -6,7 +6,7 @@ de hardcodear listas de strings en cada chequeo.
 
 Jerarquía (de más a menos privilegios)::
 
-    super_admin          staff trestresPOS (cross-empresa)
+    super_admin          staff Crumb (cross-empresa)
     master_client        dueño / representante legal de la empresa
     administrador        admin general de la empresa
     administrador_tienda admin de una sucursal
@@ -55,7 +55,7 @@ ROLES_LABEL: dict[str, str] = {
 
 #: Descripción corta del rol (para UI / tooltips).
 ROLES_DESC: dict[str, str] = {
-    "super_admin": "Staff de trestresPOS — opera sobre todas las empresas.",
+    "super_admin": "Staff de Crumb — opera sobre todas las empresas.",
     "master_client": "Dueño o representante legal de la empresa.",
     "administrador": "Administra la empresa sin ser dueño.",
     "administrador_tienda": "Administra una sucursal.",

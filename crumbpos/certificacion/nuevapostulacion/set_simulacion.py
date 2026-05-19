@@ -311,7 +311,7 @@ def generar_set_simulacion():
     # NUNCA hardcodear valores — causaría retroceso y reutilización de folios
 
     print("=" * 60)
-    print("GENERANDO SET DE SIMULACIÓN — trestresPOS")
+    print("GENERANDO SET DE SIMULACIÓN — Crumb")
     print(f"Fecha: {FECHA_EMISION}")
     print(f"Receptor: 77051056-2 (mismo emisor, certificación)")
     print("=" * 60)

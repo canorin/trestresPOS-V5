@@ -1,5 +1,5 @@
 """
-Firma todos los XMLs del set de pruebas — Nueva Postulación trestresPOS.
+Firma todos los XMLs del set de pruebas — Nueva Postulación Crumb.
 
 Proceso:
 1. Cargar certificado PFX

@@ -1,5 +1,5 @@
 """
-Envía sobres firmados al SII — Nueva Postulación trestresPOS.
+Envía sobres firmados al SII — Nueva Postulación Crumb.
 
 Uso:
   python enviar_sii.py boletas      # Enviar solo boletas

@@ -222,7 +222,7 @@ class SolicitudArco(BaseMaster):
     del tratamiento de datos a dar respuesta a solicitudes del titular.
 
     Cada solicitud queda persistida en master.db con estado ``pendiente``.
-    El operador de trestresPOS debe procesarla en un plazo razonable (máximo
+    El operador de Crumb debe procesarla en un plazo razonable (máximo
     5 días hábiles según la ley) y actualizar ``estado`` a ``completada``.
     """
     __tablename__ = "solicitud_arco"
@@ -253,7 +253,7 @@ class UsuarioAuth(BaseMaster):
     filesystem. El super_admin usa empresa_rut="SYSTEM".
 
     Roles (fuente única: ``crumbpos.core.roles.ROLES_JERARQUIA``):
-      - super_admin: staff trestresPOS — cross-empresa.
+      - super_admin: staff Crumb — cross-empresa.
       - master_client: dueño/representante legal de la empresa.
       - administrador: admin general de la empresa (no dueño).
       - administrador_tienda: admin de sucursal.

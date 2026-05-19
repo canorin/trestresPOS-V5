@@ -1,4 +1,4 @@
-"""trestresPOS API — FastAPI application.
+"""Crumb API — FastAPI application.
 
 Sistema multi-tenant con aislamiento total por empresa y ambiente (certificacion/produccion).
 """
@@ -82,7 +82,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="trestresPOS API",
+    title="Crumb API",
     version="0.2.0",
     description="API multi-tenant para punto de venta con facturación electrónica SII Chile",
     lifespan=lifespan,
@@ -177,14 +177,14 @@ app.include_router(dtes_recibidos.router)
 # Ver: `app.include_router(consola_cliente.router)` al final del archivo.
 
 
-# ── Swagger UI custom con logo trestresPOS ──────────────────────
+# ── Swagger UI custom con logo Crumb ──────────────────────────
 
 SWAGGER_HTML = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>trestresPOS API</title>
+    <title>Crumb API</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -193,7 +193,7 @@ SWAGGER_HTML = """
         .ttpos-header {
             background: #000;
             padding: 0 24px;
-            height: 64px;
+            height: 83px;
             display: flex;
             align-items: center;
             position: sticky;
@@ -201,7 +201,7 @@ SWAGGER_HTML = """
             z-index: 1000;
         }
         .ttpos-header img {
-            height: 64px;
+            height: 83px;
             width: auto;
             display: block;
         }
@@ -231,7 +231,7 @@ SWAGGER_HTML = """
 </head>
 <body>
     <div class="ttpos-header">
-        <img src="/static/logottpos.svg" alt="trestresPOS">
+        <img src="/static/logo-light.svg" alt="Crumb">
         <span class="version">API v0.2.0</span>
         <span class="ambiente">Multi-Tenant</span>
     </div>
@@ -257,7 +257,7 @@ SWAGGER_HTML = """
 
 @app.get("/docs", include_in_schema=False)
 async def custom_docs():
-    """Swagger UI con branding trestresPOS."""
+    """Swagger UI con branding Crumb."""
     return HTMLResponse(SWAGGER_HTML)
 
 
@@ -316,7 +316,7 @@ async def admin_cliente_nuevo_page():
 @app.get("/")
 def root():
     return {
-        "app": "trestresPOS API",
+        "app": "Crumb API",
         "version": "0.2.0",
         "docs": "/docs",
         "admin": "/admin/login",
