@@ -3,59 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Usuarios · trestresPOS</title>
+  <title>Usuarios · Crumb</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
   <style>
-    main { padding: 40px 24px 80px; max-width: 900px; margin: 0 auto; }
+    .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; }
 
-    /* ── Topnav ────────────────────────────────────────────────── */
-    nav.topnav {
-      background: var(--color-text);
-      padding: 0 24px;
-      height: 52px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    nav.topnav img { height: 24px; }
-    nav.topnav .right { display: flex; align-items: center; gap: 12px; }
-    nav.topnav span { color: #fff; font-size: var(--text-caption); opacity: 0.85; }
-
-    /* ── Breadcrumb ────────────────────────────────────────────── */
-    .breadcrumb {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--color-text-secondary);
-      font-size: var(--text-caption);
-      text-decoration: none;
-      margin-bottom: 18px;
-      transition: color 150ms var(--ease);
-    }
-    .breadcrumb:hover { color: var(--color-accent); }
-    .breadcrumb svg { width: 14px; height: 14px; }
-
-    /* ── Page header ────────────────────────────────────────────── */
-    .page-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 24px;
-      margin-bottom: 16px;
-    }
-    .page-header h1 {
-      font-size: var(--text-title);
-      font-weight: 600;
-      letter-spacing: -0.025em;
-      line-height: 1.1;
-      color: var(--color-text);
-      margin-bottom: 6px;
-    }
-    .page-header .subtitle { color: var(--color-text-secondary); font-size: var(--text-body); }
-
-    /* ── Filtro activos / inactivos ─────────────────────────────── */
+    main { padding: 40px 24px 80px; max-width: 900px; margin: 0 auto; }    /* ── Filtro activos / inactivos ─────────────────────────────── */
     .filter-row {
       display: flex;
       align-items: center;
@@ -78,35 +33,7 @@
       background: var(--color-text);
       color: #fff;
       border-color: var(--color-text);
-    }
-
-    /* ── Banner de feedback ─────────────────────────────────────── */
-    .banner {
-      padding: 10px 14px;
-      border-radius: var(--radius-sm);
-      font-size: var(--text-caption);
-      display: none;
-      margin-bottom: 20px;
-    }
-    .banner.visible { display: block; }
-    .banner.success {
-      background: var(--color-etapa-produccion-bg);
-      color: var(--color-etapa-produccion-fg);
-    }
-    .banner.error {
-      background: var(--color-etapa-pendiente-bg);
-      color: var(--color-etapa-pendiente-fg);
-    }
-
-    /* ── Badges de rol ──────────────────────────────────────────── */
-    .badge {
-      display: inline-block;
-      font-size: 11px;
-      font-weight: 600;
-      padding: 2px 9px;
-      border-radius: var(--radius-pill);
-    }
-    .badge-dark   { background: #1d1d1f; color: #fff; }
+    }    .badge-dark   { background: #1d1d1f; color: #fff; }
     .badge-blue   { background: var(--color-etapa-proceso-bg); color: var(--color-etapa-proceso-fg); }
     .badge-orange { background: #fff3e6; color: #b35a00; }
     .badge-gray   { background: var(--color-bg-alt, #f5f5f7); color: var(--color-text-secondary); }
@@ -183,94 +110,12 @@
     .btn-primary:hover:not(:disabled) { background: var(--color-accent-hover); }
     .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-secondary { background: var(--color-bg); color: var(--color-accent); border-color: var(--color-accent); }
-    .btn-secondary:hover { background: rgba(0, 113, 227, 0.08); }
-    .btn-danger    { background: var(--color-bg); color: var(--color-error, #bf4800); border-color: var(--color-border); }
-    .btn-danger:hover { background: rgba(191, 72, 0, 0.06); }
-
-    /* ── Estado vacío ────────────────────────────────────────────── */
+    .btn-secondary:hover { background: rgba(0, 113, 227, 0.08); }    /* ── Estado vacío ────────────────────────────────────────────── */
     .empty-state {
       text-align: center;
       padding: 60px 24px;
       color: var(--color-text-secondary);
     }
-    .empty-state p { font-size: var(--text-body); margin-top: 8px; }
-
-    /* ── Modal ───────────────────────────────────────────────────── */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.45);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 20px;
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-    }
-    .modal-backdrop.visible { display: flex; }
-    .modal-card {
-      background: var(--color-bg);
-      border-radius: var(--radius-lg);
-      padding: 32px 32px 28px;
-      width: 100%;
-      max-width: 500px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
-      max-height: 90vh;
-      overflow-y: auto;
-    }
-    .modal-title {
-      font-size: var(--text-heading);
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      color: var(--color-text);
-      margin-bottom: 4px;
-    }
-    .modal-subtitle {
-      color: var(--color-text-secondary);
-      font-size: var(--text-caption);
-      margin-bottom: 24px;
-    }
-    .form-row { margin-bottom: 14px; }
-    .form-row:last-of-type { margin-bottom: 0; }
-    .form-label {
-      display: block;
-      font-size: var(--text-caption);
-      color: var(--color-text-secondary);
-      font-weight: 500;
-      margin-bottom: 5px;
-    }
-    .form-input, .form-select {
-      width: 100%;
-      font: inherit;
-      font-size: var(--text-body);
-      color: var(--color-text);
-      padding: 10px 12px;
-      background: var(--color-bg);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-sm);
-      outline: none;
-      transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease);
-      box-sizing: border-box;
-    }
-    .form-input:focus, .form-select:focus {
-      border-color: var(--color-accent);
-      box-shadow: 0 0 0 3px var(--color-focus-ring);
-    }
-    .form-input.error, .form-select.error { border-color: var(--color-error, #bf4800); }
-    .form-error {
-      font-size: var(--text-small);
-      color: var(--color-error, #bf4800);
-      margin-top: 4px;
-      display: none;
-    }
-    .form-error.visible { display: block; }
-    .form-hint {
-      font-size: var(--text-small);
-      color: var(--color-text-tertiary, #aeaeb2);
-      margin-top: 4px;
-    }
-
     /* Checkbox group para sucursales */
     .checkbox-group {
       display: flex;
@@ -292,32 +137,11 @@
     }
     .checkbox-item input[type=checkbox] { cursor: pointer; }
 
-    .modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 24px;
-    }
-
-    /* Línea divisoria entre secciones del modal */
-    .modal-divider {
-      border: none;
-      border-top: 1px solid var(--color-border-light);
-      margin: 18px 0;
-    }
-    .modal-section-label {
-      font-size: var(--text-small);
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--color-text-secondary);
-      margin-bottom: 12px;
-    }
   </style>
 </head>
 <body>
-  <nav class="topnav">
-    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+  <nav class="topnav topnav-dark">
+    <img src="/static/logo-light.svg" alt="Crumb">
     <div class="right">
       <span id="nav-razon">—</span>
     </div>

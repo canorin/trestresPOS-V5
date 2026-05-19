@@ -3,73 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Facturas recibidas · trestresPOS</title>
+  <title>Facturas recibidas · Crumb</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
   <style>
-    main { padding: 36px 24px 80px; max-width: 1140px; margin: 0 auto; }
-
-    nav.topnav {
-      background: var(--color-text); padding: 0 24px; height: 52px;
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    nav.topnav img { height: 24px; }
-    nav.topnav .right { display: flex; align-items: center; gap: 12px; }
-    nav.topnav span { color: #fff; font-size: var(--text-caption); opacity: .85; }
-
-    .breadcrumb {
-      display: inline-flex; align-items: center; gap: 6px;
-      color: var(--color-text-secondary); font-size: var(--text-caption);
-      text-decoration: none; margin-bottom: 18px;
-      transition: color 150ms var(--ease);
-    }
-    .breadcrumb:hover { color: var(--color-accent); }
-    .breadcrumb svg { width: 14px; height: 14px; }
-
-    .page-header { margin-bottom: 24px; }
-    .page-header h1 {
-      font-size: var(--text-title); font-weight: 600;
-      letter-spacing: -.025em; color: var(--color-text); margin-bottom: 4px;
-    }
-    .page-header p { color: var(--color-text-secondary); font-size: var(--text-body); }
-
-    /* Filtros */
-    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; align-items: center; }
-    .filter-select, .filter-input {
-      padding: 7px 11px; border: 1px solid var(--color-border);
-      border-radius: var(--radius-md); font-size: var(--text-caption);
-      color: var(--color-text); background: var(--color-bg); height: 34px;
-    }
-    .filter-select:focus, .filter-input:focus {
-      outline: none; border-color: var(--color-accent);
-      box-shadow: 0 0 0 3px var(--color-focus-ring);
-    }
-
-    /* Tabla */
-    .table-wrap {
-      background: var(--color-bg);
-      border: 1px solid var(--color-border-light);
-      border-radius: var(--radius-lg); overflow: hidden;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: var(--text-caption); }
-    thead th {
-      background: var(--color-bg-alt); padding: 10px 14px; text-align: left;
-      font-weight: 500; color: var(--color-text-secondary);
-      border-bottom: 1px solid var(--color-border-light); white-space: nowrap;
-    }
-    tbody td { padding: 11px 14px; border-bottom: 1px solid var(--color-border-light); color: var(--color-text); }
-    tbody tr:last-child td { border-bottom: none; }
-    tbody tr:hover { background: var(--color-bg-alt); }
-    .td-right { text-align: right; font-variant-numeric: tabular-nums; }
-
-    /* Badges */
-    .badge {
-      display: inline-flex; align-items: center;
-      padding: 2px 8px; border-radius: var(--radius-pill);
-      font-size: 11px; font-weight: 500; white-space: nowrap;
-    }
-    .b-pendiente     { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
+    main { padding: 36px 24px 80px; max-width: 1140px; margin: 0 auto; }.b-pendiente     { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
     .b-acuse         { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
     .b-aceptado      { background: var(--color-etapa-produccion-bg); color: var(--color-etapa-produccion-fg); }
     .b-reclamado     { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
@@ -109,19 +48,7 @@
       text-align: center; padding: 56px 24px;
       color: var(--color-text-secondary);
     }
-    .placeholder-row svg { margin: 0 auto 12px; display: block; opacity: .3; }
-
-    /* Banner */
-    .banner {
-      display: none; padding: 12px 16px;
-      border-radius: var(--radius-md); font-size: var(--text-caption); margin-bottom: 16px;
-    }
-    .banner.visible { display: block; }
-    .banner.error   { background: var(--color-etapa-pendiente-bg); color: var(--color-etapa-pendiente-fg); }
-    .banner.success { background: var(--color-etapa-produccion-bg); color: var(--color-etapa-produccion-fg); }
-    .banner.info    { background: var(--color-etapa-proceso-bg);   color: var(--color-etapa-proceso-fg); }
-
-    /* Modal */
+    .placeholder-row svg { margin: 0 auto 12px; display: block; opacity: .3; }    /* Modal */
     .modal-overlay {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,.45); z-index: 200;
@@ -150,8 +77,8 @@
   </style>
 </head>
 <body>
-  <nav class="topnav">
-    <img src="/static/logottpos.svg" alt="trestresPOS">
+  <nav class="topnav topnav-dark">
+    <img src="/static/logo-light.svg" alt="Crumb">
     <div class="right">
       <span id="nav-razon">—</span>
       <a href="#" class="topnav-action" id="btn-logout">Salir</a>

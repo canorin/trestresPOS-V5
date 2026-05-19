@@ -3,23 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>trestresPOS · Clientes</title>
+  <title>Crumb · Clientes</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
   <style>
-    .page-header {
-      display: flex;
-      align-items: flex-end;
-      justify-content: space-between;
-      gap: 24px;
-    }
+    .page-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 32px; }
     .header-text { flex: 1; }
-    @media (max-width: 720px) {
-      .page-header { flex-direction: column; align-items: stretch; }
-    }
+    @media (max-width: 720px) {    }
 
-    /* Botones secundarios / destructivos en la tabla */
     .cell-actions-multi {
       display: flex;
       gap: 8px;
@@ -101,41 +93,7 @@
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
-    }
-
-    /* Modal */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.45);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 20px;
-    }
-    .modal-backdrop.visible { display: flex; }
-    .modal-card {
-      background: white;
-      border-radius: 14px;
-      max-width: 640px;
-      width: 100%;
-      max-height: 85vh;
-      overflow-y: auto;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.25);
-      padding: 28px 32px;
-    }
-    .modal-title {
-      font-size: 22px;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
-    .modal-subtitle {
-      font-size: 14px;
-      color: #666;
-      margin-bottom: 20px;
-    }
-    .modal-section {
+    }    .modal-section {
       padding: 14px 0;
       border-top: 1px solid #eee;
     }
@@ -144,7 +102,6 @@
       font-size: 13px;
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.5px;
       color: #888;
       margin-bottom: 10px;
     }
@@ -215,7 +172,7 @@
         <a href="/admin" class="topnav-back" aria-label="Volver a la consola">Consola</a>
         <span class="topnav-divider" aria-hidden="true"></span>
         <a href="/admin" class="topnav-brand">
-          <img src="/static/logottpos.svg" alt="trestresPOS">
+          <img src="/static/logo-blue.svg" alt="Crumb">
         </a>
       </div>
       <div class="topnav-spacer"></div>

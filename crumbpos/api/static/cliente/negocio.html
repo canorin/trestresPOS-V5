@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Información del negocio · trestresPOS</title>
+  <title>Información del negocio · Crumb</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
@@ -21,24 +21,9 @@
     empresa_rut, así que los fetches no necesitan X-Empresa-Rut explícito.
   -->
   <style>
-    main { padding: 40px 24px 80px; max-width: 780px; margin: 0 auto; }
-    .breadcrumb {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--color-text-secondary);
-      font-size: var(--text-caption);
-      text-decoration: none;
-      margin-bottom: 18px;
-      transition: color 150ms var(--ease);
-    }
-    .breadcrumb:hover { color: var(--color-accent); }
-    .breadcrumb svg { width: 14px; height: 14px; }
-
-    .page-title h1 {
+    main { padding: 40px 24px 80px; max-width: 780px; margin: 0 auto; }    .page-title h1 {
       font-size: var(--text-title);
       font-weight: 600;
-      letter-spacing: -0.025em;
       line-height: 1.1;
       color: var(--color-text);
       margin-bottom: 6px;
@@ -59,7 +44,6 @@
     section.card h2 {
       font-size: var(--text-subheading);
       font-weight: 600;
-      letter-spacing: -0.015em;
       color: var(--color-text);
       margin-bottom: 4px;
     }
@@ -134,14 +118,7 @@
     }
 
     /* ── Form fields (compartido con Identidad y Dirección) ───── */
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 16px;
-    }
-    .form-grid .full { grid-column: 1 / -1; }
     @media (max-width: 560px) {
-      .form-grid { grid-template-columns: 1fr; }
     }
     label.field {
       display: flex;
@@ -203,39 +180,10 @@
     }
     .btn-secondary:hover {
       border-color: var(--color-text-secondary);
-    }
-    .btn-danger {
-      background: var(--color-bg);
-      color: var(--color-error);
-      border-color: var(--color-border);
-    }
-    .btn-danger:hover {
-      background: rgba(191, 72, 0, 0.06);
-    }
-    .btn:disabled {
+    }.btn:disabled {
       opacity: 0.5;
       cursor: not-allowed;
-    }
-
-    /* ── Banners de feedback ──────────────────────────────────── */
-    .banner {
-      margin-top: 14px;
-      padding: 10px 14px;
-      border-radius: var(--radius-sm);
-      font-size: var(--text-caption);
-      display: none;
-    }
-    .banner.visible { display: block; }
-    .banner.success {
-      background: var(--color-etapa-produccion-bg);
-      color: var(--color-etapa-produccion-fg);
-    }
-    .banner.error {
-      background: var(--color-etapa-pendiente-bg);
-      color: var(--color-etapa-pendiente-fg);
-    }
-
-    /* ── SII readonly section ─────────────────────────────────── */
+    }    /* ── SII readonly section ─────────────────────────────────── */
     dl.sii {
       display: grid;
       grid-template-columns: max-content 1fr;
@@ -249,33 +197,11 @@
     dl.sii dd {
       color: var(--color-text);
       font-variant-numeric: tabular-nums;
-    }
-
-    /* ── Topnav (shared con dashboard) ────────────────────────── */
-    nav.topnav {
-      background: var(--color-text);
-      padding: 0 24px;
-      height: 52px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    nav.topnav img { height: 24px; }
-    nav.topnav .right {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    nav.topnav span {
-      color: #fff;
-      font-size: var(--text-caption);
-      opacity: 0.85;
-    }
-  </style>
+    }</style>
 </head>
 <body>
-  <nav class="topnav">
-    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+  <nav class="topnav topnav-dark">
+    <img src="/static/logo-light.svg" alt="Crumb">
     <div class="right">
       <span id="nav-razon">—</span>
     </div>

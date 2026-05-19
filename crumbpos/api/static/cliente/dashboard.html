@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>trestresPOS · Consola del cliente</title>
+  <title>Crumb · Consola del cliente</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
@@ -28,7 +28,6 @@
     .header-titles h1 {
       font-size: var(--text-title);
       font-weight: 600;
-      letter-spacing: -0.025em;
       line-height: 1.1;
       color: var(--color-text);
       margin-bottom: 6px;
@@ -102,7 +101,6 @@
     .module-title {
       font-size: var(--text-subheading);
       font-weight: 600;
-      letter-spacing: -0.015em;
       margin-bottom: 6px;
       color: var(--color-text);
     }
@@ -118,7 +116,6 @@
       font-size: var(--text-small);
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
       color: var(--color-text-tertiary);
       background: var(--color-bg-alt);
       padding: 3px 10px;
@@ -138,51 +135,19 @@
     .empresa-bar .razon {
       font-size: var(--text-body-lg);
       font-weight: 600;
-      letter-spacing: -0.015em;
     }
     .empresa-bar .meta {
       font-size: var(--text-caption);
       color: var(--color-text-secondary);
       font-variant-numeric: tabular-nums;
-    }
-    .ambiente-badge {
-      font-size: var(--text-small);
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      padding: 3px 10px;
-      border-radius: var(--radius-pill);
-    }
-    .ambiente-cert {
+    }    .ambiente-cert {
       background: var(--color-etapa-proceso-bg);
       color: var(--color-etapa-proceso-fg);
     }
     .ambiente-prod {
       background: var(--color-etapa-produccion-bg);
       color: var(--color-etapa-produccion-fg);
-    }
-    nav.topnav {
-      background: var(--color-text);
-      padding: 0 24px;
-      height: 52px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    nav.topnav img { height: 24px; }
-    nav.topnav .right {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    nav.topnav a,
-    nav.topnav span {
-      color: #fff;
-      font-size: var(--text-caption);
-      text-decoration: none;
-      opacity: 0.85;
-    }
-
+    }nav.topnav a,
     /* ── Chip actions ────────────────────────────────────────────── */
     .chip-btn {
       background: none;
@@ -203,45 +168,7 @@
       border-left: 0;
       margin-left: 0;
       padding-left: 6px;
-    }
-
-    /* ── Modal (apple-style) ─────────────────────────────────────── */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.45);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 20px;
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-    }
-    .modal-backdrop.visible { display: flex; }
-    .modal-card {
-      background: var(--color-bg);
-      border-radius: var(--radius-lg);
-      padding: 32px 32px 28px;
-      width: 100%;
-      max-width: 480px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
-      max-height: 90vh;
-      overflow-y: auto;
-    }
-    .modal-title {
-      font-size: var(--text-heading);
-      font-weight: 600;
-      letter-spacing: -0.02em;
-      color: var(--color-text);
-      margin-bottom: 4px;
-    }
-    .modal-subtitle {
-      color: var(--color-text-secondary);
-      font-size: var(--text-caption);
-      margin-bottom: 24px;
-    }
-    .modal-section {
+    }    .modal-section {
       border-top: 1px solid var(--color-border-light);
       padding-top: 20px;
       margin-top: 20px;
@@ -252,7 +179,6 @@
       font-weight: 600;
       color: var(--color-text-secondary);
       text-transform: uppercase;
-      letter-spacing: 0.04em;
       margin-bottom: 14px;
     }
 
@@ -274,45 +200,7 @@
     }
 
     /* Form de password */
-    .form-row { margin-bottom: 14px; }
-    .form-row:last-of-type { margin-bottom: 0; }
-    .form-label {
-      display: block;
-      font-size: var(--text-caption);
-      color: var(--color-text-secondary);
-      margin-bottom: 6px;
-    }
-    .form-input {
-      width: 100%;
-      padding: 10px 14px;
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-sm);
-      font: inherit;
-      font-size: var(--text-body);
-      color: var(--color-text);
-      background: var(--color-bg);
-      transition: border-color 150ms var(--ease),
-                  box-shadow 150ms var(--ease);
-    }
-    .form-input:focus {
-      outline: none;
-      border-color: var(--color-accent);
-      box-shadow: 0 0 0 3px var(--color-focus-ring);
-    }
-    .form-hint {
-      font-size: var(--text-small);
-      color: var(--color-text-tertiary);
-      margin-top: 4px;
-    }
-    .form-error {
-      font-size: var(--text-small);
-      color: var(--color-error);
-      margin-top: 4px;
-      display: none;
-    }
-    .form-error.visible { display: block; }
 
-    /* Banner de mensajes */
     .form-banner {
       padding: 10px 14px;
       border-radius: var(--radius-sm);
@@ -362,17 +250,11 @@
     }
     .btn-secondary:hover { background: rgba(0, 113, 227, 0.08); }
 
-    .modal-footer {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 24px;
-    }
   </style>
 </head>
 <body>
-  <nav class="topnav">
-    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+  <nav class="topnav topnav-dark">
+    <img src="/static/logo-light.svg" alt="Crumb">
     <div class="right">
       <span id="nav-razon">—</span>
     </div>
@@ -615,7 +497,7 @@
           document.getElementById('bar-razon').textContent = data.razon_social;
           document.getElementById('bar-rut').textContent = `RUT ${data.rut}`;
           document.getElementById('bar-giro').textContent = data.giro || '—';
-          document.title = `${data.razon_social} · trestresPOS`;
+          document.title = `${data.razon_social} · Crumb`;
         })
         .catch(() => {});
     }

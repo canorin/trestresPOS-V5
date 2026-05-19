@@ -2,8 +2,9 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
+    
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>trestresPOS · Agregar cliente</title>
+  <title>Crumb · Agregar cliente</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
@@ -43,10 +44,6 @@
       font-size: var(--text-caption);
       color: var(--color-text-secondary);
     }
-    /* Modal de credenciales — overlay post-creación.
-       Aparece una sola vez: cuando el super admin cierre el modal,
-       la password no se vuelve a mostrar nunca más (solo queda el hash
-       en la BD). Por eso obligamos a copiar antes de cerrar. */
     .overlay {
       position: fixed;
       inset: 0;
@@ -69,7 +66,6 @@
     .modal-cred h3 {
       font-size: var(--text-subheading);
       font-weight: 600;
-      letter-spacing: -0.018em;
       margin-bottom: 6px;
     }
     .modal-cred .lead {
@@ -91,7 +87,7 @@
     .cred-row .label {
       color: var(--color-text-tertiary);
       min-width: 70px;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
     }
     .cred-row .value {
       flex: 1;
@@ -105,7 +101,7 @@
       padding: 4px 10px;
       border-radius: var(--radius-sm);
       font: inherit;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
       cursor: pointer;
     }
     .cred-row .copy-btn:hover { border-color: var(--color-accent); }
@@ -133,7 +129,7 @@
         <a href="/admin/clientes" class="topnav-back" aria-label="Volver a Clientes">Clientes</a>
         <span class="topnav-divider" aria-hidden="true"></span>
         <a href="/admin" class="topnav-brand">
-          <img src="/static/logottpos.svg" alt="trestresPOS">
+          <img src="/static/logo-blue.svg" alt="Crumb">
         </a>
       </div>
       <div class="topnav-spacer"></div>

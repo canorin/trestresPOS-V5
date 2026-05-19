@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CAFs · trestresPOS</title>
+  <title>CAFs · Crumb</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
@@ -36,47 +36,9 @@
       POST /api/folios/set                         — ajustar próximo folio
   -->
   <style>
-    main { padding: 36px 24px 80px; max-width: 1080px; margin: 0 auto; }
-
-    /* ── Topnav (shared) ───────────────────────────────────── */
-    nav.topnav {
-      background: var(--color-text);
-      padding: 0 24px;
-      height: 52px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    nav.topnav img { height: 24px; }
-    nav.topnav .right {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    nav.topnav span {
-      color: #fff;
-      font-size: var(--text-caption);
-      opacity: 0.85;
-    }
-
-    /* ── Breadcrumb + page title ───────────────────────────── */
-    .breadcrumb {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--color-text-secondary);
-      font-size: var(--text-caption);
-      text-decoration: none;
-      margin-bottom: 18px;
-      transition: color 150ms var(--ease);
-    }
-    .breadcrumb:hover { color: var(--color-accent); }
-    .breadcrumb svg { width: 14px; height: 14px; }
-
-    .page-title h1 {
+    main { padding: 36px 24px 80px; max-width: 1080px; margin: 0 auto; }    .page-title h1 {
       font-size: var(--text-title);
       font-weight: 600;
-      letter-spacing: -0.025em;
       line-height: 1.1;
       color: var(--color-text);
       margin-bottom: 6px;
@@ -102,7 +64,6 @@
     .emisor-bar .razon {
       font-size: var(--text-body-lg);
       font-weight: 600;
-      letter-spacing: -0.015em;
       color: var(--color-text);
     }
     .emisor-bar .meta {
@@ -110,48 +71,7 @@
       font-size: var(--text-caption);
       color: var(--color-text-secondary);
       font-variant-numeric: tabular-nums;
-    }
-    .ambiente-badge {
-      display: inline-block;
-      font-size: var(--text-small);
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      padding: 3px 10px;
-      border-radius: var(--radius-pill);
-    }
-    .ambiente-badge.cert {
-      background: var(--color-etapa-proceso-bg);
-      color: var(--color-etapa-proceso-fg);
-    }
-    .ambiente-badge.prod {
-      background: var(--color-etapa-produccion-bg);
-      color: var(--color-etapa-produccion-fg);
-    }
-
-    /* ── Banner ─────────────────────────────────────────────── */
-    .banner {
-      padding: 10px 14px;
-      border-radius: var(--radius-sm);
-      font-size: var(--text-caption);
-      margin-bottom: 16px;
-      display: none;
-    }
-    .banner.visible { display: block; }
-    .banner.info {
-      background: var(--color-etapa-proceso-bg);
-      color: var(--color-etapa-proceso-fg);
-    }
-    .banner.success {
-      background: var(--color-etapa-produccion-bg);
-      color: var(--color-etapa-produccion-fg);
-    }
-    .banner.error {
-      background: var(--color-etapa-pendiente-bg);
-      color: var(--color-etapa-pendiente-fg);
-    }
-
-    /* ── Resumen (tres números grandes) ─────────────────────── */
+    }/* ── Resumen (tres números grandes) ─────────────────────── */
     .resumen {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -167,7 +87,6 @@
     .resumen .card .num {
       font-size: 30px;
       font-weight: 600;
-      letter-spacing: -0.02em;
       color: var(--color-text);
       font-variant-numeric: tabular-nums;
       line-height: 1.1;
@@ -238,7 +157,6 @@
       margin: 0 0 14px;
       font-size: var(--text-subheading);
       font-weight: 600;
-      letter-spacing: -0.015em;
       color: var(--color-text);
       display: flex;
       align-items: center;
@@ -335,7 +253,6 @@
     .tipo-head .title-line {
       font-size: var(--text-body-lg);
       font-weight: 600;
-      letter-spacing: -0.015em;
       color: var(--color-text);
     }
     .tipo-head .sub-line {
@@ -352,14 +269,12 @@
       font-size: var(--text-heading);
       font-weight: 600;
       color: var(--color-text);
-      letter-spacing: -0.015em;
       line-height: 1.1;
     }
     .tipo-head .next-folio .lbl {
       font-size: var(--text-small);
       color: var(--color-text-tertiary);
       text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
     .alerta-badge {
@@ -367,7 +282,6 @@
       font-size: var(--text-small);
       font-weight: 600;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
       padding: 2px 9px;
       border-radius: var(--radius-pill);
       margin-left: 8px;
@@ -393,7 +307,6 @@
     .progress > .bar.warn { background: var(--color-etapa-pendiente-fg); }
     .progress > .bar.bad  { background: #d32f2f; }
 
-    /* Tabla de rangos por CAF */
     .rangos {
       margin-top: 16px;
       border-top: 1px solid var(--color-border-light);
@@ -471,34 +384,9 @@
     .tramo-chip .rango {
       font-variant-numeric: tabular-nums;
       opacity: 0.85;
-    }
-
-    /* ── Modal ajustar folio ────────────────────────────────── */
-    .modal-backdrop {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.45);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 20px;
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-    }
-    .modal-backdrop.visible { display: flex; }
-    .modal-card {
-      background: var(--color-bg);
-      border-radius: var(--radius-lg);
-      padding: 28px 28px 22px;
-      width: 100%;
-      max-width: 440px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
-    }
-    .modal-card h3 {
+    }    .modal-card h3 {
       font-size: var(--text-subheading);
       font-weight: 600;
-      letter-spacing: -0.015em;
       margin-bottom: 6px;
     }
     .modal-card p {
@@ -529,7 +417,6 @@
     }
     .modal-card-wide { max-width: 760px; }
 
-    /* ── Modal Configurar destinos ─────────────────────────── */
     .cfg-error {
       display: none;
       padding: 8px 12px;
@@ -540,14 +427,7 @@
       margin-bottom: 12px;
     }
     .cfg-error.visible { display: block; }
-    .tramos-table {
-      margin-top: 4px;
-      margin-bottom: 12px;
-      border: 1px solid var(--color-border-light);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-    }
-    .tramos-table-head {
+    .tramos-    .tramos-table-head {
       display: grid;
       grid-template-columns: 2fr 1fr 1fr 1.1fr 36px;
       gap: 8px;
@@ -556,7 +436,6 @@
       color: var(--color-text-secondary);
       font-weight: 500;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
       background: var(--color-bg-alt);
       border-bottom: 1px solid var(--color-border-light);
     }
@@ -627,17 +506,11 @@
       color: var(--color-text-secondary);
       background: var(--color-bg-alt);
       border-radius: var(--radius-md);
-    }
-    .empty-state h3 {
-      font-size: var(--text-subheading);
-      color: var(--color-text);
-      margin-bottom: 8px;
-    }
-  </style>
+    }  </style>
 </head>
 <body>
-  <nav class="topnav">
-    <img src="/static/logottpos.svg" alt="trestresPOS" style="filter: brightness(0) invert(1)">
+  <nav class="topnav topnav-dark">
+    <img src="/static/logo-light.svg" alt="Crumb">
     <div class="right">
       <span id="nav-razon">—</span>
     </div>

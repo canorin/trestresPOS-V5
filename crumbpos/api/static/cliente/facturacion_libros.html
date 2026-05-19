@@ -3,65 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Libros y RCOF · trestresPOS</title>
+  <title>Libros y RCOF · Crumb</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link rel="apple-touch-icon" href="/static/favicon.png">
   <link rel="stylesheet" href="/static/admin/theme.css">
   <style>
-    main { padding: 36px 24px 80px; max-width: 1000px; margin: 0 auto; }
-
-    nav.topnav {
-      background: var(--color-text); padding: 0 24px; height: 52px;
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    nav.topnav img { height: 24px; }
-    nav.topnav .right { display: flex; align-items: center; gap: 12px; }
-    nav.topnav span { color: #fff; font-size: var(--text-caption); opacity: .85; }
-
-    .breadcrumb {
-      display: inline-flex; align-items: center; gap: 6px;
-      color: var(--color-text-secondary); font-size: var(--text-caption);
-      text-decoration: none; margin-bottom: 18px; transition: color 150ms var(--ease);
-    }
-    .breadcrumb:hover { color: var(--color-accent); }
-    .breadcrumb svg { width: 14px; height: 14px; }
-
-    .page-header { margin-bottom: 32px; }
-    .page-header h1 {
-      font-size: var(--text-title); font-weight: 600;
-      letter-spacing: -.025em; color: var(--color-text); margin-bottom: 4px;
-    }
-    .page-header p { color: var(--color-text-secondary); font-size: var(--text-body); }
-
-    /* Secciones */
+    main { padding: 36px 24px 80px; max-width: 1000px; margin: 0 auto; }    /* Secciones */
     .section-title {
       font-size: var(--text-heading); font-weight: 600; color: var(--color-text);
       margin: 36px 0 14px; display: flex; align-items: center; gap: 10px;
     }
-    .section-title:first-of-type { margin-top: 0; }
-
-    /* Tabla */
-    .table-wrap {
-      background: var(--color-bg); border: 1px solid var(--color-border-light);
-      border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 12px;
-    }
-    table { width: 100%; border-collapse: collapse; font-size: var(--text-caption); }
-    thead th {
-      background: var(--color-bg-alt); padding: 10px 14px; text-align: left;
-      font-weight: 500; color: var(--color-text-secondary);
-      border-bottom: 1px solid var(--color-border-light); white-space: nowrap;
-    }
-    tbody td { padding: 11px 14px; border-bottom: 1px solid var(--color-border-light); color: var(--color-text); }
-    tbody tr:last-child td { border-bottom: none; }
-    tbody tr:hover { background: var(--color-bg-alt); }
-
-    /* Badges */
-    .badge {
-      display: inline-flex; align-items: center;
-      padding: 2px 8px; border-radius: var(--radius-pill);
-      font-size: 11px; font-weight: 500; white-space: nowrap;
-    }
-    .b-pendiente  { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
+    .section-title:first-of-type { margin-top: 0; }.b-pendiente  { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
     .b-enviado    { background: var(--color-etapa-proceso-bg);    color: var(--color-etapa-proceso-fg); }
     .b-aceptado   { background: var(--color-etapa-produccion-bg); color: var(--color-etapa-produccion-fg); }
     .b-rechazado  { background: var(--color-etapa-pendiente-bg);  color: var(--color-etapa-pendiente-fg); }
@@ -78,21 +30,11 @@
     .placeholder-row td {
       text-align: center; padding: 40px 24px;
       color: var(--color-text-secondary);
-    }
-
-    /* Banner */
-    .banner {
-      display: none; padding: 12px 16px; border-radius: var(--radius-md);
-      font-size: var(--text-caption); margin-bottom: 16px;
-    }
-    .banner.visible { display: block; }
-    .banner.error { background: var(--color-etapa-pendiente-bg); color: var(--color-etapa-pendiente-fg); }
-    .banner.info  { background: var(--color-etapa-proceso-bg);   color: var(--color-etapa-proceso-fg); }
-  </style>
+    }</style>
 </head>
 <body>
-  <nav class="topnav">
-    <img src="/static/logottpos.svg" alt="trestresPOS">
+  <nav class="topnav topnav-dark">
+    <img src="/static/logo-light.svg" alt="Crumb">
     <div class="right">
       <span id="nav-razon">—</span>
       <a href="#" class="topnav-action" id="btn-logout">Salir</a>
