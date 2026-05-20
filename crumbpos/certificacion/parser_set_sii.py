@@ -20,15 +20,21 @@ from pathlib import Path
 # ── Tipos DTE soportados por el set de pruebas ────────────────────────
 TIPO_FACTURA = 33
 TIPO_FACTURA_EXENTA = 34
+TIPO_BOLETA = 39
+TIPO_BOLETA_EXENTA = 41
 TIPO_GUIA = 52
 TIPO_NOTA_DEBITO = 56
 TIPO_NOTA_CREDITO = 61
 
 # Mapeo del texto "DOCUMENTO" del set → tipo SII
+# Orden: más específico primero para evitar match parcial.
 _DOC_TIPO_MAP: list[tuple[str, int]] = [
     ("FACTURA NO AFECTA O EXENTA ELECTRONICA", TIPO_FACTURA_EXENTA),
     ("FACTURA EXENTA ELECTRONICA", TIPO_FACTURA_EXENTA),
     ("FACTURA ELECTRONICA", TIPO_FACTURA),
+    ("BOLETA NO AFECTA O EXENTA ELECTRONICA", TIPO_BOLETA_EXENTA),
+    ("BOLETA EXENTA ELECTRONICA", TIPO_BOLETA_EXENTA),
+    ("BOLETA ELECTRONICA", TIPO_BOLETA),
     ("GUIA DE DESPACHO ELECTRONICA", TIPO_GUIA),
     ("GUIA DE DESPACHO", TIPO_GUIA),
     ("NOTA DE DEBITO ELECTRONICA", TIPO_NOTA_DEBITO),
@@ -61,15 +67,20 @@ _TIPO_DOC_LIBRO_COMPRAS: dict[str, int] = {
 SET_BASICO = "BASICO"
 SET_GUIAS = "GUIAS"
 SET_EXENTA = "EXENTA"
+SET_BOLETAS = "BOLETAS"
 SET_LIBRO_VENTAS = "LIBRO_VENTAS"
 SET_LIBRO_COMPRAS = "LIBRO_COMPRAS"
 SET_LIBRO_GUIAS = "LIBRO_GUIAS"
 
-# Identificación de cada set por la línea de header
+# Identificación de cada set por la línea de header.
+# El set de boletas se entrega en un archivo .txt separado del set regular.
+# El SII usa encabezados como "SET BOLETA ELECTRONICA - NUMERO DE ATENCION: N"
+# o variantes. El patrón es flexible: cualquier "SET BOLETA*".
 _SET_HEADER_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^SET\s+BASICO\b", re.I), SET_BASICO),
     (re.compile(r"^SET\s+GUIA\s+DE\s+DESPACHO\b", re.I), SET_GUIAS),
     (re.compile(r"^SET\s+FACTURA\s+EXENTA\b", re.I), SET_EXENTA),
+    (re.compile(r"^SET\s+BOLETA", re.I), SET_BOLETAS),
     (re.compile(r"^SET\s+LIBRO\s+DE\s+VENTAS\b", re.I), SET_LIBRO_VENTAS),
     (re.compile(r"^SET\s+LIBRO\s+DE\s+COMPRAS\b", re.I), SET_LIBRO_COMPRAS),
     (re.compile(r"^SET\s+LIBRO\s+DE\s+GUIAS\b", re.I), SET_LIBRO_GUIAS),
@@ -140,7 +151,7 @@ class SetParseado:
     def todos_los_casos(self) -> list[CasoSet]:
         """Devuelve todos los casos de todos los sets, en orden."""
         out: list[CasoSet] = []
-        for nombre in (SET_BASICO, SET_EXENTA, SET_GUIAS):
+        for nombre in (SET_BASICO, SET_EXENTA, SET_GUIAS, SET_BOLETAS):
             out.extend(self.sets.get(nombre, []))
         return out
 

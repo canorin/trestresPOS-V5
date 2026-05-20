@@ -57,7 +57,7 @@ class EmisorConfig:
     sucursal_direccion: str | None = None
     sucursal_comuna: str | None = None
     sucursal_ciudad: str | None = None
-    sucursal_sii: str | None = None  # Código sucursal SII
+    sucursal_sii: int | None = None  # Código numérico SII de la sucursal (CdgSIISucur)
 
 
 @dataclass

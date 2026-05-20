@@ -357,6 +357,7 @@ def _escribir_empresa_info(
                         "comuna": s.comuna,
                         "ciudad": s.ciudad,
                         "sii_sucursal": s.sii_sucursal,
+                        "cdg_sii_sucursal": s.cdg_sii_sucursal,
                         "activa": s.activa,
                     }
                     for s in sucursales

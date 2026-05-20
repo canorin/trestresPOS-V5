@@ -24,6 +24,8 @@ class SucursalCreate(BaseModel):
     comuna: str
     ciudad: str
     sii_sucursal: str = "SANTIAGO ORIENTE"
+    # Código numérico asignado por el SII a la sucursal (va en <CdgSIISucur> del DTE).
+    cdg_sii_sucursal: Optional[int] = None
 
 
 class SucursalUpdate(BaseModel):
@@ -33,6 +35,7 @@ class SucursalUpdate(BaseModel):
     comuna: Optional[str] = None
     ciudad: Optional[str] = None
     sii_sucursal: Optional[str] = None
+    cdg_sii_sucursal: Optional[int] = None
     activa: Optional[bool] = None
 
 
@@ -45,6 +48,7 @@ class SucursalOut(BaseModel):
     comuna: str
     ciudad: str
     sii_sucursal: str
+    cdg_sii_sucursal: Optional[int] = None
     activa: bool
     created_at: datetime
 

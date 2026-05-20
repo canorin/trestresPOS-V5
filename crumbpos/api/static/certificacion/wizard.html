@@ -174,10 +174,10 @@
         <div class="form-card locked" data-locked>
           <h2 class="form-card-title">Folios CAF</h2>
           <p class="form-card-desc">
-            Archivos XML de los CAFs autorizados para los tipos T33, T34, T52, T56 y T61.
-            Pueden seleccionarse varios a la vez. Si algunos folios del CAF
-            ya fueron consumidos fuera del sistema, puedes indicar el folio
-            inicial real por archivo.
+            Archivos XML de los CAFs autorizados por el SII. Tipos soportados:
+            T33, T34, T39, T41, T52, T56 y T61. Puedes seleccionar varios a la vez.
+            Si algunos folios del CAF ya fueron consumidos fuera del sistema,
+            puedes indicar el folio inicial real por archivo.
           </p>
           <div class="form-grid">
             <div class="field full">
@@ -1759,12 +1759,12 @@
         .map(set => renderGrupoSet(set, grupos[set]))
         .join('');
 
-      // Botón de inicialización del set de boletas — aparece cuando la empresa
-      // tiene sets regulares pero aún no inicializó el set de boletas.
+      // Card de carga del set de boletas — aparece cuando la empresa
+      // tiene sets regulares pero aún no cargó el set de boletas.
       const tieneRegulares = ['BASICO', 'GUIAS', 'EXENTA'].some(s => grupos[s]?.length);
-      const tieneBoletasInit = Boolean(grupos['BOLETAS']?.length);
-      const boletasInitBlock = (tieneRegulares && !tieneBoletasInit)
-        ? renderBoletasInitCard()
+      const tieneBoletasCargadas = Boolean(grupos['BOLETAS']?.length);
+      const boletasInitBlock = (tieneRegulares && !tieneBoletasCargadas)
+        ? renderBoletasUploadCard()
         : '';
 
       const librosBlock = renderLibrosTasks();
@@ -2136,55 +2136,76 @@
     }
 
     // ──────────────────────────────────────────────────────────────
-    // Set de Boletas Electrónicas — card de inicialización
+    // Set de Boletas Electrónicas — card de carga de archivo
     // ──────────────────────────────────────────────────────────────
-    function renderBoletasInitCard() {
+    function renderBoletasUploadCard() {
       return `
-        <div class="set-group" style="margin-top:24px;" id="card-boletas-init">
+        <div class="set-group" style="margin-top:24px;" id="card-boletas-upload">
           <div class="set-group-header">
             <div>
               <div class="set-group-title">Set Boletas Electrónicas</div>
-              <div class="set-group-meta">5 casos T39 fijos — Set de Prueba BE</div>
+              <div class="set-group-meta">Archivo .txt del SII — igual que el set de facturas</div>
             </div>
           </div>
           <div style="padding:16px 20px;">
-            <p style="font-size:14px;color:var(--text-secondary,#6e6e73);margin:0 0 12px;">
-              El set de boletas electrónicas contiene 5 casos fijos definidos por el SII.
-              Requiere al menos 5 folios T39 disponibles (sube un CAF T39 antes de inicializar).
+            <p style="font-size:14px;color:var(--text-secondary,#6e6e73);margin:0 0 14px;">
+              El SII entrega el set de boletas en un archivo separado del set regular
+              (típicamente <code>SIISetDePruebasBE{RUT}.txt</code>). Sube ese archivo
+              para cargar los casos. Asegúrate de tener un CAF T39 cargado en la
+              sección de folios (Pantalla 1) antes de emitir.
             </p>
-            <button class="btn btn-secondary" id="btn-init-boletas"
-                    onclick="inicializarBoletas()">
-              Inicializar Set Boletas
-            </button>
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <input type="file" id="input-boletas-file" accept=".txt"
+                     style="font-size:13px;" />
+              <button class="btn btn-secondary" id="btn-cargar-boletas"
+                      onclick="cargarSetBoletas()">
+                Cargar Set Boletas
+              </button>
+            </div>
+            <div id="boletas-upload-preview" style="margin-top:10px;font-size:13px;color:var(--text-secondary,#6e6e73);"></div>
           </div>
         </div>
       `;
     }
 
-    async function inicializarBoletas() {
-      const btn = document.getElementById('btn-init-boletas');
-      if (btn) { btn.disabled = true; btn.textContent = 'Inicializando…'; }
+    async function cargarSetBoletas() {
+      const input = document.getElementById('input-boletas-file');
+      const btn   = document.getElementById('btn-cargar-boletas');
+      const preview = document.getElementById('boletas-upload-preview');
+
+      if (!input?.files?.length) {
+        if (preview) preview.textContent = 'Selecciona el archivo .txt del SII antes de continuar.';
+        return;
+      }
+
+      const file = input.files[0];
+      if (btn) { btn.disabled = true; btn.textContent = 'Cargando…'; }
+      if (preview) preview.textContent = '';
 
       try {
+        const formData = new FormData();
+        formData.append('file', file);
+
         const base = `/api/certificacion/boletas/${state.rut}/${state.runId}`;
-        const resp = await fetch(`${base}/inicializar`, {
+        const resp = await fetch(`${base}/cargar`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${state.authToken}` },
+          body: formData,
         });
         const data = await resp.json();
         if (!resp.ok) {
-          const msg = data?.detail?.mensaje || data?.detail || JSON.stringify(data);
-          showAlert('error', `Error inicializando set boletas: ${msg}`);
-          if (btn) { btn.disabled = false; btn.textContent = 'Inicializar Set Boletas'; }
+          const msg = data?.detail || JSON.stringify(data);
+          showAlert('error', `Error al cargar set de boletas: ${msg}`);
+          if (btn) { btn.disabled = false; btn.textContent = 'Cargar Set Boletas'; }
           return;
         }
         showAlert('ok',
-          `Set Boletas inicializado: ${data.casos?.length ?? 5} casos T39 creados.`,
+          `Set Boletas cargado: ${data.total_casos} casos · N° atención ${data.numero_atencion}.`,
         );
         await refrescarRun();
       } catch (e) {
         showAlert('error', `Error de red: ${e.message}`);
-        if (btn) { btn.disabled = false; btn.textContent = 'Inicializar Set Boletas'; }
+        if (btn) { btn.disabled = false; btn.textContent = 'Cargar Set Boletas'; }
       }
     }
 

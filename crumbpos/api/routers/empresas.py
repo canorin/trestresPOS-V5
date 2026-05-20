@@ -55,6 +55,7 @@ class SucursalCreateIn(BaseModel):
     comuna: str
     ciudad: str
     sii_sucursal: str = "SANTIAGO ORIENTE"
+    cdg_sii_sucursal: int | None = None
 
 
 class EmpresaCreateIn(BaseModel):

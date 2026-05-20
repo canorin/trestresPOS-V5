@@ -101,7 +101,7 @@ def _get_servicio(tenant: TenantContext, sucursal_id: str | None = None) -> tupl
             suc_dir = sucursal.direccion
             suc_com = sucursal.comuna
             suc_ciu = sucursal.ciudad
-            suc_sii = sucursal.sii_sucursal
+            suc_sii = sucursal.cdg_sii_sucursal  # Código numérico SII (CdgSIISucur)
 
     config = EmisorConfig(
         rut=tenant.empresa_rut,

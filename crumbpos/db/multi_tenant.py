@@ -886,6 +886,18 @@ def _migrate_empresa_schema(engine):
                 conn.execute(text("ALTER TABLE dte_emitido ADD COLUMN timestamp_envio DATETIME"))
                 logger.info("Empresa migrate: dte_emitido.timestamp_envio agregada")
 
+        # ── sucursal: cdg_sii_sucursal (código numérico SII de sucursal) ──────
+        # Campo INTEGER nullable que va en <CdgSIISucur> del XML del DTE.
+        # Distinto de sii_sucursal (texto libre = Unidad Regional del SII).
+        suc_cols = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(sucursal)"))
+        }
+        if suc_cols and "cdg_sii_sucursal" not in suc_cols:
+            conn.execute(text(
+                "ALTER TABLE sucursal ADD COLUMN cdg_sii_sucursal INTEGER"
+            ))
+            logger.info("Empresa migrate: sucursal.cdg_sii_sucursal agregada")
+
         # ── B2: WORM — trigger que bloquea DELETE en dte_emitido < 6 años ──
         # La Resolución Exenta SII N°74 (2017) obliga a conservar los DTEs
         # electrónicos por 6 años desde su emisión. Este trigger es la
@@ -1171,7 +1183,8 @@ def provision_empresa(
     4. Crea sucursales adicionales si se proporcionan.
 
     Args:
-        sucursales: lista de dicts con {nombre, codigo, direccion, comuna, ciudad, sii_sucursal}
+        sucursales: lista de dicts con {nombre, codigo, direccion, comuna, ciudad,
+            sii_sucursal, cdg_sii_sucursal (int|None)}
         admin_rut_personal: RUT personal del master cliente (el dueño/representante
             legal). Se guarda en ``UsuarioAuth.rut_personal`` para la
             consola ``/{rut}/login``, y se copia a
@@ -1289,6 +1302,7 @@ def provision_empresa(
                         comuna=suc_data["comuna"],
                         ciudad=suc_data["ciudad"],
                         sii_sucursal=suc_data.get("sii_sucursal", "SANTIAGO ORIENTE"),
+                        cdg_sii_sucursal=suc_data.get("cdg_sii_sucursal"),
                     ))
 
             session.commit()

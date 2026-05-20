@@ -38,16 +38,11 @@ from crumbpos.certificacion.cleanup import limpiar_certificacion
 from crumbpos.certificacion.reiniciar import reiniciar_certificacion
 from crumbpos.certificacion.parser_set_sii import (
     SET_BASICO,
+    SET_BOLETAS,
     SET_EXENTA,
     SET_GUIAS,
     SetParseado,
     parse_set_sii_content,
-)
-from crumbpos.certificacion.simulacion.generador_boletas import (
-    SET_BOLETAS_NOMBRE,
-    FOLIOS_REQUERIDOS as BOLETAS_FOLIOS_REQUERIDOS,
-    TIPO_BOLETA_AFECTA,
-    armar_dtes_boletas,
 )
 from crumbpos.core.caf.caf_manager_db import CAFManagerDB, FoliosAgotadosError
 from crumbpos.db.models import (
@@ -1380,102 +1375,96 @@ SIMULACION_SET_NOMBRE = "SIMULACION"
 # (~4M) y hace evidente en la UI que es simulación.
 _NUM_ATENCION_BASE_SIMULACION = 80_000
 
-# ── Set de Boletas ──────────────────────────────────────────────────
-# numero_atencion ficticio para los 5 casos del set de boletas.
-# 90000+ para distinguirlos de los otros sets.
-_NUM_ATENCION_BOLETAS = 90_000
+@router.post("/boletas/{rut}/{run_id}/cargar")
+async def cargar_set_boletas(
+    rut: str,
+    run_id: str,
+    file: UploadFile = File(...),
+) -> dict:
+    """Carga el set de pruebas de boletas desde el archivo .txt del SII.
 
+    El SII entrega el set de boletas en un archivo separado del set regular
+    (típicamente ``SIISetDePruebasBE{RUT}.txt`` o nombre similar). Su formato
+    es idéntico al del set de facturas: bloques ``SET BOLETA ELECTRONICA``,
+    casos ``CASO NNNNNN-N`` con ``DOCUMENTO BOLETA ELECTRONICA``, ítems,
+    y número de atención.
 
-@router.post("/boletas/{rut}/{run_id}/inicializar")
-def inicializar_set_boletas(rut: str, run_id: str) -> dict:
-    """Crea (o re-crea) los 5 casos fijos del Set de Pruebas de Boleta Electrónica.
+    El parser detecta el header ``SET BOLETA*`` y devuelve los casos como
+    ``CasoSet`` con ``tipo_dte=39`` (o 41 para boleta exenta). Estos casos
+    se persisten en la BD de certificación igual que los de factura/guía.
 
-    El set de boletas no viene en el SIISetDePruebas{RUT}.txt — el SII
-    lo entrega por separado. Los 5 casos son fijos para todos los
-    postulantes (CASO-1 … CASO-5, todos T39) y se crean aquí a partir
-    del instructivo oficial.
-
-    Precondición: la BD de certificación debe tener al menos 5 folios T39
-    disponibles en el pool (subir un CAF T39 antes de llamar a este endpoint).
-
-    Si ya existen casos del set BOLETAS en la run, se eliminan y se crean
-    de nuevo (útil si se subió un nuevo CAF T39 con folios distintos).
+    Si ya existen casos BOLETAS en la run, se reemplazan con los del nuevo
+    archivo (útil si el SII entregó un set corregido).
 
     Returns:
-        dict con ``ok``, ``casos`` creados, ``folios_t39`` asignados.
+        dict con ``ok``, ``run_id``, ``casos`` y resumen del set parseado.
     """
+    if not file.filename:
+        raise HTTPException(400, "Archivo sin nombre")
+
     registro = get_empresa_registro(rut)
     if not registro:
         raise HTTPException(404, f"Empresa {rut} no encontrada")
 
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Archivo vacío")
+
+    content = _decodificar_set(raw)
+    parseado = parse_set_sii_content(content, rut_hint=rut)
+
+    casos_boletas = parseado.sets.get(SET_BOLETAS, [])
+    if not casos_boletas:
+        raise HTTPException(
+            422,
+            "El archivo no contiene un set de boletas electrónicas. "
+            "Verifica que sea el archivo correcto del SII (debe tener "
+            "un bloque 'SET BOLETA ELECTRONICA').",
+        )
+
     session = get_empresa_db_session(rut, "certificacion")
     try:
         run = _cargar_run_por_id(session, rut, run_id)
-        _, empresa = _get_servicio_for_certificacion(session, rut)
 
-        # Reservar folios T39 del pool (sin sucursal — certificación usa el pool)
-        mgr = CAFManagerDB(session, empresa.id)
-        try:
-            folios_t39 = [
-                mgr.siguiente_folio(TIPO_BOLETA_AFECTA, sucursal_id=None)
-                for _ in range(BOLETAS_FOLIOS_REQUERIDOS)
-            ]
-        except FoliosAgotadosError as e:
-            raise HTTPException(
-                409,
-                detail={
-                    "error": "folios_agotados",
-                    "tipo_dte": TIPO_BOLETA_AFECTA,
-                    "mensaje": (
-                        f"Se necesitan {BOLETAS_FOLIOS_REQUERIDOS} folios T39 para el set "
-                        f"de boletas pero no hay suficientes. Sube un CAF T39 primero. "
-                        f"({e})"
-                    ),
-                },
-            )
-
-        # Eliminar casos previos del set BOLETAS si existen
+        # Eliminar casos previos del set BOLETAS si existen (re-upload)
         session.query(CertificacionCaso).filter(
             CertificacionCaso.run_id == run.id,
-            CertificacionCaso.set_nombre == SET_BOLETAS_NOMBRE,
+            CertificacionCaso.set_nombre == SET_BOLETAS,
         ).delete()
 
-        # Armar los 5 casos con los folios asignados
-        dtes = armar_dtes_boletas(folios_t39)
+        # Persistir los casos parseados
         casos_creados = []
-        for dte in dtes:
-            caso = CertificacionCaso(
+        for caso in casos_boletas:
+            session.add(CertificacionCaso(
                 run_id=run.id,
-                set_nombre=SET_BOLETAS_NOMBRE,
-                numero_caso=dte["numero_caso"],
-                numero_atencion=_NUM_ATENCION_BOLETAS,
-                tipo_dte=dte["tipo_dte"],
-                datos=dte,
-                # Pre-asignar folio: el set de boletas tiene folios fijos desde el inicio
-                folio=dte["folio"],
-            )
-            session.add(caso)
+                set_nombre=SET_BOLETAS,
+                numero_caso=caso.numero_caso,
+                numero_atencion=caso.numero_atencion,
+                tipo_dte=caso.tipo_dte,
+                datos=asdict(caso),
+            ))
             casos_creados.append({
-                "numero_caso": dte["numero_caso"],
-                "tipo_dte": dte["tipo_dte"],
-                "folio": dte["folio"],
+                "numero_caso": caso.numero_caso,
+                "tipo_dte": caso.tipo_dte,
+                "numero_atencion": caso.numero_atencion,
             })
 
         session.commit()
         return {
             "ok": True,
             "run_id": run_id,
-            "set_nombre": SET_BOLETAS_NOMBRE,
+            "set_nombre": SET_BOLETAS,
+            "numero_atencion": casos_boletas[0].numero_atencion,
+            "total_casos": len(casos_boletas),
             "casos": casos_creados,
-            "folios_t39": folios_t39,
         }
     except HTTPException:
         session.rollback()
         raise
     except Exception as e:
         session.rollback()
-        logger.error("Error inicializando set boletas (rut=%s): %s", rut, e, exc_info=True)
-        raise HTTPException(500, f"Error inicializando set boletas: {e}")
+        logger.error("Error cargando set boletas (rut=%s): %s", rut, e, exc_info=True)
+        raise HTTPException(500, f"Error cargando set boletas: {e}")
     finally:
         session.close()
 
@@ -2290,14 +2279,10 @@ def _caso_a_factura_request(
     ):
         tipo_despacho_val = None
 
-    # Para boletas (T39/T41) el número de caso YA es "CASO-N" (ej: "CASO-1").
-    # El SII pide <RazonRef>CASO-1</RazonRef> — sin prefijo redundante.
-    # Para facturas/guías/NC/ND el número es "NNNNNNN-N" y el set lo
-    # identifica como "CASO NNNNNNN-N".
-    if caso.tipo_dte in (39, 41):
-        razon_caso_set = caso.numero_caso
-    else:
-        razon_caso_set = f"CASO {caso.numero_caso}"
+    # El número de caso del set SII siempre es "NNNNNNN-N" (ej: "4768464-1").
+    # La referencia en el DTE debe ser "CASO NNNNNNN-N" para todos los tipos,
+    # incluidas boletas T39/T41 parseadas desde el archivo del SII.
+    razon_caso_set = f"CASO {caso.numero_caso}"
 
     return FacturaRequest(
         tipo_dte=caso.tipo_dte,
@@ -2383,7 +2368,7 @@ def _poblar_casos_y_libros(
 def _serializar_parseado(parseado: SetParseado, filename: str | None = None) -> dict:
     """Convierte el resultado del parser a dict JSON-serializable."""
     resumen_sets: dict = {}
-    for nombre in (SET_BASICO, SET_GUIAS, SET_EXENTA):
+    for nombre in (SET_BASICO, SET_GUIAS, SET_EXENTA, SET_BOLETAS):
         casos = parseado.sets.get(nombre, [])
         if not casos:
             continue

@@ -73,6 +73,7 @@ class SucursalSync(BaseModel):
     comuna: str
     ciudad: str
     sii_sucursal: str
+    cdg_sii_sucursal: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

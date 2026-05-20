@@ -79,6 +79,10 @@ class Sucursal(Base):
     comuna: Mapped[str] = mapped_column(String(50), nullable=False)
     ciudad: Mapped[str] = mapped_column(String(50), nullable=False)
     sii_sucursal: Mapped[str] = mapped_column(String(50), default="SANTIAGO ORIENTE")
+    # Código numérico de sucursal asignado por el SII (CdgSIISucur en el XML del DTE).
+    # Obligatorio solo cuando la empresa tiene sucursales declaradas en el portal SII.
+    # Es distinto de sii_sucursal (que es la Unidad/Dirección Regional, campo alfa).
+    cdg_sii_sucursal: Mapped[int | None] = mapped_column(Integer, nullable=True)
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
