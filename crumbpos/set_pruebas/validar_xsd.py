@@ -1,10 +1,21 @@
-"""Valida XMLs firmados contra los XSD del SII."""
+"""Valida XMLs firmados contra los XSD del SII.
+
+Rutas configurables por variables de entorno (con fallback al repo):
+  · CRUMBPOS_SCHEMA_DIR → carpeta con los XSD del SII (default: schemas/).
+  · CRUMBPOS_OUTPUT_DIR → carpeta con los XML firmados (default: output/).
+"""
+import os
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
 from lxml import etree
 
-SCHEMA_DIR = Path("/Users/matiasbanados/Downloads/schema_dte")
-OUTPUT_DIR = Path("/Users/matiasbanados/POS NANUC/output")
+from crumbpos.config import settings
+
+SCHEMA_DIR = Path(os.getenv("CRUMBPOS_SCHEMA_DIR", str(settings.BASE_DIR / "schemas")))
+OUTPUT_DIR = Path(os.getenv("CRUMBPOS_OUTPUT_DIR", str(settings.OUTPUT_DIR)))
 
 SII_NS = "http://www.sii.cl/SiiDte"
 DSIG_NS = "http://www.w3.org/2000/09/xmldsig#"

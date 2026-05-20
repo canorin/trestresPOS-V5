@@ -111,6 +111,7 @@ def _get_servicio(tenant: TenantContext, sucursal_id: str | None = None) -> tupl
         direccion=empresa.direccion,
         comuna=empresa.comuna,
         ciudad=empresa.ciudad,
+        unidad_sii=empresa.unidad_sii,
         fecha_resolucion=empresa.fecha_resolucion,
         numero_resolucion=empresa.numero_resolucion,
         cert_path=cert_path,

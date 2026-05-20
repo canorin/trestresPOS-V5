@@ -137,10 +137,31 @@ def xml_to_print_data(
                 _find_text(emisor, "GiroEmis")
                 or _find_text(emisor, "GiroEmisor")
             )
-            data.emisor_dir = _find_text(emisor, "DirOrigen")
-            data.emisor_comuna = _find_text(emisor, "CmnaOrigen")
-            data.emisor_ciudad = _find_text(emisor, "CiudadOrigen")
+            # DirOrigen en el XML puede ser la sucursal o la casa matriz.
+            # Guardamos el XML DirOrigen para comparar luego.
+            xml_dir    = _find_text(emisor, "DirOrigen")
+            xml_comuna = _find_text(emisor, "CmnaOrigen")
+            xml_ciudad = _find_text(emisor, "CiudadOrigen")
             data.emisor_acteco = _find_text(emisor, "Acteco")
+
+            # Casa Matriz: siempre la dirección registrada en la empresa.
+            # Fallback al XML si la empresa aún no tiene dirección cargada.
+            cm_dir    = empresa.direccion or xml_dir
+            cm_comuna = empresa.comuna or xml_comuna
+            cm_ciudad = empresa.ciudad or xml_ciudad
+            data.emisor_dir    = cm_dir
+            data.emisor_comuna = cm_comuna
+            data.emisor_ciudad = cm_ciudad
+
+            # Sucursal: solo si DirOrigen del XML difiere de la casa matriz.
+            if xml_dir and xml_dir != cm_dir:
+                data.emisor_sucursal_dir    = xml_dir
+                data.emisor_sucursal_comuna = xml_comuna
+                data.emisor_sucursal_ciudad = xml_ciudad
+
+            # Unidad/Dirección Regional SII — viene del modelo empresa,
+            # no del XML (el DTE no transporta este dato).
+            data.emisor_unidad_sii = empresa.unidad_sii or ""
 
         receptor = _find_el(enc, "Receptor")
         if receptor is not None:

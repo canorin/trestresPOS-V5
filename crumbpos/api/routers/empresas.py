@@ -75,6 +75,8 @@ class EmpresaCreateIn(BaseModel):
     direccion: str
     comuna: str
     ciudad: str
+    # Unidad/Dirección Regional SII (aparece bajo recuadro rojo en impresos)
+    unidad_sii: str | None = None
     # Sucursales adicionales (aparte de casa matriz)
     sucursales: list[SucursalCreateIn] = []
     # Admin/master cliente de la empresa (= representante legal)
@@ -94,6 +96,8 @@ class EmpresaUpdateIn(BaseModel):
     direccion: str | None = None
     comuna: str | None = None
     ciudad: str | None = None
+    # Unidad/Dirección Regional SII (impresa bajo el recuadro rojo en DTEs)
+    unidad_sii: str | None = None
     fecha_resolucion: str | None = None
     numero_resolucion: int | None = None
     cert_rut_firmante: str | None = None
@@ -109,6 +113,8 @@ class EmpresaOut(BaseModel):
     direccion: str
     comuna: str
     ciudad: str
+    # Unidad/Dirección Regional SII (aparece bajo recuadro rojo en impresos)
+    unidad_sii: str | None = None
     ambiente_activo: str
     ambiente_sii: str | None = None
     etapa: str = "pendiente_certificacion"
@@ -192,6 +198,7 @@ def listar_empresas(
             direccion=empresa.direccion if empresa else "",
             comuna=empresa.comuna if empresa else "",
             ciudad=empresa.ciudad if empresa else "",
+            unidad_sii=empresa.unidad_sii if empresa else None,
             fecha_resolucion=empresa.fecha_resolucion if empresa else None,
             numero_resolucion=empresa.numero_resolucion if empresa else 0,
             cert_rut_firmante=empresa.cert_rut_firmante if empresa else None,
@@ -246,6 +253,7 @@ def crear_empresa(
             admin_nombre=body.admin_nombre,
             admin_rut_personal=body.admin_rut_personal,
             acteco=body.acteco,
+            unidad_sii=body.unidad_sii,
             sucursales=sucursales_data,
             plan=body.plan,
         )
@@ -260,6 +268,7 @@ def crear_empresa(
         direccion=body.direccion,
         comuna=body.comuna,
         ciudad=body.ciudad,
+        unidad_sii=body.unidad_sii,
         ambiente_activo="certificacion",
         etapa="pendiente_certificacion",
         plan=body.plan,
@@ -350,6 +359,7 @@ def mi_empresa(tenant: TenantContext = Depends(get_tenant)):
             direccion=empresa.direccion,
             comuna=empresa.comuna,
             ciudad=empresa.ciudad,
+            unidad_sii=empresa.unidad_sii,
             ambiente_activo=tenant.ambiente,
             ambiente_sii=empresa.ambiente_sii,
             fecha_resolucion=empresa.fecha_resolucion,
@@ -408,6 +418,7 @@ def actualizar_mi_empresa(
             direccion=empresa.direccion,
             comuna=empresa.comuna,
             ciudad=empresa.ciudad,
+            unidad_sii=empresa.unidad_sii,
             ambiente_activo=tenant.ambiente,
             ambiente_sii=empresa.ambiente_sii,
             fecha_resolucion=empresa.fecha_resolucion,
@@ -653,6 +664,7 @@ def obtener_empresa(
         direccion=empresa.direccion if empresa else "",
         comuna=empresa.comuna if empresa else "",
         ciudad=empresa.ciudad if empresa else "",
+        unidad_sii=empresa.unidad_sii if empresa else None,
         ambiente_activo=reg.ambiente_activo,
         ambiente_sii=empresa.ambiente_sii if empresa else None,
         etapa=reg.etapa,

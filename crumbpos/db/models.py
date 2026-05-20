@@ -56,6 +56,11 @@ class Empresa(Base):
     cert_data: Mapped[str | None] = mapped_column(EncryptedText)  # .pfx en base64, cifrado
     cert_password: Mapped[str | None] = mapped_column(EncryptedString(100))  # cifrado en reposo
     cert_rut_firmante: Mapped[str | None] = mapped_column(String(12))
+    # Unidad/Dirección Regional del SII de la casa matriz.
+    # Aparece DEBAJO del recuadro rojo en el impreso (manual_muestras_impresas §1.1.4).
+    # Ejemplo: "SANTIAGO ORIENTE" → se imprime como "S.I.I. - SANTIAGO ORIENTE".
+    # Corresponde siempre a la casa matriz, nunca a la sucursal emisora.
+    unidad_sii: Mapped[str | None] = mapped_column(String(50))
     # Config
     tasa_iva: Mapped[int] = mapped_column(Integer, default=19)
     activa: Mapped[bool] = mapped_column(Boolean, default=True)

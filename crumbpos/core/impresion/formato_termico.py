@@ -9,7 +9,7 @@ import os
 from fpdf import FPDF
 
 from .base import (
-    DTEPrintData, TIPO_NOMBRE, SUCURSAL_SII, LOGO_PATH,
+    DTEPrintData, TIPO_NOMBRE, LOGO_PATH,
     format_rut, format_number, fecha_display,
     generar_imagen_timbre,
 )
@@ -172,10 +172,12 @@ class PDFTermico(FPDF):
         self.set_xy(box_x, y + 14)
         self.cell(box_w, 5, f"N\u00ba {self.data.folio}", align="C")
 
-        # SII debajo del recuadro
+        # Unidad SII (Dirección Regional), debajo del recuadro.
+        # Corresponde a la casa matriz (manual_muestras_impresas §1.1.4).
         self.set_font("Helvetica", "", 6)
         self.set_xy(box_x, y + box_h + 1)
-        self.cell(box_w, 3, f"S.I.I. - {SUCURSAL_SII}", align="C")
+        _unidad = self.data.emisor_unidad_sii or "SII"
+        self.cell(box_w, 3, f"S.I.I. - {_unidad}", align="C")
 
         y += box_h + 5
 
@@ -194,8 +196,15 @@ class PDFTermico(FPDF):
         # ---- Info emisor ----
         y = self._texto_centrado(y, self.data.emisor_razon, size=9, bold=True)
         y = self._texto_centrado(y, self.data.emisor_giro, size=7)
-        dir_parts = [self.data.emisor_dir, self.data.emisor_comuna]
-        y = self._texto_centrado(y, ", ".join(p for p in dir_parts if p), size=6)
+        # Dirección casa matriz (siempre etiquetada en térmico)
+        cm_parts = [self.data.emisor_dir, self.data.emisor_comuna]
+        cm_text = "Casa Matriz: " + ", ".join(p for p in cm_parts if p)
+        y = self._texto_centrado(y, cm_text, size=6)
+        # Sucursal (solo si difiere de la casa matriz)
+        if self.data.emisor_sucursal_dir:
+            suc_parts = [self.data.emisor_sucursal_dir, self.data.emisor_sucursal_comuna]
+            suc_text = "Sucursal: " + ", ".join(p for p in suc_parts if p)
+            y = self._texto_centrado(y, suc_text, size=6)
 
         return y + self.SECTION_GAP
 

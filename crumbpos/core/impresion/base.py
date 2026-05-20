@@ -29,9 +29,6 @@ TIPO_NOMBRE = {
 # Guía de Despacho. Las NC/ND y boletas no llevan cedible.
 TIPOS_CEDIBLES = {33, 34, 43, 46, 52}
 
-# Sucursal SII (aparece bajo el recuadro rojo)
-SUCURSAL_SII = "SANTIAGO ORIENTE"
-
 # Logo por defecto
 LOGO_PATH = str(settings.BASE_DIR / "crumbpos" / "config" / "logo.png")
 
@@ -49,14 +46,22 @@ class DTEPrintData:
     folio: int = 0
     fecha_emision: str = ""
 
-    # Emisor
+    # Emisor — casa matriz
     emisor_rut: str = ""
     emisor_razon: str = ""
     emisor_giro: str = ""
-    emisor_dir: str = ""
+    emisor_dir: str = ""       # Dirección casa matriz
     emisor_comuna: str = ""
     emisor_ciudad: str = ""
     emisor_acteco: str = ""
+    # Unidad/Dirección Regional SII (impresa bajo el recuadro rojo,
+    # corresponde a la casa matriz — manual_muestras_impresas §1.1.4).
+    emisor_unidad_sii: str = ""
+    # Dirección de la sucursal emisora (solo si difiere de la casa matriz).
+    # Si está vacío, el impreso muestra solo "Casa Matriz: ...".
+    emisor_sucursal_dir: str = ""
+    emisor_sucursal_comuna: str = ""
+    emisor_sucursal_ciudad: str = ""
 
     # Receptor
     receptor_rut: str = ""

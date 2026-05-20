@@ -204,6 +204,15 @@
             <label for="ciudad">Ciudad</label>
             <input type="text" id="ciudad" name="ciudad" required>
           </div>
+          <div class="field full">
+            <label for="unidad_sii">Unidad SII</label>
+            <input type="text" id="unidad_sii" name="unidad_sii" maxlength="50"
+                   placeholder="Ej: SANTIAGO ORIENTE">
+            <span class="hint">
+              Unidad o Dirección Regional del SII de la empresa.
+              Se imprime bajo el recuadro rojo en los documentos tributarios.
+            </span>
+          </div>
         </div>
       </div>
 
@@ -355,6 +364,7 @@
         direccion: form.direccion.value.trim(),
         comuna: form.comuna.value.trim(),
         ciudad: form.ciudad.value.trim(),
+        unidad_sii: form.unidad_sii.value.trim() || null,
         admin_email: form.admin_email.value.trim(),
         admin_nombre: form.admin_nombre.value.trim(),
         admin_rut_personal: form.admin_rut_personal.value.trim(),

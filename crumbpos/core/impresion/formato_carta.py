@@ -8,7 +8,7 @@ import os
 from fpdf import FPDF
 
 from .base import (
-    DTEPrintData, TIPO_NOMBRE, TIPOS_CEDIBLES, SUCURSAL_SII, LOGO_PATH,
+    DTEPrintData, TIPO_NOMBRE, TIPOS_CEDIBLES, LOGO_PATH,
     CRUMB_LOGO_PATH,
     format_rut, format_number, monto_en_palabras, fecha_display,
     generar_imagen_timbre,
@@ -113,10 +113,23 @@ class PDFCarta(FPDF):
         self.cell(120, 4, self.data.emisor_giro)
         y += 5
 
-        # Dirección
-        dir_parts = [self.data.emisor_dir, self.data.emisor_comuna, self.data.emisor_ciudad]
+        # Dirección casa matriz (siempre etiquetada)
+        cm_parts = [self.data.emisor_dir, self.data.emisor_comuna, self.data.emisor_ciudad]
+        cm_text = "Casa Matriz: " + ", ".join(p for p in cm_parts if p)
         self.set_xy(x, y)
-        self.cell(120, 4, ", ".join(p for p in dir_parts if p))
+        self.cell(120, 4, cm_text)
+
+        # Sucursal (solo si difiere de la casa matriz)
+        if self.data.emisor_sucursal_dir:
+            y += 4
+            suc_parts = [
+                self.data.emisor_sucursal_dir,
+                self.data.emisor_sucursal_comuna,
+                self.data.emisor_sucursal_ciudad,
+            ]
+            suc_text = "Sucursal: " + ", ".join(p for p in suc_parts if p)
+            self.set_xy(x, y)
+            self.cell(120, 4, suc_text)
 
         # Recuadro rojo
         self.set_draw_color(255, 0, 0)
@@ -139,11 +152,13 @@ class PDFCarta(FPDF):
         self.set_xy(box_x, box_y + 24)
         self.cell(box_w, 6, f"N\u00ba {self.data.folio}", align="C")
 
-        # Sucursal SII
+        # Unidad SII (Dirección Regional), debajo del recuadro rojo.
+        # Corresponde a la casa matriz (manual_muestras_impresas §1.1.4).
         self.set_text_color(255, 0, 0)
         self.set_font("Helvetica", "", 9)
         self.set_xy(box_x, box_y + box_h + 2)
-        self.cell(box_w, 4, f"S.I.I. - {SUCURSAL_SII}", align="C")
+        _unidad = self.data.emisor_unidad_sii or "SII"
+        self.cell(box_w, 4, f"S.I.I. - {_unidad}", align="C")
 
         self.set_text_color(0, 0, 0)
         return box_y + box_h + 22

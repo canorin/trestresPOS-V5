@@ -297,6 +297,16 @@
             Ciudad
             <input type="text" name="ciudad" required maxlength="50">
           </label>
+          <label class="field full">
+            Unidad SII
+            <input type="text" name="unidad_sii" maxlength="50"
+                   placeholder="Ej: SANTIAGO ORIENTE">
+            <span class="hint">
+              Unidad o Dirección Regional del SII a la que pertenece la empresa.
+              Se imprime bajo el recuadro rojo en los documentos tributarios.
+              Ejemplo: <strong>SANTIAGO ORIENTE</strong>.
+            </span>
+          </label>
         </div>
         <div class="form-actions">
           <button type="submit" class="btn btn-primary">Guardar dirección</button>
@@ -420,6 +430,7 @@
         fd.direccion.value = data.direccion || '';
         fd.comuna.value = data.comuna || '';
         fd.ciudad.value = data.ciudad || '';
+        fd.unidad_sii.value = data.unidad_sii || '';
 
         // SII readonly
         document.getElementById('sii-rut').textContent = data.rut || '—';
@@ -596,7 +607,7 @@
     document.getElementById('form-direccion').addEventListener('submit', (e) => {
       e.preventDefault();
       guardarFormulario(e.target, 'direccion-banner',
-        ['direccion', 'comuna', 'ciudad']);
+        ['direccion', 'comuna', 'ciudad', 'unidad_sii']);
     });
 
     // ══ Arranque ══

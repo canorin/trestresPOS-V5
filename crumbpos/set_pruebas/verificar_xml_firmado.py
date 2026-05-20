@@ -11,6 +11,7 @@ Compara distintos métodos de C14N para diagnosticar cuál usa el SII.
 """
 import base64
 import hashlib
+import os
 import re
 import sys
 from pathlib import Path
@@ -20,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from lxml import etree
 from cryptography.x509 import load_der_x509_certificate
 from cryptography.hazmat.primitives import hashes
+
+from crumbpos.config import settings
 from cryptography.hazmat.primitives.asymmetric import padding
 
 SII_NS = "http://www.sii.cl/SiiDte"
@@ -314,12 +317,13 @@ def verify_reference(xml_path: str):
 
 
 if __name__ == "__main__":
-    # 1. Verificar referencia NAGOY
-    nagoy = Path("/Users/matiasbanados/Downloads/33_76096747-5_66051_20260324_ce84afb8-8563-4333-af53-a04a4f1f64b3.xml")
-    if nagoy.exists():
-        verify_reference(str(nagoy))
+    # 1. Verificar XML de referencia (factura real). Archivo externo, no vive
+    #    en el repo: indicar su ruta con CRUMBPOS_REF_XML.
+    ref_xml = Path(os.getenv("CRUMBPOS_REF_XML", str(settings.OUTPUT_DIR / "referencia.xml")))
+    if ref_xml.exists():
+        verify_reference(str(ref_xml))
 
-    # 2. Verificar nuestros XMLs firmados
-    output_dir = Path("/Users/matiasbanados/POS NANUC/output")
+    # 2. Verificar nuestros XMLs firmados (default: output/; override con CRUMBPOS_OUTPUT_DIR)
+    output_dir = Path(os.getenv("CRUMBPOS_OUTPUT_DIR", str(settings.OUTPUT_DIR)))
     for xml_file in sorted(output_dir.glob("*_firmado.xml")):
         verify_file(str(xml_file))

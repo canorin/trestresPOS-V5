@@ -1,1 +1,0 @@
-"""Autenticación JWT — CrumbPOS."""

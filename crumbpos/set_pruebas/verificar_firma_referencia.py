@@ -4,6 +4,7 @@ Compara diferentes métodos de cómputo de digest para encontrar el correcto.
 """
 import base64
 import hashlib
+import os
 import re
 import sys
 from pathlib import Path
@@ -12,7 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from lxml import etree
 
-XML_PATH = Path("/Users/matiasbanados/Downloads/33_76096747-5_66051_20260324_ce84afb8-8563-4333-af53-a04a4f1f64b3.xml")
+from crumbpos.config import settings
+
+# XML de referencia (factura real recibida). Es un archivo externo, no vive
+# en el repo: indicar su ruta con CRUMBPOS_REF_XML.
+XML_PATH = Path(os.getenv("CRUMBPOS_REF_XML", str(settings.OUTPUT_DIR / "referencia.xml")))
 
 SII_NS = "http://www.sii.cl/SiiDte"
 XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"

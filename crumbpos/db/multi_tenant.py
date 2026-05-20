@@ -898,6 +898,31 @@ def _migrate_empresa_schema(engine):
             ))
             logger.info("Empresa migrate: sucursal.cdg_sii_sucursal agregada")
 
+        # ── empresa: unidad_sii (Dirección Regional/Unidad del SII) ─────────
+        # Aparece debajo del recuadro rojo en el impreso (manual §1.1.4).
+        # Corresponde a la Unidad del SII de la casa matriz, p. ej. "SANTIAGO ORIENTE".
+        # Backfill: se intenta copiar desde la sucursal con codigo='001'.
+        emp_cols = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(empresa)"))
+        }
+        if emp_cols and "unidad_sii" not in emp_cols:
+            conn.execute(text(
+                "ALTER TABLE empresa ADD COLUMN unidad_sii VARCHAR(50)"
+            ))
+            # Backfill desde la Unidad de la casa matriz (sucursal codigo='001'),
+            # que es donde históricamente se guardaba este dato en sii_sucursal.
+            result = conn.execute(text(
+                "UPDATE empresa SET unidad_sii = ("
+                "  SELECT s.sii_sucursal FROM sucursal s"
+                "  WHERE s.empresa_id = empresa.id AND s.codigo = '001' LIMIT 1"
+                ") WHERE unidad_sii IS NULL"
+            ))
+            logger.info(
+                "Empresa migrate: empresa.unidad_sii agregada "
+                "(backfill %d fila(s) desde sucursal.sii_sucursal)",
+                result.rowcount,
+            )
+
         # ── B2: WORM — trigger que bloquea DELETE en dte_emitido < 6 años ──
         # La Resolución Exenta SII N°74 (2017) obliga a conservar los DTEs
         # electrónicos por 6 años desde su emisión. Este trigger es la
@@ -1169,6 +1194,7 @@ def provision_empresa(
     admin_password_hash: str,
     admin_nombre: str,
     acteco: int | None = None,
+    unidad_sii: str | None = None,
     sucursales: list[dict] | None = None,
     plan: str = "full_free",
     admin_rut_personal: str | None = None,
@@ -1183,6 +1209,8 @@ def provision_empresa(
     4. Crea sucursales adicionales si se proporcionan.
 
     Args:
+        unidad_sii: Unidad/Dirección Regional SII de la empresa (p. ej.
+            "SANTIAGO ORIENTE"). Aparece debajo del recuadro rojo en los impresos.
         sucursales: lista de dicts con {nombre, codigo, direccion, comuna, ciudad,
             sii_sucursal, cdg_sii_sucursal (int|None)}
         admin_rut_personal: RUT personal del master cliente (el dueño/representante
@@ -1266,6 +1294,7 @@ def provision_empresa(
                 direccion=direccion,
                 comuna=comuna,
                 ciudad=ciudad,
+                unidad_sii=unidad_sii,
                 ambiente_sii=ambiente,
             ))
 

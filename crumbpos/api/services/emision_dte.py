@@ -58,6 +58,8 @@ class EmisorConfig:
     sucursal_comuna: str | None = None
     sucursal_ciudad: str | None = None
     sucursal_sii: int | None = None  # Código numérico SII de la sucursal (CdgSIISucur)
+    # Unidad/Dirección Regional SII de la empresa (aparece bajo recuadro rojo)
+    unidad_sii: str | None = None
 
 
 @dataclass
@@ -1231,6 +1233,16 @@ class ServicioEmisionDTE:
             # 5. Generar PDF
             # El renderer usa TIPO_NOMBRE de crumbpos/core/impresion/base.py,
             # que cubre todos los tipos soportados (33, 34, 39, 41, 52, 56, 61).
+            # Dirección casa matriz (siempre la de la empresa)
+            _cm_dir = self.config.direccion
+            _cm_com = self.config.comuna
+            _cm_ciu = self.config.ciudad
+            # Dirección sucursal: solo si existe Y difiere de la casa matriz
+            _suc_dir = self.config.sucursal_direccion or ""
+            _suc_com = self.config.sucursal_comuna or ""
+            _suc_ciu = self.config.sucursal_ciudad or ""
+            _mostrar_sucursal = bool(_suc_dir and _suc_dir != _cm_dir)
+
             print_data = DTEPrintData(
                 tipo_dte=req.tipo_dte,
                 folio=folio,
@@ -1238,9 +1250,13 @@ class ServicioEmisionDTE:
                 emisor_rut=self.config.rut,
                 emisor_razon=self.config.razon_social,
                 emisor_giro=self.config.giro,
-                emisor_dir=self.config.direccion,
-                emisor_comuna=self.config.comuna,
-                emisor_ciudad=self.config.ciudad,
+                emisor_dir=_cm_dir,
+                emisor_comuna=_cm_com,
+                emisor_ciudad=_cm_ciu,
+                emisor_unidad_sii=self.config.unidad_sii or "",
+                emisor_sucursal_dir=_suc_dir if _mostrar_sucursal else "",
+                emisor_sucursal_comuna=_suc_com if _mostrar_sucursal else "",
+                emisor_sucursal_ciudad=_suc_ciu if _mostrar_sucursal else "",
                 receptor_rut=req.receptor_rut,
                 receptor_razon=req.receptor_razon,
                 receptor_giro=req.receptor_giro,

@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from lxml import etree
 
+from crumbpos.config import settings
 from crumbpos.models.dte_models import DTE
 from crumbpos.core.caf.caf_manager import CAF
 from crumbpos.core.firma.timbre import generar_ted
@@ -12,8 +13,8 @@ XSI_NS = "http://www.w3.org/2001/XMLSchema-instance"
 
 # RUT receptor SII para todos los EnvioDTE/EnvioBOLETA — constante oficial.
 # Es el RUT del SII como receptor del envío (no del receptor del DTE individual).
-# Fuente única para todos los sobres (facturas, boletas, libros).
-RUT_RECEPTOR_SII = "60803000-K"
+# Fuente única: settings.RUT_SII (evita duplicar la constante en el código).
+RUT_RECEPTOR_SII = settings.RUT_SII
 
 logger = logging.getLogger(__name__)
 
