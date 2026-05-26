@@ -8,7 +8,7 @@ from sqlalchemy import func, and_
 from crumbpos.db.models import (
     Venta, VentaItem, Pago, Articulo, Sucursal,
 )
-from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.dependencies import get_tenant, TenantContext, check_pos_write_rate_limit
 from crumbpos.api.schemas import VentaCreate, VentaOut, DashboardSucursal
 
 router = APIRouter(prefix="/api/ventas", tags=["ventas"])
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/ventas", tags=["ventas"])
 @router.post("/", response_model=VentaOut, status_code=201)
 def crear_venta(
     body: VentaCreate,
-    tenant: TenantContext = Depends(get_tenant),
+    tenant: TenantContext = Depends(check_pos_write_rate_limit),
 ):
     """Registra una venta desde el POS."""
     try:

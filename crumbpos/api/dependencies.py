@@ -257,6 +257,8 @@ from crumbpos.core.security.rate_limit import (
     dte_limiter,
     sii_polling_limiter,
     password_change_limiter,
+    pos_write_limiter,
+    pos_pull_completo_limiter,
 )
 
 
@@ -311,3 +313,67 @@ def check_password_rate_limit(
             detail=f"Límite de cambios de contraseña alcanzado. Reintenta en {retry_after}s",
             headers={"Retry-After": str(retry_after)},
         )
+
+
+# ══════════════════════════════════════════════════════════════════
+# POS SESSION — exclusividad de terminal
+# ══════════════════════════════════════════════════════════════════
+
+def require_pos_session(
+    tenant: TenantContext = Depends(get_tenant),
+) -> TenantContext:
+    """Dependency: exige que la sesión provenga de un terminal POS.
+
+    Un JWT de POS lleva ``sucursal_id`` (el cajero se autenticó con caja).
+    Un JWT de admin/web no lo lleva. Este guard bloquea llamadas
+    desde el panel web, scripts externos u otros clientes que no sean
+    un terminal POS registrado.
+
+    Retorna el TenantContext para que el endpoint lo reutilice.
+    """
+    if not tenant.sucursal_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Este endpoint es exclusivo de terminales POS. "
+                "Autentícate incluyendo sucursal_id en el login."
+            ),
+        )
+    return tenant
+
+
+def check_pos_write_rate_limit(
+    tenant: TenantContext = Depends(require_pos_session),
+) -> TenantContext:
+    """Dependency: POS session + rate limit de escrituras (120/min por sucursal).
+
+    Aplica a ventas y sync push — operaciones de alta frecuencia desde el terminal.
+    """
+    clave = f"pos_write:{tenant.sucursal_id}"
+    allowed, retry_after = pos_write_limiter.is_allowed(clave)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Límite de operaciones POS alcanzado. Reintenta en {retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+    return tenant
+
+
+def check_pos_pull_completo_rate_limit(
+    tenant: TenantContext = Depends(require_pos_session),
+) -> TenantContext:
+    """Dependency: POS session + rate limit de pull completo (10/min por sucursal).
+
+    Pull completo descarga toda la configuración — es costoso y solo
+    ocurre en instalación o reinstalación del terminal.
+    """
+    clave = f"pos_pull:{tenant.sucursal_id}"
+    allowed, retry_after = pos_pull_completo_limiter.is_allowed(clave)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Límite de sincronización completa alcanzado. Reintenta en {retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+    return tenant

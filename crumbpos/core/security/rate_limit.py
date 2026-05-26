@@ -180,3 +180,11 @@ password_change_limiter = RequestLimiter(max_requests=5, window_seconds=600)
 # Rate limit por IP para toda la API.
 # 600 req/min = 10/seg por IP — protección contra DoS basal.
 ip_limiter = RequestLimiter(max_requests=600, window_seconds=60)
+
+# Escrituras POS por sucursal: ventas + sync push.
+# 120/min = 2/seg — holgado para restaurante ocupado.
+pos_write_limiter = RequestLimiter(max_requests=120, window_seconds=60)
+
+# Pull completo por sucursal: descarga inicial costosa.
+# 10/min — no debería ocurrir más de 1 vez en reinstalación.
+pos_pull_completo_limiter = RequestLimiter(max_requests=10, window_seconds=60)

@@ -31,7 +31,12 @@ from crumbpos.db.models import (
     ArticuloSucursal, CafFolio, Cliente, Bodega, Stock,
     Venta, VentaItem, Pago, DteEmitido, SesionCaja, MovimientoStock,
 )
-from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.dependencies import (
+    get_tenant, TenantContext,
+    check_pos_write_rate_limit,
+    check_pos_pull_completo_rate_limit,
+    require_pos_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -301,7 +306,7 @@ class PushOut(BaseModel):
 # ═══════════════════════════════════════════════════════════════
 
 @router.get("/pull-completo/{caja_id}", response_model=PullCompletoOut)
-def pull_completo(caja_id: str, tenant: TenantContext = Depends(get_tenant)):
+def pull_completo(caja_id: str, tenant: TenantContext = Depends(check_pos_pull_completo_rate_limit)):
     """Descarga completa para instalación inicial o reinstalación del POS.
 
     Retorna TODO lo que el terminal necesita para operar offline:
@@ -437,7 +442,7 @@ def pull_completo(caja_id: str, tenant: TenantContext = Depends(get_tenant)):
 
 
 @router.post("/pull-incremental", response_model=PullIncrementalOut)
-def pull_incremental(body: PullIncrementalIn, tenant: TenantContext = Depends(get_tenant)):
+def pull_incremental(body: PullIncrementalIn, tenant: TenantContext = Depends(require_pos_session)):
     """Descarga solo los cambios desde la última sincronización.
 
     El terminal envía el timestamp de su último sync y recibe
@@ -570,7 +575,7 @@ def pull_incremental(body: PullIncrementalIn, tenant: TenantContext = Depends(ge
 
 
 @router.post("/push", response_model=PushOut)
-def push(body: PushIn, tenant: TenantContext = Depends(get_tenant)):
+def push(body: PushIn, tenant: TenantContext = Depends(check_pos_write_rate_limit)):
     """Recibe datos generados offline por el terminal POS.
 
     El terminal envía ventas, DTEs firmados, sesiones de caja y
