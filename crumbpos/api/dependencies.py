@@ -4,6 +4,7 @@ Este módulo provee las dependencies centrales para:
   1. Autenticación contra master.db
   2. Routing al DB correcto (empresa + ambiente)
   3. Control de acceso por rol
+  4. Rate limiting por endpoint (DTE, SII polling, password)
 """
 import logging
 from typing import Annotated
@@ -246,3 +247,67 @@ def require_super_admin(user: UsuarioAuth = Depends(get_current_user)) -> Usuari
             detail="Solo el super administrador puede realizar esta acción",
         )
     return user
+
+
+# ══════════════════════════════════════════════════════════════════
+# RATE LIMIT DEPENDENCIES
+# ══════════════════════════════════════════════════════════════════
+
+from crumbpos.core.security.rate_limit import (
+    dte_limiter,
+    sii_polling_limiter,
+    password_change_limiter,
+)
+
+
+def check_dte_rate_limit(
+    tenant: TenantContext = Depends(get_tenant),
+) -> None:
+    """Dependency: limita emisiones DTE / generación de libros por empresa.
+
+    Política: 60 operaciones/min por empresa_rut.
+    Protege contra flood accidental y respeta cuotas SII.
+    FastAPI reutiliza la instancia de get_tenant cacheada en el request.
+    """
+    clave = f"dte:{tenant.empresa_rut}"
+    allowed, retry_after = dte_limiter.is_allowed(clave)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Límite de emisiones alcanzado. Reintenta en {retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def check_sii_polling_rate_limit(
+    tenant: TenantContext = Depends(get_tenant),
+) -> None:
+    """Dependency: limita consultas de estado SII por empresa.
+
+    Política: 30 consultas/min por empresa_rut.
+    """
+    clave = f"sii_poll:{tenant.empresa_rut}"
+    allowed, retry_after = sii_polling_limiter.is_allowed(clave)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Límite de consultas SII alcanzado. Reintenta en {retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+
+def check_password_rate_limit(
+    user: UsuarioAuth = Depends(get_current_user),
+) -> None:
+    """Dependency: limita cambios de contraseña por usuario.
+
+    Política: 5 cambios cada 10 minutos por user_id.
+    """
+    clave = f"pwd:{user.id}"
+    allowed, retry_after = password_change_limiter.is_allowed(clave)
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Límite de cambios de contraseña alcanzado. Reintenta en {retry_after}s",
+            headers={"Retry-After": str(retry_after)},
+        )

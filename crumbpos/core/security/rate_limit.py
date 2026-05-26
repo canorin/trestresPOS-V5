@@ -105,3 +105,78 @@ class RateLimiter:
 # Instancia global compartida para login.
 # Política: 5 intentos en 60s → lockout exponencial 60s, 120s, 240s, 480s, ..., max 1h.
 login_limiter = RateLimiter(max_attempts=5, window_seconds=60)
+
+
+# ══════════════════════════════════════════════════════════════════
+# REQUEST LIMITER — cuenta TODAS las solicitudes (no solo fallos)
+# ══════════════════════════════════════════════════════════════════
+
+class RequestLimiter:
+    """Sliding-window counter para limitar tasa de solicitudes.
+
+    A diferencia de RateLimiter, cuenta TODAS las solicitudes (no solo
+    las fallidas). Sin lockout exponencial — solo ventana deslizante.
+
+    Uso:
+        limiter = RequestLimiter(max_requests=60, window_seconds=60)
+
+        allowed, retry_after = limiter.is_allowed("empresa:77829149-5")
+        if not allowed:
+            raise HTTPException(429, f"Límite alcanzado. Reintenta en {retry_after}s")
+    """
+
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window = window_seconds
+        self._ventanas: dict[str, deque] = {}
+        self._lock = threading.Lock()
+
+    def is_allowed(self, clave: str) -> tuple[bool, int]:
+        """Registra la solicitud y devuelve (permitido, retry_after_segundos).
+
+        Siempre registra la solicitud; si supera el límite devuelve False
+        y los segundos hasta que se libere el slot más antiguo.
+        """
+        with self._lock:
+            ahora = time.time()
+            limite = ahora - self.window
+
+            if clave not in self._ventanas:
+                self._ventanas[clave] = deque()
+
+            ventana = self._ventanas[clave]
+            # Purgar solicitudes fuera de la ventana
+            while ventana and ventana[0] < limite:
+                ventana.popleft()
+
+            if len(ventana) >= self.max_requests:
+                # Tiempo hasta que salga la solicitud más antigua
+                retry_after = int(ventana[0] - limite) + 1
+                return False, retry_after
+
+            ventana.append(ahora)
+            return True, 0
+
+    def _reset(self) -> None:
+        """Resetea todo el estado. Solo para tests."""
+        with self._lock:
+            self._ventanas.clear()
+
+
+# ── Instancias nombradas ───────────────────────────────────────────
+
+# Emisión DTE y generación de libros/RCOF (por empresa_rut).
+# 60 operaciones/min = 1/seg — suficiente para restaurante ocupado.
+dte_limiter = RequestLimiter(max_requests=60, window_seconds=60)
+
+# Consultas de estado al SII (por empresa_rut).
+# 30 polls/min — evita que SII bloquee por flood.
+sii_polling_limiter = RequestLimiter(max_requests=30, window_seconds=60)
+
+# Cambio de contraseña (por user_id).
+# 5 cambios cada 10 minutos.
+password_change_limiter = RequestLimiter(max_requests=5, window_seconds=600)
+
+# Rate limit por IP para toda la API.
+# 600 req/min = 10/seg por IP — protección contra DoS basal.
+ip_limiter = RequestLimiter(max_requests=600, window_seconds=60)

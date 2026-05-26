@@ -14,6 +14,7 @@ from crumbpos.db.multi_tenant import (
 from crumbpos.api.dependencies import (
     get_current_user, get_tenant, TenantContext,
     SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES,
+    check_password_rate_limit,
 )
 
 import bcrypt
@@ -302,6 +303,7 @@ def cambiar_mi_password(
     body: PasswordChangeIn,
     user: UsuarioAuth = Depends(get_current_user),
     master_db: Session = Depends(get_master_db),
+    _rl: None = Depends(check_password_rate_limit),
 ):
     """Cambia la contraseña del usuario autenticado.
 

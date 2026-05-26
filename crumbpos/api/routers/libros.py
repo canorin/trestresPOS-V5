@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from crumbpos.api.services.emision_libros import ServicioLibros
 from crumbpos.config import settings
 from crumbpos.db.models import Empresa, LibroGenerado
-from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.dependencies import get_tenant, TenantContext, check_dte_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +125,7 @@ class LibroOut(BaseModel):
 def generar_libro_ventas(
     body: GenerarLibroVentasIn,
     tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
 ):
     """Genera, firma y envía el Libro de Ventas para un periodo."""
     try:
@@ -278,6 +279,7 @@ class GenerarLibroComprasOut(BaseModel):
 def generar_libro_compras(
     body: GenerarLibroComprasIn,
     tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
 ):
     """Genera, firma y envía el Libro de Compras para un periodo con datos manuales."""
     try:
@@ -316,6 +318,7 @@ def generar_libro_compras(
 def generar_libro_guias(
     body: GenerarLibroGuiasIn,
     tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
 ):
     """Genera, firma y envía el Libro de Guías de Despacho para un periodo."""
     try:

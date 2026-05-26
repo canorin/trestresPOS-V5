@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from crumbpos.db.multi_tenant import init_multi_tenant, ensure_super_admin
 from crumbpos.api.scheduler import iniciar_scheduler, detener_scheduler
@@ -27,6 +28,41 @@ from crumbpos.api.routers import (
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+# ── Middleware de rate limit por IP ───────────────────────────────
+from crumbpos.core.security.rate_limit import ip_limiter
+
+# Rutas exentas: health checks, assets estáticos, OpenAPI schema.
+_RL_EXENTAS = frozenset({"/health", "/", "/openapi.json"})
+
+
+class IPRateLimitMiddleware(BaseHTTPMiddleware):
+    """Limita solicitudes por IP: 600 req/min (protección DoS basal).
+
+    No afecta rutas de monitoreo ni archivos estáticos.
+    Para límites más finos por endpoint ver dependencies.py.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path in _RL_EXENTAS or path.startswith("/static"):
+            return await call_next(request)
+
+        ip = request.client.host if request.client else "unknown"
+        allowed, retry_after = ip_limiter.is_allowed(ip)
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={
+                    "detail": f"Demasiadas solicitudes. Reintenta en {retry_after}s",
+                },
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": "600",
+                    "X-RateLimit-Window": "60",
+                },
+            )
+        return await call_next(request)
 
 # Super admin credentials (from env or defaults for dev).
 # En producción: SUPER_ADMIN_PASSWORD es obligatoria y NO puede ser el default.
@@ -134,6 +170,7 @@ if "*" in _allowed_origins:
         "⚠️  CORS permite '*' — habilita CSRF cross-origin. NO USAR EN PRODUCCIÓN."
     )
 
+app.add_middleware(IPRateLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,

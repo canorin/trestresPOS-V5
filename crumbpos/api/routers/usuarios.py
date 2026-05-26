@@ -46,7 +46,7 @@ from crumbpos.core.roles import (
 )
 from crumbpos.db.models import Usuario, UsuarioSucursal, Sucursal
 from crumbpos.db.multi_tenant import get_master_session, UsuarioAuth
-from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.dependencies import get_tenant, TenantContext, check_password_rate_limit
 from crumbpos.api.error_utils import raise_safe_500
 
 
@@ -406,6 +406,7 @@ def cambiar_password(
     usuario_id: str,
     body: PasswordChangeIn,
     tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_password_rate_limit),
 ):
     """Cambia la password de otro user (o la propia).
 

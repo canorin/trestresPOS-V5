@@ -16,7 +16,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.dependencies import get_tenant, TenantContext, check_sii_polling_rate_limit
 from crumbpos.db.models import DteEmitido, LibroGenerado, Empresa
 from crumbpos.core.sii_client.polling import (
     poll_all, poll_dtes, ESTADO_BOLETA_MAP, _parse_estado_boleta,
@@ -174,7 +174,10 @@ def _get_boleta_token(empresa: Empresa) -> str:
 # ── Endpoints ──
 
 @router.post("/polling")
-def trigger_polling(tenant: TenantContext = Depends(get_tenant)):
+def trigger_polling(
+    tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_sii_polling_rate_limit),
+):
     """Ejecuta polling de estado SII para todos los DTEs, Boletas y Libros pendientes.
 
     Consulta el SII por cada DTE/Boleta/Libro con estado 'pendiente' o 'enviado'

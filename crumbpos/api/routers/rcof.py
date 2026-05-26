@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from crumbpos.api.services.rcof_service import ServicioRCOF
 from crumbpos.config import settings
 from crumbpos.db.models import Empresa, RcofDiario
-from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.dependencies import get_tenant, TenantContext, check_dte_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ class RcofOut(BaseModel):
 def generar_rcof(
     body: GenerarRcofIn,
     tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
 ):
     """Genera, firma y envia el RCOF para una fecha."""
     try:

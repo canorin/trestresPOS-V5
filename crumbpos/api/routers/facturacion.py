@@ -23,7 +23,7 @@ from crumbpos.api.services.emision_dte import (
 from crumbpos.config import settings
 from crumbpos.db.models import Empresa, CafFolio, DteEmitido, Sucursal
 from crumbpos.core.caf.caf_manager_db import CAFManagerDB, FoliosAgotadosError
-from crumbpos.api.dependencies import get_tenant, TenantContext
+from crumbpos.api.dependencies import get_tenant, TenantContext, check_dte_rate_limit
 
 logger = logging.getLogger(__name__)
 
@@ -314,6 +314,7 @@ def emitir_factura(
     body: EmitirFacturaIn,
     request: Request,
     tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
 ):
     """Emite un DTE completo: genera XML, firma, envía al SII y genera PDF.
 
@@ -434,7 +435,11 @@ def emitir_factura(
 
 
 @router.post("/emitir/pdf")
-def emitir_factura_pdf(body: EmitirFacturaIn, tenant: TenantContext = Depends(get_tenant)):
+def emitir_factura_pdf(
+    body: EmitirFacturaIn,
+    tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
+):
     """Emite un DTE y retorna directamente el PDF."""
     try:
         sucursal_id = body.sucursal_id or tenant.sucursal_id
@@ -607,7 +612,10 @@ def listar_emitidos(
 
 
 @router.post("/enviar-pendientes")
-async def enviar_pendientes(tenant: TenantContext = Depends(get_tenant)):
+async def enviar_pendientes(
+    tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
+):
     """Envía al SII todos los DTEs pendientes (generados pero no enviados).
 
     Usa el XML firmado ya guardado — NO genera ni consume folios nuevos.
@@ -715,7 +723,11 @@ class EnviarSetIn(BaseModel):
 
 
 @router.post("/enviar-set")
-async def enviar_set(body: EnviarSetIn | None = None, tenant: TenantContext = Depends(get_tenant)):
+async def enviar_set(
+    body: EnviarSetIn | None = None,
+    tenant: TenantContext = Depends(get_tenant),
+    _rl: None = Depends(check_dte_rate_limit),
+):
     """Agrupa DTEs pendientes en un solo EnvioDTE y envía al SII.
 
     Para certificación SII: todos los casos de un set deben ir
