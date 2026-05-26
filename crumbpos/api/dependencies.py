@@ -10,7 +10,8 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Header, Query, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import jwt, JWTError
+import jwt
+from jwt.exceptions import InvalidTokenError
 from sqlalchemy.orm import Session
 
 from crumbpos.db.multi_tenant import (
@@ -66,7 +67,7 @@ def _decode_token(token: str) -> dict:
     """Decode JWT and return payload dict."""
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
+    except InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido o expirado",

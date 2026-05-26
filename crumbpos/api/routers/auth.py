@@ -17,7 +17,7 @@ from crumbpos.api.dependencies import (
 )
 
 import bcrypt
-from jose import jwt
+import jwt
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])

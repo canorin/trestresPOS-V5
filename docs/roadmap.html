@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CrumbPOS — Mapa Conceptual de Arquitectura</title>
+  <style>
+    :root {
+      --blue:       #0071e3;
+      --green:      #34c759;
+      --orange:     #ff9500;
+      --purple:     #5856d6;
+      --teal:       #30b0c7;
+      --red:        #ff3b30;
+      --gray:       #8e8e93;
+      --border:     #d2d2d7;
+      --bg:         #f5f5f7;
+      --white:      #ffffff;
+      --text:       #1d1d1f;
+      --text-sec:   #6e6e73;
+      --text-ter:   #aeaeb2;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 40px 48px 64px;
+      min-width: 900px;
+    }
+
+    /* ── HEADER ──────────────────────────────────────────────── */
+    .hdr {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 40px;
+    }
+    .hdr-left h1 {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .hdr-left p {
+      font-size: 13px;
+      color: var(--text-sec);
+      margin-top: 4px;
+    }
+    .hdr-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: rgba(52,199,89,.1);
+      color: #248a3d;
+      letter-spacing: .2px;
+    }
+
+    /* ── SECTION TITLES ──────────────────────────────────────── */
+    .sec-title {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-ter);
+      margin-bottom: 16px;
+      padding-left: 4px;
+    }
+
+    /* ── FOUNDATION GRID ─────────────────────────────────────── */
+    .foundation-wrap {
+      background: rgba(52,199,89,.04);
+      border: 1px solid rgba(52,199,89,.2);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 28px;
+    }
+    .foundation-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+
+    /* ── CARDS ───────────────────────────────────────────────── */
+    .card {
+      background: var(--white);
+      border-radius: 14px;
+      padding: 18px 16px 16px;
+      border: 1px solid var(--border);
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+      position: relative;
+      transition: box-shadow .18s, transform .18s;
+    }
+    .card:hover {
+      box-shadow: 0 4px 18px rgba(0,0,0,.1);
+      transform: translateY(-2px);
+    }
+    .card-top {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+      flex-shrink: 0;
+    }
+    .card-meta { flex: 1; }
+    .card-name {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.3;
+      color: var(--text);
+    }
+    .card-sub {
+      font-size: 11px;
+      color: var(--text-sec);
+      margin-top: 2px;
+    }
+
+    /* items list */
+    .items {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .items li {
+      font-size: 11.5px;
+      color: var(--text-sec);
+      padding-left: 13px;
+      position: relative;
+      line-height: 1.4;
+    }
+    .items li::before {
+      content: "·";
+      position: absolute;
+      left: 4px;
+      color: var(--border);
+      font-size: 14px;
+      line-height: 1.2;
+    }
+    .items li.done::before   { content: "✓"; color: var(--green); font-size: 10px; top: 1px; }
+    .items li.wip::before    { content: "◑"; color: var(--orange); font-size: 10px; top: 1px; }
+    .items li.todo::before   { content: "○"; color: var(--text-ter); font-size: 10px; top: 1px; }
+
+    /* status badge */
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 20px;
+      margin-bottom: 10px;
+      letter-spacing: .2px;
+    }
+    .badge.done  { background: rgba(52,199,89,.12); color: #248a3d; }
+    .badge.wip   { background: rgba(255,149,0,.12);  color: #c93400; }
+    .badge.todo  { background: rgba(142,142,147,.12);color: #636366; }
+
+    /* progress bar */
+    .pbar {
+      height: 3px;
+      background: var(--bg);
+      border-radius: 2px;
+      margin-top: 14px;
+      overflow: hidden;
+    }
+    .pfill {
+      height: 100%;
+      border-radius: 2px;
+    }
+
+    /* ── CONNECTOR BETWEEN SECTIONS ──────────────────────────── */
+    .connector-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin: 4px 0 24px;
+      color: var(--text-ter);
+      font-size: 12px;
+    }
+    .connector-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      max-width: 160px;
+    }
+    .connector-arrow {
+      font-size: 22px;
+      color: var(--border);
+    }
+
+    /* ── ROADMAP PHASES ──────────────────────────────────────── */
+    .roadmap-wrap {
+      background: rgba(0,113,227,.025);
+      border: 1px solid rgba(0,113,227,.12);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 28px;
+    }
+    .phases-flow {
+      display: grid;
+      grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr;
+      align-items: stretch;
+      gap: 0;
+    }
+    .arrow-cell {
+      display: flex; align-items: center; justify-content: center;
+      color: var(--border);
+      font-size: 22px;
+      margin-top: -16px; /* visually center against badge */
+    }
+    .phase-card {
+      background: var(--white);
+      border-radius: 14px;
+      padding: 18px 16px 16px;
+      border: 1.5px solid var(--border);
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: box-shadow .18s, transform .18s;
+    }
+    .phase-card:hover {
+      box-shadow: 0 4px 18px rgba(0,0,0,.1);
+      transform: translateY(-2px);
+    }
+    .phase-card.f1 { border-color: var(--orange); }
+    .phase-card.f2 { border-color: var(--blue); }
+    .phase-card.f3 { border-color: var(--purple); }
+    .phase-card.f4 { border-color: var(--green); }
+
+    .phase-label {
+      font-size: 9px; font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: -6px;
+    }
+    .f1 .phase-label { color: var(--orange); }
+    .f2 .phase-label { color: var(--blue); }
+    .f3 .phase-label { color: var(--purple); }
+    .f4 .phase-label { color: var(--green); }
+
+    .dep-chip {
+      display: inline-block;
+      font-size: 10px;
+      color: var(--text-ter);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2px 7px;
+      margin-top: 4px;
+    }
+
+    /* ── DEPENDENCY MATRIX ───────────────────────────────────── */
+    .dep-wrap {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      margin-bottom: 28px;
+    }
+    .dep-wrap h3 {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text-sec);
+      margin-bottom: 14px;
+      letter-spacing: .3px;
+    }
+    .dep-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .dep-cell {
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .dep-cell .dep-phase {
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .dep-cell .dep-needs {
+      font-size: 11px;
+      color: var(--text-sec);
+      line-height: 1.5;
+    }
+    .dep-cell .dep-unlocks {
+      font-size: 11px;
+      color: var(--blue);
+      margin-top: 4px;
+    }
+
+    /* ── LEGEND ──────────────────────────────────────────────── */
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      justify-content: center;
+      flex-wrap: wrap;
+      padding-top: 8px;
+    }
+    .leg-item {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; color: var(--text-sec);
+    }
+    .leg-dot { width: 9px; height: 9px; border-radius: 50%; }
+    .leg-sep { width: 1px; height: 14px; background: var(--border); }
+
+    /* ── FOOTER ──────────────────────────────────────────────── */
+    .footer {
+      text-align: center;
+      margin-top: 36px;
+      font-size: 11px;
+      color: var(--text-ter);
+    }
+
+    /* ── CONCEPT MAP SVG ─────────────────────────────────────── */
+    .concept-map-wrap {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      margin-bottom: 28px;
+      overflow: hidden;
+    }
+    .concept-map-wrap svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="hdr">
+    <div class="hdr-left">
+      <h1>CrumbPOS — Mapa Conceptual de Arquitectura</h1>
+      <p>Roadmap de desarrollo · Estado al 26 de mayo 2026 · trestresPOS</p>
+    </div>
+    <div class="hdr-badge">519+ tests · 179 rutas · multi-tenant</div>
+  </div>
+
+  <!-- CONCEPT MAP SVG -->
+  <div class="concept-map-wrap">
+    <div class="sec-title">Mapa de dependencias del sistema</div>
+    <svg viewBox="0 0 960 340" xmlns="http://www.w3.org/2000/svg" font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif">
+      <!-- defs -->
+      <defs>
+        <marker id="arr-green"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#34c759"/>
+        </marker>
+        <marker id="arr-blue"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#0071e3"/>
+        </marker>
+        <marker id="arr-orange" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#ff9500"/>
+        </marker>
+        <marker id="arr-purple" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#5856d6"/>
+        </marker>
+        <marker id="arr-gray"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#c7c7cc"/>
+        </marker>
+      </defs>
+
+      <!-- ── CENTRAL NODE ── -->
+      <rect x="380" y="130" width="200" height="60" rx="14"
+            fill="#1d1d1f" />
+      <text x="480" y="155" text-anchor="middle" fill="white" font-size="14" font-weight="700">CrumbPOS</text>
+      <text x="480" y="173" text-anchor="middle" fill="#8e8e93" font-size="10">Plataforma Multi-tenant</text>
+
+      <!-- ── FOUNDATION NODES (LEFT CLUSTER) ── -->
+      <!-- Core Engine -->
+      <rect x="30" y="20" width="170" height="52" rx="11" fill="#f2fff6" stroke="#34c759" stroke-width="1.5"/>
+      <text x="115" y="42" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">⚙️  Core Engine</text>
+      <text x="115" y="58" text-anchor="middle" fill="#6e6e73" font-size="10">XML · Firma · SII · Libros · PDF</text>
+      <rect x="90" y="64" width="50" height="14" rx="7" fill="#34c759" opacity=".15"/>
+      <text x="115" y="74" text-anchor="middle" fill="#248a3d" font-size="9" font-weight="700">LISTO</text>
+
+      <!-- Multi-tenant Infra -->
+      <rect x="30" y="130" width="170" height="52" rx="11" fill="#f2fff6" stroke="#34c759" stroke-width="1.5"/>
+      <text x="115" y="152" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">🏢  Infraestructura</text>
+      <text x="115" y="168" text-anchor="middle" fill="#6e6e73" font-size="10">DB · CAFs · JWT · WORM</text>
+      <rect x="90" y="174" width="50" height="14" rx="7" fill="#34c759" opacity=".15"/>
+      <text x="115" y="184" text-anchor="middle" fill="#248a3d" font-size="9" font-weight="700">LISTO</text>
+
+      <!-- Panel Web -->
+      <rect x="30" y="240" width="170" height="52" rx="11" fill="#f2fff6" stroke="#34c759" stroke-width="1.5"/>
+      <text x="115" y="262" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">🖥  Panel Web</text>
+      <text x="115" y="278" text-anchor="middle" fill="#6e6e73" font-size="10">Admin · Cliente · Facturación</text>
+      <rect x="90" y="284" width="50" height="14" rx="7" fill="#34c759" opacity=".15"/>
+      <text x="115" y="294" text-anchor="middle" fill="#248a3d" font-size="9" font-weight="700">LISTO</text>
+
+      <!-- Wizard Cert (above center-left) -->
+      <rect x="230" y="20" width="170" height="52" rx="11" fill="#f2fff6" stroke="#34c759" stroke-width="1.5"/>
+      <text x="315" y="42" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">📋  Wizard Cert.</text>
+      <text x="315" y="58" text-anchor="middle" fill="#6e6e73" font-size="10">7 pantallas · Envío · Cleanup</text>
+      <rect x="290" y="64" width="50" height="14" rx="7" fill="#34c759" opacity=".15"/>
+      <text x="315" y="74" text-anchor="middle" fill="#248a3d" font-size="9" font-weight="700">LISTO</text>
+
+      <!-- ── ROADMAP NODES (RIGHT CLUSTER) ── -->
+      <!-- F1 Hardening -->
+      <rect x="590" y="20" width="160" height="52" rx="11" fill="#fffaf2" stroke="#ff9500" stroke-width="1.5"/>
+      <text x="670" y="42" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">🔒  F1 Hardening</text>
+      <text x="670" y="58" text-anchor="middle" fill="#6e6e73" font-size="10">E2E · Regresiones · 77829149</text>
+      <rect x="640" y="64" width="60" height="14" rx="7" fill="#ff9500" opacity=".15"/>
+      <text x="670" y="74" text-anchor="middle" fill="#c93400" font-size="9" font-weight="700">EN PROCESO</text>
+
+      <!-- F2 Módulos Web -->
+      <rect x="590" y="130" width="160" height="52" rx="11" fill="#f2f6ff" stroke="#0071e3" stroke-width="1.5"/>
+      <text x="670" y="152" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">📦  F2 Módulos Web</text>
+      <text x="670" y="168" text-anchor="middle" fill="#6e6e73" font-size="10">Productos · Inventario · Clientes</text>
+      <rect x="645" y="174" width="50" height="14" rx="7" fill="#8e8e93" opacity=".12"/>
+      <text x="670" y="184" text-anchor="middle" fill="#636366" font-size="9" font-weight="700">PENDIENTE</text>
+
+      <!-- F3 POS Windows -->
+      <rect x="590" y="240" width="160" height="52" rx="11" fill="#f5f2ff" stroke="#5856d6" stroke-width="1.5"/>
+      <text x="670" y="262" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">💻  F3 POS Windows</text>
+      <text x="670" y="278" text-anchor="middle" fill="#6e6e73" font-size="10">App · Cola offline · Instalador</text>
+      <rect x="645" y="284" width="50" height="14" rx="7" fill="#8e8e93" opacity=".12"/>
+      <text x="670" y="294" text-anchor="middle" fill="#636366" font-size="9" font-weight="700">PENDIENTE</text>
+
+      <!-- F4 AWS -->
+      <rect x="790" y="130" width="150" height="52" rx="11" fill="#f2fff6" stroke="#34c759" stroke-width="1.5" stroke-dasharray="5 3"/>
+      <text x="865" y="152" text-anchor="middle" fill="#1d1d1f" font-size="12" font-weight="600">☁️  F4 AWS+Prod</text>
+      <text x="865" y="168" text-anchor="middle" fill="#6e6e73" font-size="10">EC2 · RDS · S3 · CI/CD</text>
+      <rect x="840" y="174" width="50" height="14" rx="7" fill="#8e8e93" opacity=".12"/>
+      <text x="865" y="184" text-anchor="middle" fill="#636366" font-size="9" font-weight="700">PENDIENTE</text>
+
+      <!-- ── EDGES: Foundation → Central ── -->
+      <path d="M200,46 Q290,46 380,155" fill="none" stroke="#34c759" stroke-width="1.5" marker-end="url(#arr-green)" opacity=".7"/>
+      <path d="M200,156 L380,160" fill="none" stroke="#34c759" stroke-width="1.5" marker-end="url(#arr-green)" opacity=".7"/>
+      <path d="M200,266 Q290,266 380,175" fill="none" stroke="#34c759" stroke-width="1.5" marker-end="url(#arr-green)" opacity=".7"/>
+      <path d="M400,46 Q400,80 420,130" fill="none" stroke="#34c759" stroke-width="1.5" marker-end="url(#arr-green)" opacity=".7"/>
+
+      <!-- ── EDGES: Central → Roadmap ── -->
+      <path d="M580,145 Q585,46 590,46" fill="none" stroke="#ff9500" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr-orange)" opacity=".8"/>
+      <path d="M580,160 L590,160" fill="none" stroke="#0071e3" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr-blue)" opacity=".8"/>
+      <path d="M580,175 Q585,266 590,266" fill="none" stroke="#5856d6" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#arr-purple)" opacity=".8"/>
+
+      <!-- ── EDGES: Roadmap sequence ── -->
+      <path d="M670,72 L670,130" fill="none" stroke="#ff9500" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arr-orange)" opacity=".6"/>
+      <path d="M670,182 L670,240" fill="none" stroke="#0071e3" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arr-blue)" opacity=".6"/>
+      <path d="M750,156 L790,156" fill="none" stroke="#34c759" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arr-green)" opacity=".6"/>
+
+      <!-- ── EDGE LABELS ── -->
+      <text x="283" y="104" text-anchor="middle" fill="#34c759" font-size="9" font-weight="600">provee core</text>
+      <text x="283" y="164" text-anchor="middle" fill="#34c759" font-size="9" font-weight="600">multi-tenant</text>
+      <text x="283" y="232" text-anchor="middle" fill="#34c759" font-size="9" font-weight="600">panel + UI</text>
+      <text x="370" y="88"  text-anchor="middle" fill="#34c759" font-size="9" font-weight="600">cert. SII</text>
+      <text x="600" y="100" text-anchor="start"  fill="#ff9500" font-size="9" font-weight="600">desbloquea prod</text>
+      <text x="600" y="218" text-anchor="start"  fill="#0071e3" font-size="9" font-weight="600">expone APIs</text>
+      <text x="672" y="108" text-anchor="middle" fill="#ff9500" font-size="8" opacity=".8">→ F1</text>
+      <text x="772" y="150" text-anchor="middle" fill="#34c759" font-size="8" opacity=".8">→ F4</text>
+    </svg>
+  </div>
+
+  <!-- FOUNDATION SECTION -->
+  <div class="foundation-wrap">
+    <div class="sec-title">🏗 Fundación — completado al 100 %</div>
+    <div class="foundation-grid">
+
+      <!-- Core Engine -->
+      <div class="card">
+        <div class="badge done">✓ Listo</div>
+        <div class="card-top">
+          <div class="icon" style="background:rgba(52,199,89,.1)">⚙️</div>
+          <div class="card-meta">
+            <div class="card-name">Core Engine DTE</div>
+            <div class="card-sub">Motor de facturación electrónica</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="done">Generación XML T33/34/39/41/52/56/61</li>
+          <li class="done">Firma TED (clave CAF) + sobre PFX</li>
+          <li class="done">Comunicación SII (seed/token/upload)</li>
+          <li class="done">Consulta estado DTEs y envíos</li>
+          <li class="done">Libros IECV, LibroGuía, RCOF</li>
+          <li class="done">30 reglas aprendidas de certificación</li>
+          <li class="done">Impresión PDF carta + térmico</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:100%;background:var(--green)"></div></div>
+      </div>
+
+      <!-- Infraestructura -->
+      <div class="card">
+        <div class="badge done">✓ Listo</div>
+        <div class="card-top">
+          <div class="icon" style="background:rgba(52,199,89,.1)">🏢</div>
+          <div class="card-meta">
+            <div class="card-name">Infraestructura Multi-tenant</div>
+            <div class="card-sub">Base de datos y roles por empresa</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="done">master.db + una DB por empresa/ambiente</li>
+          <li class="done">CAFs centralizados por tramos (sucursal)</li>
+          <li class="done">Auth JWT · 4 roles · sucursales</li>
+          <li class="done">Provisioning + alta de clientes</li>
+          <li class="done">Auditoría WORM + Ley 19.628 (ARCO)</li>
+          <li class="done">Unidad SII dinámica por empresa</li>
+          <li class="done">Migraciones idempotentes automáticas</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:100%;background:var(--green)"></div></div>
+      </div>
+
+      <!-- Wizard Certificación -->
+      <div class="card">
+        <div class="badge done">✓ Listo</div>
+        <div class="card-top">
+          <div class="icon" style="background:rgba(52,199,89,.1)">📋</div>
+          <div class="card-meta">
+            <div class="card-name">Wizard de Certificación SII</div>
+            <div class="card-sub">Proceso completo por empresa</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="done">Setup (cert, CAFs, SET SII)</li>
+          <li class="done">Preview + resumen de casos</li>
+          <li class="done">Dashboard: enviar sobre + libros</li>
+          <li class="done">Declarar avance + consultar revisión</li>
+          <li class="done">Muestras impresas ZIP (carta + cédula)</li>
+          <li class="done">Ley 19.983 intercambio información</li>
+          <li class="done">Cleanup post-certificación</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:100%;background:var(--green)"></div></div>
+      </div>
+
+      <!-- Panel Web -->
+      <div class="card">
+        <div class="badge done">✓ Listo</div>
+        <div class="card-top">
+          <div class="icon" style="background:rgba(52,199,89,.1)">🖥</div>
+          <div class="card-meta">
+            <div class="card-name">Panel Web Multi-tenant</div>
+            <div class="card-sub">Consolas admin + cliente</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="done">Super admin: alta y gestión de clientes</li>
+          <li class="done">Panel master client (6 módulos)</li>
+          <li class="done">Sucursales + Usuarios + roles</li>
+          <li class="done">Facturación: emisión + historial</li>
+          <li class="done">Gestión CAFs y folios</li>
+          <li class="done">Negocio: logo, datos, unidad SII</li>
+          <li class="done">Branding Crumb + favicon + design system</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:100%;background:var(--green)"></div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- CONNECTOR -->
+  <div class="connector-row">
+    <div class="connector-line"></div>
+    <span style="font-size:12px;color:var(--text-ter)">lo que sigue</span>
+    <div class="connector-arrow">↓</div>
+    <span style="font-size:12px;color:var(--text-ter)">secuencia de fases</span>
+    <div class="connector-line"></div>
+  </div>
+
+  <!-- ROADMAP PHASES -->
+  <div class="roadmap-wrap">
+    <div class="sec-title">🛣 Roadmap — fases siguientes en orden</div>
+    <div class="phases-flow">
+
+      <!-- F1 -->
+      <div class="phase-card f1">
+        <div class="phase-label">F1</div>
+        <div class="badge wip">⏳ En proceso</div>
+        <div class="card-top" style="margin-bottom:0">
+          <div class="icon" style="background:rgba(255,149,0,.1);font-size:16px">🔒</div>
+          <div class="card-meta">
+            <div class="card-name">Hardening Certificación</div>
+            <div class="card-sub">Robustez y segunda empresa</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="done">77051056-2 certificada (muestras ⏳)</li>
+          <li class="wip">77829149-5 — ejecutar wizard</li>
+          <li class="todo">Suite E2E completa del wizard</li>
+          <li class="todo">Regresiones de los 30 errores SII</li>
+          <li class="todo">Aprobar muestras impresas</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:55%;background:var(--orange)"></div></div>
+        <span class="dep-chip">🔓 Desbloquea producción</span>
+      </div>
+
+      <div class="arrow-cell">→</div>
+
+      <!-- F2 -->
+      <div class="phase-card f2">
+        <div class="phase-label">F2</div>
+        <div class="badge todo">◦ Pendiente</div>
+        <div class="card-top" style="margin-bottom:0">
+          <div class="icon" style="background:rgba(0,113,227,.1);font-size:16px">📦</div>
+          <div class="card-meta">
+            <div class="card-name">Módulos Web</div>
+            <div class="card-sub">APIs que consume el POS</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="todo">Catálogo de productos + variantes</li>
+          <li class="todo">Precios (lista, especial, promoción)</li>
+          <li class="todo">Inventario + movimientos + alertas</li>
+          <li class="todo">Clientes (RUT, crédito, historial)</li>
+          <li class="todo">Programa de fidelidad / puntos</li>
+          <li class="todo">Reportes y estadísticas de ventas</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:0%;background:var(--blue)"></div></div>
+        <span class="dep-chip">⚠️ Requiere F1 finalizado</span>
+      </div>
+
+      <div class="arrow-cell">→</div>
+
+      <!-- F3 -->
+      <div class="phase-card f3">
+        <div class="phase-label">F3</div>
+        <div class="badge todo">◦ Pendiente</div>
+        <div class="card-top" style="margin-bottom:0">
+          <div class="icon" style="background:rgba(88,86,214,.1);font-size:16px">💻</div>
+          <div class="card-meta">
+            <div class="card-name">POS Windows</div>
+            <div class="card-sub">Cliente de punto de venta</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="todo">Definir stack (Electron / WPF / Tauri)</li>
+          <li class="todo">App POS que consume APIs de F2</li>
+          <li class="todo">Cola offline + sync al volver red</li>
+          <li class="todo">Emisión boletas sin conexión</li>
+          <li class="todo">Instalador por caja (client on-premise)</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:0%;background:var(--purple)"></div></div>
+        <span class="dep-chip">⚠️ Requiere F2 completo</span>
+      </div>
+
+      <div class="arrow-cell">→</div>
+
+      <!-- F4 -->
+      <div class="phase-card f4">
+        <div class="phase-label">F4</div>
+        <div class="badge todo">◦ Pendiente</div>
+        <div class="card-top" style="margin-bottom:0">
+          <div class="icon" style="background:rgba(52,199,89,.1);font-size:16px">☁️</div>
+          <div class="card-meta">
+            <div class="card-name">AWS + Producción</div>
+            <div class="card-sub">Infraestructura cloud definitiva</div>
+          </div>
+        </div>
+        <ul class="items">
+          <li class="todo">EC2 t3.small + RDS PostgreSQL + S3</li>
+          <li class="todo">Migración SQLite → PostgreSQL</li>
+          <li class="todo">CI/CD pipeline (tests + deploy)</li>
+          <li class="todo">~48 USD/mes estimados</li>
+          <li class="todo">Go-live con clientes reales</li>
+        </ul>
+        <div class="pbar"><div class="pfill" style="width:0%;background:var(--green)"></div></div>
+        <span class="dep-chip">⚠️ Solo al terminar F3</span>
+      </div>
+
+    </div>
+
+    <!-- Regla de dependencias -->
+    <div style="margin-top:18px;padding:11px 16px;background:rgba(0,0,0,.025);border-radius:10px;font-size:11.5px;color:var(--text-sec);line-height:1.7">
+      <strong style="color:var(--text)">Regla de dependencias:</strong>
+      F1 habilita producción real →
+      F2 expone las APIs de catálogo/inventario/clientes →
+      F3 consume F2 para el POS →
+      F4 lleva todo a AWS y abre el go-live.
+      El core engine y el panel web son <strong style="color:var(--text)">transversales</strong> y ya están listos.
+    </div>
+  </div>
+
+  <!-- DEPENDENCY MATRIX -->
+  <div class="dep-wrap">
+    <h3>Detalle de dependencias por fase</h3>
+    <div class="dep-grid">
+      <div class="dep-cell">
+        <div class="dep-phase" style="color:var(--orange)">F1 — Hardening</div>
+        <div class="dep-needs">Necesita: core + wizard (✅ listos)</div>
+        <div class="dep-unlocks">Desbloquea: habilitar ambiente producción en empresas certificadas</div>
+      </div>
+      <div class="dep-cell">
+        <div class="dep-phase" style="color:var(--blue)">F2 — Módulos Web</div>
+        <div class="dep-needs">Necesita: F1 completo + multi-tenant (✅ listo)</div>
+        <div class="dep-unlocks">Desbloquea: APIs REST que el POS Windows consumirá</div>
+      </div>
+      <div class="dep-cell">
+        <div class="dep-phase" style="color:var(--purple)">F3 — POS Windows</div>
+        <div class="dep-needs">Necesita: F2 completo (productos/inventario/clientes)</div>
+        <div class="dep-unlocks">Desbloquea: venta offline real, primer cliente instalable</div>
+      </div>
+      <div class="dep-cell">
+        <div class="dep-phase" style="color:#248a3d">F4 — AWS + Producción</div>
+        <div class="dep-needs">Necesita: F3 completo y validado en campo</div>
+        <div class="dep-unlocks">Desbloquea: escalabilidad, backups, SLA, go-live masivo</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:var(--green)"></div> Completado</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--orange)"></div> En proceso</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--gray)"></div> Pendiente</div>
+    <div class="leg-sep"></div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--orange)"></div> F1 Hardening</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--blue)"></div> F2 Módulos Web</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--purple)"></div> F3 POS Windows</div>
+    <div class="leg-item"><div class="leg-dot" style="background:var(--green)"></div> F4 AWS + Prod</div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    CrumbPOS · trestresPOS · Generado 26 mayo 2026 · 519+ tests · 179 rutas API
+  </div>
+
+</body>
+</html>

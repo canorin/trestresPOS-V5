@@ -1,20 +1,27 @@
-lxml
-cryptography
-pyOpenSSL
-requests
-pdf417gen
-reportlab
-Pillow
-num2words
-fpdf2
-# API
-fastapi
-uvicorn[standard]
-sqlalchemy
-python-jose[cryptography]
-passlib[bcrypt]
-pydantic[email]
-python-multipart
-# Dev / tests
-pytest
-httpx>=0.27
+# ── Core XML / Crypto ──────────────────────────────────────────────
+lxml==6.0.2
+cryptography==48.0.0
+pyOpenSSL==26.2.0
+
+# ── HTTP ───────────────────────────────────────────────────────────
+requests==2.33.0
+
+# ── PDF / Barcode ──────────────────────────────────────────────────
+pdf417gen==0.8.1
+Pillow==11.1.0
+num2words==0.5.14
+fpdf2==2.8.7
+
+# ── API ────────────────────────────────────────────────────────────
+fastapi==0.135.2
+uvicorn[standard]==0.42.0
+sqlalchemy==2.0.48
+# python-jose reemplazado por PyJWT (CVE-2022-29217 — ver CN-001)
+PyJWT[crypto]==2.12.1
+bcrypt==5.0.0
+pydantic[email]==2.12.5
+python-multipart==0.0.22
+
+# ── Dev / Tests ────────────────────────────────────────────────────
+pytest==9.0.3
+httpx==0.28.1
