@@ -785,6 +785,7 @@ CERT_CASO_ESTADOS = (
     "emitido",     # DTE generado y enviado al SII
     "aprobado",    # SII aceptó el caso (SOK/EPR dependiendo del set)
     "rechazado",   # SII rechazó el caso
+    "error",       # fallo interno antes o durante la emisión (re-emitible)
 )
 
 # Estados de un libro dentro de una run

@@ -83,7 +83,7 @@ def _obtener_master_key() -> bytes:
                 f"print(Fernet.generate_key().decode())\". Error: {exc}"
             ) from exc
 
-    # Sin clave en env: solo permitido en dev/test, con clave derivada
+    # Sin clave en env: solo permitido en dev/test.
     entorno = os.getenv("CRUMBPOS_ENV", "development").lower()
     if entorno == "production":
         raise SecretoCifradoError(
@@ -91,17 +91,42 @@ def _obtener_master_key() -> bytes:
             "Configurar variable de entorno con una Fernet key de 32 bytes base64-url-safe."
         )
 
-    # Modo desarrollo: clave derivada determinística (NO SEGURA)
-    logger.warning(
-        "⚠️  CRUMBPOS_MASTER_KEY no definida. Usando clave derivada de desarrollo. "
-        "NO USAR EN PRODUCCIÓN. Configurar con: "
-        "export CRUMBPOS_MASTER_KEY=$(python -c \"from cryptography.fernet import Fernet; "
-        "print(Fernet.generate_key().decode())\")"
-    )
-    # Derivar 32 bytes determinísticos de un seed conocido. Esto es solo
-    # para que tests/dev funcionen sin configuración; NUNCA replicarlo en prod.
-    digest = hashlib.sha256(b"crumbpos-dev-key-NEVER-USE-IN-PRODUCTION").digest()
-    return base64.urlsafe_b64encode(digest)
+    # Modo desarrollo: usar clave persistida en data/.dev_master_key si existe,
+    # o generarla y guardarla en ese archivo. Así la clave es única por máquina
+    # y estable entre reinicios, sin hardcodear un seed predecible en el código.
+    from pathlib import Path
+    data_dir = Path(__file__).resolve().parent.parent.parent.parent / "data"
+    dev_key_path = data_dir / ".dev_master_key"
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        if dev_key_path.exists():
+            stored = dev_key_path.read_text().strip().encode("ascii")
+            Fernet(stored)  # validar que sigue siendo una key válida
+            logger.warning(
+                "⚠️  CRUMBPOS_MASTER_KEY no definida. Usando clave local de desarrollo "
+                "(%s). NO USAR EN PRODUCCIÓN.", dev_key_path
+            )
+            return stored
+        # Generar clave nueva única para esta instalación
+        new_key = Fernet.generate_key()
+        dev_key_path.write_text(new_key.decode("ascii"))
+        dev_key_path.chmod(0o600)
+        logger.warning(
+            "⚠️  CRUMBPOS_MASTER_KEY no definida. Clave de desarrollo generada y "
+            "guardada en %s. NO USAR EN PRODUCCIÓN. Para producción: "
+            "export CRUMBPOS_MASTER_KEY=$(python -c \"from cryptography.fernet "
+            "import Fernet; print(Fernet.generate_key().decode())\")",
+            dev_key_path,
+        )
+        return new_key
+    except Exception as exc:
+        # Fallback: clave derivada determinística (menos segura, solo si el FS no es escribible)
+        logger.warning(
+            "⚠️  No se pudo leer/crear %s (%s). Usando clave determinística "
+            "de último recurso. NO USAR EN PRODUCCIÓN.", dev_key_path, exc
+        )
+        digest = hashlib.sha256(b"crumbpos-dev-key-NEVER-USE-IN-PRODUCTION").digest()
+        return base64.urlsafe_b64encode(digest)
 
 
 def _fernet() -> Fernet:

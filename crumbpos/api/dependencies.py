@@ -206,12 +206,33 @@ def get_tenant(
     # Get empresa DB session
     db = get_empresa_db_session(empresa_rut, ambiente)
 
-    # Look up empresa_id from empresa DB
+    # Look up empresa_id from empresa DB.
+    # Si la fila no existe (BD recién creada o estado inconsistente), intentamos
+    # auto-reparar insertando un stub vía _ensure_empresa_row_seeded y volvemos
+    # a intentar. Si el segundo intento también falla es un error real de BD.
     from crumbpos.db.models import Empresa
     empresa = db.query(Empresa).filter(Empresa.rut == empresa_rut).first()
     if not empresa:
+        # Intento de auto-reparación: el engine puede estar cacheado con el
+        # stub-seeder ya ejecutado pero la fila no persiste aún (ej. provisión
+        # parcial). Llamamos directamente al seeder con el engine actual.
+        from crumbpos.db.multi_tenant import _ensure_empresa_row_seeded, get_empresa_engine
+        try:
+            _ensure_empresa_row_seeded(
+                get_empresa_engine(empresa_rut, ambiente), empresa_rut, ambiente
+            )
+        except Exception:
+            pass  # silenciar — el segundo query revelará si funcionó
+        db.expire_all()
+        empresa = db.query(Empresa).filter(Empresa.rut == empresa_rut).first()
+    if not empresa:
         db.close()
-        raise HTTPException(500, f"Empresa {empresa_rut} no inicializada en BD {ambiente}")
+        raise HTTPException(
+            503,
+            f"La empresa {empresa_rut} no está completamente inicializada en la BD "
+            f"({ambiente}). Esto puede ocurrir si la provisión fue interrumpida. "
+            f"Recargue el wizard o contacte al administrador del sistema.",
+        )
 
     return TenantContext(
         db=db,

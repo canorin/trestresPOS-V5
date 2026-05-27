@@ -150,12 +150,13 @@
           </div>
         </div>
 
-        <!-- SET de pruebas -->
+        <!-- SET de pruebas — facturas / guías / notas -->
         <div class="form-card locked" data-locked>
           <h2 class="form-card-title">Set de pruebas SII</h2>
           <p class="form-card-desc">
-            Archivo SIISetDePruebas{RUT}.txt enviado por el SII. El sistema lo lee y
-            extrae automáticamente todos los casos.
+            Archivo <strong>SIISetDePruebas{RUT}.txt</strong> enviado por el SII.
+            Cubre facturas (T33/T34), guías de despacho (T52) y notas de débito/crédito (T56/T61).
+            El sistema extrae automáticamente todos los casos.
           </p>
           <div class="form-grid">
             <div class="field full">
@@ -165,6 +166,27 @@
                   Haz clic o arrastra el archivo del set aquí
                 </div>
                 <div class="drop-zone-hint">Formato: SIISetDePruebas{RUT}.txt (ISO-8859-1)</div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- SET de pruebas — boletas electrónicas (opcional) -->
+        <div class="form-card locked" data-locked>
+          <h2 class="form-card-title">Set de pruebas Boletas <span style="font-size:var(--text-caption);font-weight:400;color:var(--color-text-tertiary);margin-left:6px;">(opcional)</span></h2>
+          <p class="form-card-desc">
+            Si la empresa certifica boletas electrónicas (T39/T41), el SII entrega un
+            archivo separado, habitualmente <strong>SIISetDePruebasBE{RUT}.txt</strong>.
+            Si no certificas boletas ahora, puedes dejarlo vacío y cargarlo más adelante.
+          </p>
+          <div class="form-grid">
+            <div class="field full">
+              <label class="drop-zone" id="dz-boletas-set">
+                <input type="file" accept=".txt" id="file-boletas-set">
+                <div class="drop-zone-label" id="dz-boletas-set-label">
+                  Haz clic o arrastra el archivo del set de boletas aquí
+                </div>
+                <div class="drop-zone-hint">Formato: SIISetDePruebasBE{RUT}.txt (ISO-8859-1)</div>
               </label>
             </div>
           </div>
@@ -690,6 +712,7 @@
       },
       pfxFile: null,
       setFile: null,
+      boletaFile: null,     // SIISetDePruebasBE{RUT}.txt — se sube tras crear la run
       setParseado: null,
       // CAFs pendientes de subir. Cada entrada:
       //   { file, tipoDte, folioDesde, folioHasta, overrideInput,
@@ -701,6 +724,10 @@
       // Lo que `tasks` agrupa visualmente — `casos`/`libros` son la fuente de verdad.
       casos: [],
       libros: [],
+      // Configuración de simulación persistida (Paso 5). Se llena cuando el
+      // usuario configura el set de simulación y se preserva al navegar de
+      // vuelta a pantalla 1 para que el PATCH no la sobreescriba con null.
+      simConfigPersistida: null,
       // Contexto del modal de confirmación de envío de sobre (Fase 2).
       // Se llena en armarSobreSet() antes de abrir el modal y se consume
       // en confirmarEnvioSobreSet(). null cuando el modal está cerrado.
@@ -1012,6 +1039,8 @@
       (file) => { state.pfxFile = file; });
     setupDropZone('dz-set', 'file-set', 'dz-set-label', false,
       (file) => { state.setFile = file; });
+    setupDropZone('dz-boletas-set', 'file-boletas-set', 'dz-boletas-set-label', false,
+      (file) => { state.boletaFile = file; });
     setupDropZone('dz-cafs', 'file-cafs', 'dz-cafs-label', true,
       (files) => handleCafFiles(files));
 
@@ -1451,6 +1480,9 @@
           if (!certOk) return false;
           const cafsOk = await subirCafsPendientes();
           if (!cafsOk) return false;
+          // Si el usuario cargó un set de boletas en pantalla 1, subirlo ahora.
+          const boletasOk = await subirSetBoletas();
+          if (!boletasOk) return false;
           actualizarFooterEmpresa();
           return true;
         } catch (e) {
@@ -1515,6 +1547,11 @@
         const cafsOk = await subirCafsPendientes();
         if (!cafsOk) return false;
 
+        // Si el usuario cargó el set de boletas en pantalla 1, subirlo ahora
+        // (la run ya existe, así que tenemos runId disponible).
+        const boletasOk = await subirSetBoletas();
+        if (!boletasOk) return false;
+
         if (run.etapa_transicion === 'proceso_certificacion') {
           showAlert('info', 'La empresa pasó a etapa "Proceso de certificación".');
         }
@@ -1522,6 +1559,61 @@
         return true;
       } catch (e) {
         showAlert('error', `Error de red: ${e.message}`);
+        return false;
+      }
+    }
+
+    // ============================================================
+    // UPLOAD SET DE BOLETAS (auxiliar — se llama desde procesarSetup)
+    // ============================================================
+    /**
+     * Sube el archivo de set de boletas si el usuario lo proporcionó.
+     * Requiere que state.runId ya exista (creado durante procesarSetup).
+     * Retorna true si no hay archivo pendiente o si la carga fue exitosa.
+     * Retorna false y muestra alerta si falla.
+     */
+    async function subirSetBoletas() {
+      if (!state.boletaFile) return true;   // nada pendiente
+
+      const fd = new FormData();
+      fd.append('file', state.boletaFile);
+
+      try {
+        const resp = await fetch(
+          `/api/certificacion/boletas/${state.empresa.rut}/${state.runId}/cargar`,
+          {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${state.authToken}` },
+            body: fd,
+          },
+        );
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          showAlert('error',
+            `No se pudo cargar el set de boletas: ${err.detail || resp.status}`);
+          return false;
+        }
+        const data = await resp.json();
+        // Refrescar los casos en memoria para que renderTasks incluya boletas.
+        if (Array.isArray(data.casos) && data.casos.length) {
+          state.casos = [...(state.casos || []), ...data.casos];
+        }
+        // Guardar el nombre antes de limpiar la referencia.
+        const nombreArchivo = state.boletaFile.name;
+        state.boletaFile = null;    // ya subido, evitar re-subir al volver a pantalla 1
+        // Actualizar drop zone a estado "cargado".
+        const dzLabel = document.getElementById('dz-boletas-set-label');
+        const dzSet   = document.getElementById('dz-boletas-set');
+        if (dzLabel && dzSet) {
+          dzLabel.innerHTML = `<div class="drop-zone-file">
+            <span class="file-name">${escapeHtml(nombreArchivo)}</span>
+            <span class="file-size">${data.total_casos ?? data.casos?.length ?? '?'} casos cargados</span>
+          </div>`;
+          dzSet.classList.add('has-file');
+        }
+        return true;
+      } catch (e) {
+        showAlert('error', `Error de red al subir set de boletas: ${e.message}`);
         return false;
       }
     }
@@ -2186,7 +2278,7 @@
         const formData = new FormData();
         formData.append('file', file);
 
-        const base = `/api/certificacion/boletas/${state.rut}/${state.runId}`;
+        const base = `/api/certificacion/boletas/${state.empresa.rut}/${state.runId}`;
         const resp = await fetch(`${base}/cargar`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${state.authToken}` },
@@ -4386,6 +4478,20 @@
               <span class="file-size">Cargado en sesión anterior</span>
             </div>`;
             dzSet.classList.add('has-file');
+          }
+        }
+
+        // Si ya hay casos de boletas (T39/T41), marcar ese drop zone como cargado.
+        const casosBoletasCargados = (run.casos || []).filter(c => c.tipo_dte === 39 || c.tipo_dte === 41);
+        if (casosBoletasCargados.length > 0) {
+          const dzBLabel = document.getElementById('dz-boletas-set-label');
+          const dzBSet   = document.getElementById('dz-boletas-set');
+          if (dzBLabel && dzBSet) {
+            dzBLabel.innerHTML = `<div class="drop-zone-file">
+              <span class="file-name">Set de boletas cargado</span>
+              <span class="file-size">${casosBoletasCargados.length} casos · Cargado en sesión anterior</span>
+            </div>`;
+            dzBSet.classList.add('has-file');
           }
         }
 

@@ -152,7 +152,7 @@
           <div class="form-row">
             <label class="form-label" for="suc-cdg-sii">Código SII sucursal <span style="font-weight:400;opacity:.7;">(opcional)</span></label>
             <input type="number" id="suc-cdg-sii" class="form-input" min="1" placeholder="Ej.: 9">
-            <div style="font-size:var(--text-small);color:var(--color-text-tertiary);margin-top:4px;">Número asignado por el SII a esta sucursal. Se incluye en el XML del DTE (<code>CdgSIISucur</code>).</div>
+            <div style="font-size:var(--text-small);color:var(--color-text-tertiary);margin-top:4px;">Solo requerido si la empresa tiene múltiples establecimientos registrados en el SII. Para una Casa Matriz única puede dejarse vacío. Cuando se ingresa, se emite como <code>CdgSIISucur</code> en el XML del DTE.</div>
           </div>
           <!-- Oficina SII -->
           <div class="form-row">
@@ -392,9 +392,6 @@
     }
 
     document.getElementById('btn-suc-cancelar').addEventListener('click', cerrarModal);
-    document.getElementById('modal-suc').addEventListener('click', e => {
-      if (e.target === document.getElementById('modal-suc')) cerrarModal();
-    });
 
     /* ── Guardar (crear o editar) ────────────────────────────────── */
     document.getElementById('btn-suc-guardar').addEventListener('click', async () => {

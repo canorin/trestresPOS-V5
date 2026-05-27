@@ -226,6 +226,14 @@ def obtener_run_activa(rut: str) -> dict:
     registro = get_empresa_registro(rut)
     if not registro:
         raise HTTPException(404, f"Empresa {rut} no encontrada")
+    # Empresas eliminadas (papelera/definitivo) no tienen BD accesible: devolver
+    # 410 en vez de un 500 opaco por archivo no encontrado.
+    if registro.estado not in ("activa", "pendiente_certificacion", "proceso_certificacion"):
+        raise HTTPException(
+            410,
+            f"Empresa {rut} no está activa (estado: {registro.estado}). "
+            "No hay run de certificación disponible.",
+        )
 
     session = get_empresa_db_session(rut, "certificacion")
     try:

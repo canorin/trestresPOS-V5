@@ -1282,8 +1282,39 @@ def provision_empresa(
         engine = get_empresa_engine(rut, ambiente)
         Base.metadata.create_all(bind=engine)
 
+        # Verificación defensiva: create_all puede silenciar errores de DDL
+        # en SQLite con WAL-mode si la BD preexistía en estado inconsistente.
+        # Si la tabla empresa no existe después del create_all, algo falló —
+        # fallamos rápido con un mensaje claro en vez de dejar la BD a medias.
+        from sqlalchemy import inspect as _sa_inspect, text as _sa_text
+        _insp = _sa_inspect(engine)
+        if "empresa" not in _insp.get_table_names():
+            # Segundo intento con conexión explícita comprometida.
+            with engine.begin() as _conn:
+                Base.metadata.create_all(bind=_conn)
+            _insp2 = _sa_inspect(engine)
+            if "empresa" not in _insp2.get_table_names():
+                raise RuntimeError(
+                    f"create_all no creó las tablas en {ambiente}.db para {rut}. "
+                    "Verifica permisos del directorio data/ y que el archivo DB no esté corrupto."
+                )
+
         session = get_empresa_db_session(rut, ambiente)
         try:
+            # _ensure_empresa_row_seeded + _ensure_casa_matriz_seeded (ejecutados al
+            # crear el engine arriba) pueden haber pre-insertado un stub mínimo de
+            # Empresa y Sucursal al detectar que EmpresaRegistro ya existe en master.db.
+            # Eliminar esos stubs antes de insertar las filas reales para evitar
+            # UNIQUE constraint fail en empresa.rut.
+            stub = session.query(Empresa).filter(Empresa.rut == rut).first()
+            if stub is not None:
+                # Primero eliminar sucursales del stub para no dejar FKs huérfanas.
+                for suc in stub.sucursales:
+                    session.delete(suc)
+                session.flush()
+                session.delete(stub)
+                session.flush()
+
             # Insertar Empresa (para que FKs funcionen)
             session.add(Empresa(
                 id=empresa_id,
