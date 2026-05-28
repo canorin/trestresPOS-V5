@@ -19,7 +19,6 @@ import json
 import logging
 import base64
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -159,11 +158,10 @@ class ServicioLibros:
             # Add XML declaration
             xml_final = '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + signed
             xml_bytes = xml_final.encode("ISO-8859-1")
-
-            # Debug: save to /tmp con namespace por tenant+periodo
-            debug_path = Path(f"/tmp/ultimo_libro_ventas_{self.empresa.rut}_{periodo}.xml")
-            debug_path.write_bytes(xml_bytes)
-            logger.info("Libro de ventas XML guardado en %s", debug_path)
+            # FIX 2026-05-28 — eliminado debug write a /tmp (libro ventas)
+            # Historial: este bloque escribía el XML a /tmp/ultimo_libro_ventas_{rut}_{periodo}.xml
+            #            en cada generación. En producción escribe sin límite en disco del servidor.
+            # Solución: eliminado. El logging centralizado cubre el diagnóstico.
 
             # Build resumen for DB storage
             resumen = _build_resumen(dtes)
@@ -331,11 +329,8 @@ class ServicioLibros:
             # Add XML declaration
             xml_final = '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + signed
             xml_bytes = xml_final.encode("ISO-8859-1")
-
-            # Debug: save to /tmp
-            debug_path = Path(f"/tmp/ultimo_libro_guias_{self.empresa.rut}_{periodo}.xml")
-            debug_path.write_bytes(xml_bytes)
-            logger.info("Libro de guías XML guardado en %s", debug_path)
+            # FIX 2026-05-28 — eliminado debug write a /tmp (libro guías)
+            # Ver comentario en libro ventas (mismo fix aplicado a los 3 tipos de libro).
 
             # Build resumen for DB storage
             resumen = _build_resumen(dtes)
@@ -461,10 +456,8 @@ class ServicioLibros:
 
             xml_final = '<?xml version="1.0" encoding="ISO-8859-1"?>\n' + signed
             xml_bytes = xml_final.encode("ISO-8859-1")
-
-            debug_path = Path(f"/tmp/ultimo_libro_compras_{self.empresa.rut}_{periodo}.xml")
-            debug_path.write_bytes(xml_bytes)
-            logger.info("Libro de compras XML guardado en %s", debug_path)
+            # FIX 2026-05-28 — eliminado debug write a /tmp (libro compras)
+            # Ver comentario en libro ventas (mismo fix aplicado a los 3 tipos de libro).
 
             track_id = None
             estado_sii = "generado"

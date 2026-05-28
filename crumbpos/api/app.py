@@ -23,6 +23,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 # cualquier import que termine instanciando ``Firma``.
 from crumbpos.core.firma import compat_facturacion_electronica  # noqa: F401
 
+from crumbpos.core.logging_config import configurar_logging
 from crumbpos.db.multi_tenant import init_multi_tenant, ensure_super_admin
 from crumbpos.api.scheduler import iniciar_scheduler, detener_scheduler
 from crumbpos.api.routers import (
@@ -100,6 +101,9 @@ if SUPER_ADMIN_PASSWORD == _SUPER_ADMIN_DEFAULT:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Inicializa sistema multi-tenant al arrancar."""
+    # 0. Configurar logging (primero de todo — antes de cualquier log)
+    configurar_logging()
+
     # 1. Inicializar master.db
     init_multi_tenant()
 

@@ -106,6 +106,24 @@ def enviar_dte(
 
     status = "OK" if (status_code == "0" or track_id) else "ERROR"
 
+    # FIX 2026-05-28 — Respuestas ERROR del SII no quedaban registradas
+    # Historial: cuando el SII rechazaba un DTE (token vencido, firma inválida,
+    #            set incorrecto, etc.) no había ningún log. El operador veía solo
+    #            el error_id en el cliente sin poder rastrear la causa en el servidor.
+    # Causa raíz: la función retornaba el dict con status="ERROR" sin loguear nada.
+    # Solución: log ERROR con rut, ambiente, status_code y primeros 800 chars de la
+    #           respuesta cruda del SII — suficiente para diagnosticar sin volcar XMLs completos.
+    if status == "ERROR":
+        logger.error(
+            "SII rechazó envío DTE — rut=%s ambiente=%s status_code=%s respuesta=%.800s",
+            rut_emisor, ambiente, status_code, text,
+        )
+    else:
+        logger.info(
+            "SII aceptó envío DTE — rut=%s ambiente=%s track_id=%s status_code=%s",
+            rut_emisor, ambiente, track_id, status_code,
+        )
+
     # Buscar glosa en XML o HTML
     glosa_match = re.search(r'<GLOSA>([^<]+)</GLOSA>', text, re.IGNORECASE)
     if glosa_match:
@@ -258,6 +276,18 @@ def enviar_boleta(
 
         status = "OK" if track_id else "ERROR"
 
+        # FIX 2026-05-28 — mismo fix que enviar_dte() aplicado a boletas (ver comentario allá)
+        if status == "ERROR":
+            logger.error(
+                "SII rechazó envío boleta — rut=%s ambiente=%s estado=%s respuesta=%.800s",
+                rut_emisor, ambiente, estado, text,
+            )
+        else:
+            logger.info(
+                "SII aceptó envío boleta — rut=%s ambiente=%s track_id=%s estado=%s",
+                rut_emisor, ambiente, track_id, estado,
+            )
+
         return {
             "status": status,
             "track_id": str(track_id) if track_id else None,
@@ -273,8 +303,20 @@ def enviar_boleta(
         if xml_track:
             track_id = xml_track.group(1)
 
+        fallback_status = "OK" if track_id else "ERROR"
+        if fallback_status == "ERROR":
+            logger.error(
+                "SII rechazó envío boleta (respuesta no-JSON) — rut=%s ambiente=%s respuesta=%.800s",
+                rut_emisor, ambiente, text,
+            )
+        else:
+            logger.info(
+                "SII aceptó envío boleta (respuesta no-JSON) — rut=%s ambiente=%s track_id=%s",
+                rut_emisor, ambiente, track_id,
+            )
+
         return {
-            "status": "OK" if track_id else "ERROR",
+            "status": fallback_status,
             "track_id": track_id,
             "estado": None,
             "raw": text,
@@ -368,6 +410,18 @@ async def enviar_dte_async(
 
     status = "OK" if (status_code == "0" or track_id) else "ERROR"
 
+    # FIX 2026-05-28 — mismo fix que enviar_dte() (ver comentario allá)
+    if status == "ERROR":
+        logger.error(
+            "SII rechazó envío DTE — rut=%s ambiente=%s status_code=%s respuesta=%.800s",
+            rut_emisor, ambiente, status_code, text,
+        )
+    else:
+        logger.info(
+            "SII aceptó envío DTE — rut=%s ambiente=%s track_id=%s status_code=%s",
+            rut_emisor, ambiente, track_id, status_code,
+        )
+
     glosa_match = re.search(r'<GLOSA>([^<]+)</GLOSA>', text, re.IGNORECASE)
     if glosa_match:
         glosa = glosa_match.group(1).strip()
@@ -450,8 +504,21 @@ async def enviar_boleta_async(
         track_id = resp_json.get("trackid")
         estado = resp_json.get("estado")
         estadistica = resp_json.get("estadistica", [])
+
+        async_status = "OK" if track_id else "ERROR"
+        if async_status == "ERROR":
+            logger.error(
+                "SII rechazó envío boleta — rut=%s ambiente=%s estado=%s respuesta=%.800s",
+                rut_emisor, ambiente, estado, text,
+            )
+        else:
+            logger.info(
+                "SII aceptó envío boleta — rut=%s ambiente=%s track_id=%s estado=%s",
+                rut_emisor, ambiente, track_id, estado,
+            )
+
         return {
-            "status": "OK" if track_id else "ERROR",
+            "status": async_status,
             "track_id": str(track_id) if track_id else None,
             "estado": estado,
             "estadistica": estadistica,
@@ -461,8 +528,19 @@ async def enviar_boleta_async(
         import re
         xml_track = re.search(r'<TRACKID>(\d+)</TRACKID>', text, re.IGNORECASE)
         track_id = xml_track.group(1) if xml_track else None
+        fallback_status = "OK" if track_id else "ERROR"
+        if fallback_status == "ERROR":
+            logger.error(
+                "SII rechazó envío boleta (respuesta no-JSON) — rut=%s ambiente=%s respuesta=%.800s",
+                rut_emisor, ambiente, text,
+            )
+        else:
+            logger.info(
+                "SII aceptó envío boleta (respuesta no-JSON) — rut=%s ambiente=%s track_id=%s",
+                rut_emisor, ambiente, track_id,
+            )
         return {
-            "status": "OK" if track_id else "ERROR",
+            "status": fallback_status,
             "track_id": track_id,
             "estado": None,
             "raw": text,
