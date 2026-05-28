@@ -261,6 +261,24 @@ class ServicioEmisionDTE:
         61: "Nota de Crédito Electrónica",
     }
 
+    # FIX 2026-05-28 — DTEs carta: límite de 20 líneas de detalle
+    # Historial: sin límite, un DTE con muchos items solapaba el timbre
+    #            PDF417 en el impreso. PDFCarta._detalle() dibuja la tabla sin
+    #            corte; el timbre está fijado a y=223.4mm y con fuente 8pt /
+    #            fila 5mm caben máximo 19 filas antes de chocar con esa área.
+    #            Se establece 20 como límite redondo (margen mínimo para
+    #            descuentos globales ocasionales). El límite SII en el XML es
+    #            60 líneas, pero nuestro diseño impreso carta limita a 20.
+    # Causa raíz: no había ningún tope; se podían crear DTEs que generaban
+    #            un PDF inválido visualmente (timbre tapado por la tabla).
+    # Solución: guardia pre-folio en _validar_request para T33/T34/T52/T56/T61.
+    #           Boletas (T39/T41): EXCLUIDAS — usan formato térmico dinámico.
+    #           En POS: si la venta supera 20 ítems distintos y el operador
+    #           selecciona un documento carta, mostrar alerta y bloquear hasta
+    #           que la venta tenga ≤20 ítems distintos (cantidad de un mismo
+    #           ítem no cuenta; solo líneas distintas).
+    MAX_ITEMS_FACTURA_CARTA: int = 20
+
     # ══════════════════════════════════════════════════════════════
     # Enriquecimiento CodRef=3 (MODIFICA MONTO)
     # ══════════════════════════════════════════════════════════════
@@ -536,6 +554,21 @@ class ServicioEmisionDTE:
         # --- Items obligatorios ---
         if not req.items:
             return f"El DTE debe tener al menos 1 ítem de detalle"
+
+        # --- Límite de líneas para DTEs carta (T33/T34/T52/T56/T61) ---
+        # Boletas (T39/T41) excluidas: usan formato térmico dinámico.
+        _TIPOS_CARTA = (33, 34, 52, 56, 61)
+        if req.tipo_dte in _TIPOS_CARTA:
+            n_items = len(req.items)
+            if n_items > self.MAX_ITEMS_FACTURA_CARTA:
+                return (
+                    f"El documento tiene {n_items} líneas de detalle. "
+                    f"El máximo permitido para {self.TIPOS_NOMBRES[req.tipo_dte]} "
+                    f"(formato carta) es {self.MAX_ITEMS_FACTURA_CARTA} líneas distintas. "
+                    f"El límite del SII en el XML es 60, pero el diseño impreso carta "
+                    f"solo admite {self.MAX_ITEMS_FACTURA_CARTA} antes de superponer el "
+                    f"timbre PDF417. Emita múltiples documentos si supera este límite."
+                )
 
         # --- Validar caracteres compatibles con ISO-8859-1 ---
         # El XML SII usa encoding ISO-8859-1. Caracteres fuera de Latin-1

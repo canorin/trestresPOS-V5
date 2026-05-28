@@ -234,6 +234,13 @@ class PDFCarta(FPDF):
         return y + 6
 
     # ---------- DETALLE ----------
+    # LÍMITE 2026-05-28: máximo 20 líneas de detalle para DTEs carta
+    # (T33/T34/T52/T56/T61). Boletas excluidas: formato térmico.
+    # Con encabezado hasta y≈97mm y timbre fijo a y=223.4mm, quedan 96mm útiles
+    # para la tabla. A 5mm/fila + 6mm de header = 19 filas antes del timbre.
+    # El límite duro (MAX_ITEMS_FACTURA_CARTA=20) se aplica upstream en
+    # ServicioEmisionDTE._validar_request, ANTES de consumir folio, para que
+    # nunca lleguen más de 20 ítems aquí. Este método NO corta ni pagina.
     def _detalle(self, y: float) -> float:
         x = self.LM
         w = self.PW
