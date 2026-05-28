@@ -651,7 +651,7 @@ def _empresa_db_path(rut: str, ambiente: str) -> Path:
     return DATA_DIR / rut_clean / f"{ambiente}.db"
 
 
-def _migrate_empresa_schema(engine):
+def _migrate_empresa_schema(engine, ambiente: str = "produccion"):
     """Agrega columnas nuevas a tablas de empresa si no existen (idempotente).
 
     `Base.metadata.create_all` solo crea tablas faltantes — NO agrega
@@ -660,6 +660,11 @@ def _migrate_empresa_schema(engine):
 
     Cualquier columna nueva que se sume a un modelo de empresa debe
     registrarse aquí para que las DBs viejas la reciban al primer acceso.
+
+    ambiente: "produccion" | "certificacion" — controla qué triggers de
+    protección de datos se instalan. El WORM de dte_emitido solo aplica
+    en producción (la Resolución SII N°74/2017 protege datos reales).
+    En certificación los DTEs son de prueba y deben poder eliminarse.
     """
     with engine.begin() as conn:
         # ── caf_folio: sucursal_id (asignación CAF→sucursal, legacy) ──
@@ -929,21 +934,30 @@ def _migrate_empresa_schema(engine):
         # última barrera: bloquea DELETE a nivel de motor SQLite antes de
         # que ningún código de aplicación pueda eliminar un DTE reciente.
         #
-        # Idempotente: CREATE TRIGGER IF NOT EXISTS.
-        # Cálculo: julianday('now') − julianday(OLD.fecha_emision) < 2191.5
-        # (6 * 365.25 días).
-        conn.execute(text(
-            "CREATE TRIGGER IF NOT EXISTS trg_dte_emitido_worm "
-            "BEFORE DELETE ON dte_emitido "
-            "BEGIN "
-            "  SELECT CASE "
-            "    WHEN julianday('now') - julianday(OLD.fecha_emision) < 2191.5 "
-            "    THEN RAISE(ABORT, "
-            "      'B2-WORM: No se puede eliminar un DTE con menos de 6 anios "
-            "de antiguedad (Resolucion SII N74/2017)') "
-            "  END; "
-            "END"
-        ))
+        # FIX 2026-05-28 — WORM solo en producción.
+        # Historial: el trigger se instalaba en todas las BDs (cert + prod).
+        # Causa raíz: _migrate_empresa_schema no recibía el ambiente.
+        # Solución: solo instalar en producción. En certificación los DTEs
+        # son datos de prueba sin valor legal; el wizard debe poder limpiarlos
+        # al reiniciar la certificación. Si la BD de cert ya tenía el trigger
+        # de una versión anterior, se elimina aquí para no bloquear el wizard.
+        if ambiente == "produccion":  # R1-ok: trigger de BD es infraestructura, no lógica de negocio
+            conn.execute(text(
+                "CREATE TRIGGER IF NOT EXISTS trg_dte_emitido_worm "
+                "BEFORE DELETE ON dte_emitido "
+                "BEGIN "
+                "  SELECT CASE "
+                "    WHEN julianday('now') - julianday(OLD.fecha_emision) < 2191.5 "
+                "    THEN RAISE(ABORT, "
+                "      'B2-WORM: No se puede eliminar un DTE con menos de 6 anios "
+                "de antiguedad (Resolucion SII N74/2017)') "
+                "  END; "
+                "END"
+            ))
+        else:
+            # Certificación: eliminar trigger si fue instalado por versiones anteriores.
+            # Esto repara automáticamente BDs de cert que ya tenían el trigger.
+            conn.execute(text("DROP TRIGGER IF EXISTS trg_dte_emitido_worm"))
 
         # ── B1: auditoria_evento — triggers append-only ──────────────────
         # La tabla es de solo-inserción. Estos triggers bloquean UPDATE y
@@ -1026,7 +1040,7 @@ def get_empresa_engine(rut: str, ambiente: str):
         # Import local para evitar ciclo con crumbpos.db.models
         from crumbpos.db.models import Base
         Base.metadata.create_all(bind=engine)
-        _migrate_empresa_schema(engine)
+        _migrate_empresa_schema(engine, ambiente)
         _ensure_empresa_row_seeded(engine, rut, ambiente)
         _ensure_casa_matriz_seeded(engine, rut, ambiente)
         _empresa_engines[key] = engine

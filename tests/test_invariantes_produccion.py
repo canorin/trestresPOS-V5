@@ -90,20 +90,33 @@ R1_PATTERN = re.compile(
 
 
 def test_R1_sin_if_ambiente_en_core():
-    """R1: la lógica de negocio no bifurca por ambiente."""
+    """R1: la lógica de negocio no bifurca por ambiente.
+
+    Excepción explícita: líneas marcadas con '# R1-ok:' seguido de una
+    justificación son ignoradas. Solo se permite para infraestructura de
+    base de datos (triggers, pragmas), nunca para lógica de emisión DTE,
+    cálculo de impuestos, generación XML ni firma.
+    """
     ofensores = []
     for f in _all_py_files(*CORE_PROTECTED, *_protected_routers()):
         src = _read_text(f)
+        lines = src.splitlines()
         for m in R1_PATTERN.finditer(src):
+            lineno = _line_of(src, m.start())
+            # Ignorar líneas con anotación explícita '# R1-ok: <razón>'
+            linea = lines[lineno - 1] if lineno <= len(lines) else ""
+            if "# R1-ok:" in linea:
+                continue
             ofensores.append(
-                f"{_rel(f)}:{_line_of(src, m.start())}  →  {m.group(0)!r}"
+                f"{_rel(f)}:{lineno}  →  {m.group(0)!r}"
             )
     assert not ofensores, (
         "\nR1 violada — bifurcación por ambiente detectada en zona protegida:\n  "
         + "\n  ".join(ofensores)
         + "\n\nLa lógica de negocio es única para certificación y producción. "
         "La diferencia vive en configuración (URLs SII, path BD), nunca en "
-        "if/else del core. Ver AGENTS.md sección R1."
+        "if/else del core. Excepciones de infraestructura BD: marcar con "
+        "'# R1-ok: <razón>'. Ver AGENTS.md sección R1."
     )
 
 
