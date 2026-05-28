@@ -1398,6 +1398,14 @@ def ensure_super_admin(email: str, password_hash: str, nombre: str) -> str:
             UsuarioAuth.email == email,
         ).first()
         if existing:
+            # FIX 2026-05-28 — actualizar password_hash y nombre al arrancar.
+            # Antes: si el usuario ya existía se retornaba sin tocar nada, por lo
+            # que cambiar SUPER_ADMIN_PASSWORD en .env no tenía efecto hasta borrar
+            # master.db manualmente. Ahora se sincroniza siempre con el valor del
+            # entorno para que el cambio de contraseña sea inmediato al reiniciar.
+            existing.password_hash = password_hash
+            existing.nombre = nombre
+            master.commit()
             return existing.id
 
         user_id = str(uuid.uuid4())
