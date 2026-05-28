@@ -9,6 +9,12 @@ import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Cargar variables de entorno desde .env si existe (desarrollo local).
+# En producción el sistema operativo ya tiene las variables definidas
+# y este import no sobreescribe nada.
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
