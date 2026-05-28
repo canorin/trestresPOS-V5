@@ -315,12 +315,27 @@ class Firma(object):
         return 0, ''
 
     def verificar_firma(self, firma, texto, algo='sha1'):
+        """Verifica la firma RSA usando cryptography (pyOpenSSL.crypto.verify
+        fue removido en versiones recientes de pyOpenSSL)."""
+        from cryptography import x509 as _cx509
+        from cryptography.exceptions import InvalidSignature as _InvalidSignature
         try:
-            crypto.verify(self.key_pub,
-                             base64.b64decode(firma),
-                             texto,
-                             algo)
+            sig_bytes = base64.b64decode(firma)
+            data = texto if isinstance(texto, bytes) else texto.encode()
+            # Reconstruir PEM desde self.cert (base64 sin cabeceras)
+            pem = (
+                "-----BEGIN CERTIFICATE-----\n"
+                + self.cert
+                + "\n-----END CERTIFICATE-----\n"
+            ).encode("ascii")
+            cert = _cx509.load_pem_x509_certificate(pem)
+            pub_key = cert.public_key()
+            hash_algo = SHA256() if algo == 'sha256' else SHA1()
+            pub_key.verify(sig_bytes, data, PKCS1v15(), hash_algo)
             return True
-        except:
-            _logger.warning("Error en verificar firma", exc_info=True)
+        except _InvalidSignature:
+            _logger.warning("Firma inválida (clave pública no coincide con firma RSA)")
+            return False
+        except Exception:
+            _logger.warning("Error verificando firma", exc_info=True)
             return False

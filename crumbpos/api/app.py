@@ -16,6 +16,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 
+# Compatibilidad con facturacion_electronica.firma: la versión instalada
+# (0.20.4) usa OpenSSL.crypto.verify(), que fue removido en pyOpenSSL
+# moderno. Importar el módulo reemplaza ``Firma.verificar_firma`` por una
+# implementación basada en ``cryptography``. DEBE quedar antes de
+# cualquier import que termine instanciando ``Firma``.
+from crumbpos.core.firma import compat_facturacion_electronica  # noqa: F401
+
 from crumbpos.db.multi_tenant import init_multi_tenant, ensure_super_admin
 from crumbpos.api.scheduler import iniciar_scheduler, detener_scheduler
 from crumbpos.api.routers import (

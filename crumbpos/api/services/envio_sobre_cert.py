@@ -664,6 +664,19 @@ def consultar_estado(
         elif estado_sii and estado_sii not in ESTADOS_RECHAZO:
             # Limpiar mensaje de error previo si ahora el estado está OK.
             caso.error_mensaje = None
+
+    # ── Boletas (T39/T41): auto-declarar avance ───────────────────────────
+    # El portal de certificación SII NO tiene opción "Declarar Avance" para
+    # boletas — ni envía correo de respuesta.  EPR (o cualquier estado de
+    # aceptación) es el estado terminal desde nuestro lado.
+    # Auto-stampeamos ``avance_declarado_at`` para que ``marcar_aprobado``
+    # pueda ejecutarse sin bloquear al usuario en un paso inexistente.
+    if es_boleta and estado_sii and estado_sii not in ESTADOS_RECHAZO:
+        now = datetime.now()
+        for caso in casos_set:
+            if not caso.avance_declarado_at:
+                caso.avance_declarado_at = now
+
     session.commit()
 
     logger.info(

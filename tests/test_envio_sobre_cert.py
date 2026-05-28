@@ -815,3 +815,72 @@ class TestConsultarEstado:
             consultar_estado(
                 session, run, "BASICO", servicio_fake, empresa,
             )
+
+    def test_boleta_epr_auto_declara_avance(
+        self, session, run, empresa, servicio_fake, monkeypatch,
+    ):
+        """EPR para boletas (T39) debe auto-stampar avance_declarado_at.
+
+        El portal SII no tiene opción "Declarar Avance" para boletas, por
+        lo que el wizard no puede pedirle al usuario que lo haga.  Al
+        consultar estado y recibir EPR, el servicio auto-declara el avance
+        para que marcar_aprobado pueda proceder sin bloqueo.
+        """
+        c1, _ = _make_caso_con_dte(
+            session, run, empresa,
+            tipo=39, folio=1, numero_caso="9999-1", set_nombre="BOLETAS",
+        )
+        c2, _ = _make_caso_con_dte(
+            session, run, empresa,
+            tipo=39, folio=2, numero_caso="9999-2", set_nombre="BOLETAS",
+        )
+        c1.trackid = "TRACK-BOL"
+        c1.estado_sii = "enviado"
+        c2.trackid = "TRACK-BOL"
+        c2.estado_sii = "enviado"
+        session.commit()
+
+        servicio_fake._obtener_token_boleta = MagicMock(return_value="tok-bol")
+        monkeypatch.setattr(
+            envio_sobre_cert,
+            "consultar_estado_boleta",
+            lambda **kw: {"estado": "EPR", "glosa": None},
+        )
+
+        resultado = consultar_estado(
+            session, run, "BOLETAS", servicio_fake, empresa,
+        )
+        assert resultado["estado_sii"] == "EPR"
+
+        session.refresh(c1)
+        session.refresh(c2)
+        assert c1.avance_declarado_at is not None, (
+            "avance_declarado_at debe auto-setearse para boletas con EPR"
+        )
+        assert c2.avance_declarado_at is not None
+
+    def test_boleta_rechazo_no_auto_declara_avance(
+        self, session, run, empresa, servicio_fake, monkeypatch,
+    ):
+        """Rechazo (RCH) para boletas NO debe auto-declarar avance."""
+        c1, _ = _make_caso_con_dte(
+            session, run, empresa,
+            tipo=39, folio=1, numero_caso="9998-1", set_nombre="BOLETAS",
+        )
+        c1.trackid = "TRACK-BOL-R"
+        c1.estado_sii = "enviado"
+        session.commit()
+
+        servicio_fake._obtener_token_boleta = MagicMock(return_value="tok-bol")
+        monkeypatch.setattr(
+            envio_sobre_cert,
+            "consultar_estado_boleta",
+            lambda **kw: {"estado": "RCH", "glosa": "Rechazado"},
+        )
+
+        consultar_estado(session, run, "BOLETAS", servicio_fake, empresa)
+
+        session.refresh(c1)
+        assert c1.avance_declarado_at is None, (
+            "avance_declarado_at NO debe setearse si el SII rechaza las boletas"
+        )

@@ -42,6 +42,8 @@ from crumbpos.certificacion.parser_set_sii import (
     SET_EXENTA,
     SET_GUIAS,
     SetParseado,
+    es_formato_be_standalone,
+    parse_set_boletas_be_content,
     parse_set_sii_content,
 )
 from crumbpos.core.caf.caf_manager_db import CAFManagerDB, FoliosAgotadosError
@@ -1420,19 +1422,36 @@ async def cargar_set_boletas(
 
     content = _decodificar_set(raw)
     parseado = parse_set_sii_content(content, rut_hint=rut)
-
     casos_boletas = parseado.sets.get(SET_BOLETAS, [])
-    if not casos_boletas:
-        raise HTTPException(
-            422,
-            "El archivo no contiene un set de boletas electrónicas. "
-            "Verifica que sea el archivo correcto del SII (debe tener "
-            "un bloque 'SET BOLETA ELECTRONICA').",
-        )
 
     session = get_empresa_db_session(rut, "certificacion")
     try:
         run = _cargar_run_por_id(session, rut, run_id)
+
+        # Si el parser estándar no encontró boletas, intentar el formato BE
+        # standalone (SIISetDePruebasBE*.txt). Ese archivo tiene encabezado
+        # "SII SET DE PRUEBA DE BOLETA ELECTRONICA" y casos "CASO-N" sin número
+        # de atención — lo tomamos de los casos ya cargados del set regular.
+        if not casos_boletas and es_formato_be_standalone(content):
+            primer_caso = session.query(CertificacionCaso).filter(
+                CertificacionCaso.run_id == run.id,
+            ).first()
+            if primer_caso is None:
+                raise HTTPException(
+                    422,
+                    "No se encontró número de atención en los casos del set regular. "
+                    "Sube primero el set de pruebas regular y luego el set de boletas.",
+                )
+            casos_boletas = parse_set_boletas_be_content(
+                content, primer_caso.numero_atencion
+            )
+
+        if not casos_boletas:
+            raise HTTPException(
+                422,
+                "El archivo no contiene un set de boletas electrónicas. "
+                "Verifica que sea el archivo correcto del SII.",
+            )
 
         # Eliminar casos previos del set BOLETAS si existen (re-upload)
         session.query(CertificacionCaso).filter(
@@ -1440,22 +1459,42 @@ async def cargar_set_boletas(
             CertificacionCaso.set_nombre == SET_BOLETAS,
         ).delete()
 
-        # Persistir los casos parseados
-        casos_creados = []
+        # Persistir los casos parseados.
+        # Guardamos referencias a los objetos DB para leer el id generado tras flush.
+        db_casos: list[CertificacionCaso] = []
         for caso in casos_boletas:
-            session.add(CertificacionCaso(
+            db_caso = CertificacionCaso(
                 run_id=run.id,
                 set_nombre=SET_BOLETAS,
                 numero_caso=caso.numero_caso,
                 numero_atencion=caso.numero_atencion,
                 tipo_dte=caso.tipo_dte,
                 datos=asdict(caso),
-            ))
-            casos_creados.append({
-                "numero_caso": caso.numero_caso,
-                "tipo_dte": caso.tipo_dte,
-                "numero_atencion": caso.numero_atencion,
-            })
+            )
+            session.add(db_caso)
+            db_casos.append(db_caso)
+
+        # Flush para que el motor asigne los UUIDs antes del commit.
+        # Esto permite devolver el id real al frontend (necesario para
+        # que renderCasoRow pueda llamar a emitirCaso con el id correcto).
+        session.flush()
+
+        casos_creados = [
+            {
+                "id":                  db_caso.id,
+                "set_nombre":          db_caso.set_nombre,
+                "numero_caso":         db_caso.numero_caso,
+                "numero_atencion":     db_caso.numero_atencion,
+                "tipo_dte":            db_caso.tipo_dte,
+                "estado":              db_caso.estado,
+                "folio":               db_caso.folio,
+                "datos":               db_caso.datos,
+                "error_mensaje":       db_caso.error_mensaje,
+                "avance_declarado_at": db_caso.avance_declarado_at,
+                "aprobado_at":         db_caso.aprobado_at,
+            }
+            for db_caso in db_casos
+        ]
 
         session.commit()
         return {
@@ -2218,9 +2257,27 @@ def _caso_a_factura_request(
                 f"{ref['caso_referido']} todavía no se emitió. "
                 "Emítelo primero para poder referenciarlo.",
             )
+        # FchRef obligatorio para NC/ND que referencian DTEs reales (validado
+        # en emision_dte._validar_request). Fuente única de verdad: la
+        # fecha_emision del DteEmitido — es lo que quedó en el XML firmado
+        # del documento referenciado. Usar caso_ref.emitido_at (timestamp UTC)
+        # daría una fecha diferente si la emisión cruzó medianoche TZ-local.
+        fecha_ref = None
+        if caso_ref.dte_emitido_id:
+            dte_ref = session.get(DteEmitido, caso_ref.dte_emitido_id)
+            if dte_ref and dte_ref.fecha_emision:
+                fecha_ref = dte_ref.fecha_emision.isoformat()
+        if fecha_ref is None:
+            raise HTTPException(
+                422,
+                f"Caso {caso.numero_caso}: no se pudo determinar la "
+                f"fecha de emisión del caso referido {ref['caso_referido']} "
+                "(falta DteEmitido o fecha_emision). Revisar manualmente.",
+            )
         referencias = [{
             "tipo_doc": ref.get("tipo_doc_referido"),
             "folio": caso_ref.folio,
+            "fecha": fecha_ref,
             "razon": ref.get("razon"),
             "codigo": ref.get("cod_ref"),
         }]

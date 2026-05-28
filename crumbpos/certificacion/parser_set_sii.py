@@ -644,3 +644,96 @@ def _rut_from_filename(filename: str) -> str | None:
         return None
     cuerpo, dv = digitos[:-1], digitos[-1]
     return f"{cuerpo}-{dv}"
+
+
+# ════════════════════════════════════════════════════════════════════
+# Parser del archivo SIISetDePruebasBE (formato simplificado)
+# ════════════════════════════════════════════════════════════════════
+
+# Detecta el encabezado del archivo BE standalone del SII
+_BE_STANDALONE_HEADER_RE = re.compile(
+    r"SII\s+SET\s+DE\s+PRUEBA\s+DE\s+BOLETA\s+ELECTRONICA", re.I
+)
+# Casos en formato BE: "CASO-1", "CASO-2", etc. (sin número de atención)
+_CASO_BE_NUM_RE = re.compile(r"^CASO-(\d+)\s*$", re.M)
+# Observación dentro de un caso BE
+_OBSERVACION_BE_RE = re.compile(r"OBSERVACI[OÓ]N\s*:\s*\"?(.+?)\"?\s*$", re.I | re.M)
+# Extrae unidad de medida del texto de observación
+_UNIDAD_MEDIDA_OBS_RE = re.compile(r"unidad\s+de\s+medida\s+en\s+([A-Za-z]+)", re.I)
+
+
+def es_formato_be_standalone(content: str) -> bool:
+    """Devuelve True si el contenido es un SIISetDePruebasBE standalone.
+
+    El archivo BE del SII comienza con la línea:
+    "SII SET DE PRUEBA DE BOLETA ELECTRONICA DE VENTAS Y SERVICIOS"
+    en lugar del formato de bloques separados por guiones del set regular.
+    """
+    for linea in content.splitlines()[:10]:
+        if _BE_STANDALONE_HEADER_RE.search(linea):
+            return True
+    return False
+
+
+def parse_set_boletas_be_content(
+    content: str,
+    numero_atencion: int,
+) -> list[CasoSet]:
+    """Parsea el archivo SIISetDePruebasBE del SII (formato simplificado).
+
+    El archivo BE usa ``CASO-N`` como identificador (sin número de atención en
+    el archivo), ítems en tabla ``Item | Cantidad | Precio Unitario con IVA``,
+    y observaciones opcionales por caso.  El número de atención se recibe como
+    parámetro: en el wizard se extrae de los casos ya cargados del set regular,
+    porque el archivo BE no lo incluye.
+
+    El ``tipo_dte`` se determina por ítem:
+    - Si algún ítem es afecto → T39 (BOLETA ELECTRONICA).
+    - Si todos son exentos → T41 (BOLETA NO AFECTA O EXENTA ELECTRONICA).
+    Los ítems con "EXENTO" en el nombre se marcan automáticamente como exentos
+    por el parser de ítems existente.
+
+    Returns:
+        Lista de ``CasoSet``. El ``numero_caso`` se construye como
+        ``{numero_atencion}-{n_seq}``.
+    """
+    casos: list[CasoSet] = []
+    matches = list(_CASO_BE_NUM_RE.finditer(content))
+    if not matches:
+        return casos
+
+    for idx, m in enumerate(matches):
+        n_seq = int(m.group(1))
+        inicio = m.end()
+        fin = matches[idx + 1].start() if idx + 1 < len(matches) else len(content)
+        bloque = content[inicio:fin]
+
+        # Reutilizar el parser estándar de ítems: detecta automáticamente la
+        # cabecera "Item  Cantidad  Precio Unitario con IVA".
+        items = _parse_items_de_caso(bloque, TIPO_BOLETA)
+        if not items:
+            continue
+
+        # Aplicar unidad_medida desde OBSERVACION si se indica en el bloque.
+        obs_m = _OBSERVACION_BE_RE.search(bloque)
+        if obs_m:
+            um_m = _UNIDAD_MEDIDA_OBS_RE.search(obs_m.group(1))
+            if um_m:
+                unidad = um_m.group(1)
+                for item in items:
+                    if item.unidad_medida is None:
+                        item.unidad_medida = unidad
+
+        # T41 si TODOS los ítems son exentos; T39 si alguno es afecto.
+        todos_exentos = all(item.exento for item in items)
+        tipo_dte = TIPO_BOLETA_EXENTA if todos_exentos else TIPO_BOLETA
+
+        casos.append(CasoSet(
+            numero_caso=f"{numero_atencion}-{n_seq}",
+            set_nombre=SET_BOLETAS,
+            numero_atencion=numero_atencion,
+            tipo_dte=tipo_dte,
+            items=items,
+        ))
+
+    return casos

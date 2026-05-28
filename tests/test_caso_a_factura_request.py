@@ -26,8 +26,12 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from datetime import date
+
 from crumbpos.api.routers.certificacion import _caso_a_factura_request
-from crumbpos.db.models import Base, CertificacionCaso, CertificacionRun, Empresa
+from crumbpos.db.models import (
+    Base, CertificacionCaso, CertificacionRun, DteEmitido, Empresa,
+)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -49,8 +53,8 @@ def session():
 
 
 @pytest.fixture
-def empresa():
-    return Empresa(
+def empresa(session):
+    e = Empresa(
         rut="77829149-5",
         razon_social="GRUPO TRESTRES SPA",
         giro="SERVICIOS",
@@ -59,6 +63,16 @@ def empresa():
         ciudad="SANTIAGO",
         cert_rut_firmante="11111111-1",
     )
+    # Persistir para que tenga id — necesario para FKs de DteEmitido en
+    # los helpers que simulan casos "emitido".
+    session.add(e)
+    session.flush()
+    return e
+
+
+# Fecha estable para los DteEmitido sintéticos en tests. Cualquier fecha
+# pasada sirve — el mapper la usa tal cual como FchRef.
+_FECHA_REF_TEST = date(2026, 4, 22)
 
 
 @pytest.fixture
@@ -93,6 +107,42 @@ def _mk_caso(
     )
 
 
+def _mk_caso_emitido(
+    session,
+    empresa: Empresa,
+    run_id: str,
+    numero: str,
+    tipo_dte: int,
+    datos: dict,
+    folio: int,
+    fecha_emision: date = _FECHA_REF_TEST,
+) -> CertificacionCaso:
+    """Crea un CertificacionCaso *emitido* con su DteEmitido linkado.
+
+    Refleja la realidad de producción: todo caso con ``estado="emitido"``
+    tiene una fila ``DteEmitido`` apuntada por ``caso.dte_emitido_id``,
+    y de ahí se lee la ``fecha_emision`` que pasa al FchRef de la NC/ND
+    que lo referencia (ver ``_caso_a_factura_request``).
+    """
+    dte = DteEmitido(
+        empresa_id=empresa.id,
+        tipo_dte=tipo_dte,
+        folio=folio,
+        fecha_emision=fecha_emision,
+        receptor_rut=empresa.rut,
+        receptor_razon=empresa.razon_social,
+        monto_total=0,
+        estado_sii="pendiente",
+    )
+    session.add(dte)
+    session.flush()
+    caso = _mk_caso(run_id, numero, tipo_dte, datos, folio=folio, estado="emitido")
+    caso.dte_emitido_id = dte.id
+    session.add(caso)
+    session.flush()
+    return caso
+
+
 # ══════════════════════════════════════════════════════════════════
 # CodRef=2 — CORRIGE TEXTO/GIRO
 # ══════════════════════════════════════════════════════════════════
@@ -100,11 +150,10 @@ def _mk_caso(
 
 class TestCodRef2CorrigeTexto:
     def test_nc_corrige_giro_sintetiza_placeholder(self, session, run, empresa):
-        # Factura original ya emitida
-        caso_ref = _mk_caso(run.id, "4788482-1", 33, {
+        # Factura original ya emitida (DteEmitido linkado para resolver FchRef)
+        _mk_caso_emitido(session, empresa, run.id, "4788482-1", 33, {
             "items": [{"nombre": "Item 1", "cantidad": 1, "precio_unitario": 1000}],
-        }, folio=53, estado="emitido")
-        session.add(caso_ref)
+        }, folio=53)
 
         # NC CORRIGE GIRO: items=[] en el SET
         caso = _mk_caso(run.id, "4788482-5", 61, {
@@ -127,10 +176,11 @@ class TestCodRef2CorrigeTexto:
         assert item["cantidad"] == 0
         assert item["precio_unitario"] == 0
         assert item["exento"] is False
-        # Referencia con folio resuelto
+        # Referencia con folio y fecha resueltos desde DteEmitido del referido.
         assert req.referencias == [{
             "tipo_doc": 33,
             "folio": 53,
+            "fecha": _FECHA_REF_TEST.isoformat(),
             "razon": "CORRIGE GIRO DEL RECEPTOR",
             "codigo": 2,
         }]
@@ -147,10 +197,9 @@ class TestCodRef1Anula:
             {"nombre": "Producto A", "cantidad": 2, "precio_unitario": 500, "exento": False},
             {"nombre": "Producto B", "cantidad": 1, "precio_unitario": 300, "exento": False},
         ]
-        caso_ref = _mk_caso(run.id, "4788482-3", 33, {
+        _mk_caso_emitido(session, empresa, run.id, "4788482-3", 33, {
             "items": items_originales,
-        }, folio=55, estado="emitido")
-        session.add(caso_ref)
+        }, folio=55)
 
         caso = _mk_caso(run.id, "4788482-7", 61, {
             "items": [],
@@ -177,10 +226,10 @@ class TestCodRef1Anula:
     ):
         """Caso 4788482-8: ND anula la NC 4788482-5 (CORRIGE GIRO).
         La NC-5 no tiene ítems propios en SET; debe inferir el placeholder."""
-        caso_1 = _mk_caso(run.id, "4788482-1", 33, {
+        _mk_caso_emitido(session, empresa, run.id, "4788482-1", 33, {
             "items": [{"nombre": "Item 1", "cantidad": 1, "precio_unitario": 1000}],
-        }, folio=53, estado="emitido")
-        caso_5 = _mk_caso(run.id, "4788482-5", 61, {
+        }, folio=53)
+        _mk_caso_emitido(session, empresa, run.id, "4788482-5", 61, {
             "items": [],
             "referencia": {
                 "caso_referido": "4788482-1",
@@ -188,8 +237,7 @@ class TestCodRef1Anula:
                 "razon": "CORRIGE GIRO DEL RECEPTOR",
                 "cod_ref": 2,
             },
-        }, folio=57, estado="emitido")
-        session.add_all([caso_1, caso_5])
+        }, folio=57)
 
         # ND anula NC-5
         caso_8 = _mk_caso(run.id, "4788482-8", 56, {
@@ -239,13 +287,12 @@ class TestCodRef3ModificaMonto:
         (Sí resuelve ``numero_caso → folio`` para la referencia — eso es
         distinto al enriquecimiento de precios.)"""
         # Caso ref sólo para resolver folio en la referencia:
-        caso_ref = _mk_caso(run.id, "4788482-2", 33, {
+        _mk_caso_emitido(session, empresa, run.id, "4788482-2", 33, {
             "items": [
                 {"nombre": "Pañuelo AFECTO", "cantidad": 857, "precio_unitario": 6619},
                 {"nombre": "ITEM 2 AFECTO", "cantidad": 805, "precio_unitario": 5667},
             ],
-        }, folio=54, estado="emitido")
-        session.add(caso_ref)
+        }, folio=54)
 
         caso = _mk_caso(run.id, "4788482-6", 61, {
             "items": [
@@ -280,12 +327,11 @@ class TestCodRef3ModificaMonto:
     ):
         """Si el SET (o el usuario) ya declaró precios, el mapper los pasa
         sin modificar. El core sólo enriquece items con precio<=0."""
-        caso_ref = _mk_caso(run.id, "4788482-2", 33, {
+        _mk_caso_emitido(session, empresa, run.id, "4788482-2", 33, {
             "items": [
                 {"nombre": "Pañuelo AFECTO", "cantidad": 857, "precio_unitario": 6619},
             ],
-        }, folio=54, estado="emitido")
-        session.add(caso_ref)
+        }, folio=54)
 
         caso = _mk_caso(run.id, "4788482-6", 61, {
             "items": [
@@ -313,13 +359,12 @@ class TestCodRef3ModificaMonto:
         ocurre antes solo en el mapper (cert-specific) — ahora vive en el
         core (``ServicioEmisionDTE._enriquecer_items_codref3``) que lee el
         XML firmado del DteEmitido. Un solo lugar de procesamiento."""
-        caso_ref = _mk_caso(run.id, "4788482-2", 33, {
+        _mk_caso_emitido(session, empresa, run.id, "4788482-2", 33, {
             "items": [
                 {"nombre": "Pañuelo AFECTO", "cantidad": 857,
                  "precio_unitario": 6619, "descuento_pct": 11},
             ],
-        }, folio=54, estado="emitido")
-        session.add(caso_ref)
+        }, folio=54)
 
         caso = _mk_caso(run.id, "4788482-6", 61, {
             "items": [

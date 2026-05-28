@@ -1589,6 +1589,22 @@
         );
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
+          if (resp.status === 422) {
+            // El archivo no es un set de boletas válido. Como el campo es opcional,
+            // descartamos el archivo y continuamos — no bloqueamos la transición.
+            state.boletaFile = null;
+            // Limpiar el drop zone visualmente
+            const dzLabel = document.getElementById('dz-boletas-set-label');
+            const dzSet   = document.getElementById('dz-boletas-set');
+            if (dzLabel) dzLabel.innerHTML = `<span>Arrastra aquí o haz clic para seleccionar</span>`;
+            if (dzSet)   dzSet.classList.remove('has-file');
+            showAlert('warning',
+              `El archivo de boletas no es válido y fue omitido. `
+              + `${err.detail ? err.detail + ' ' : ''}`
+              + `Puedes cargarlo más adelante desde el Paso 3.`);
+            return true;   // campo opcional — no bloquear
+          }
+          // Error de servidor (5xx) u otro inesperado — sí bloquear
           showAlert('error',
             `No se pudo cargar el set de boletas: ${err.detail || resp.status}`);
           return false;

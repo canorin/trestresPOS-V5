@@ -6,7 +6,9 @@ Reglas SII críticas:
 1. ALL document types in the period must appear in both Detalle AND ResumenPeriodo
 2. TotalesPeriodo must include ALL fields (TotMntExe, TotMntNeto, TotMntIVA, TotMntTotal) even when 0
 3. Detalle entries must include MntExe, MntNeto, MntIVA, MntTotal even when 0
-4. NC (T61) and ND (T56) with references must include TpoDocRef/FolioDocRef
+4. NC (T61) and ND (T56) con referencia a liquidación (T40/T43/T103) incluyen
+   TpoDocRef/FolioDocRef en el libro de ventas. Para referencias a T33/T34/T52
+   esos campos se OMITEN (el SII los rechaza con reparo LBR-2).
 5. IVA = (neto * 19 + 50) // 100
 """
 import logging
@@ -198,13 +200,20 @@ def generar_libro_ventas(
         if dte.tipo_dte in TIPOS_AFECTOS:
             entry["TasaImp"] = 19
 
-        # Extract references for NC/ND
+        # Extract references for NC/ND.
+        # En el libro de VENTAS, TpoDocRef solo corresponde a liquidaciones
+        # (T40, T43, T103). Para NCs/NDs que referencian facturas regulares
+        # (T33, T34, T52, etc.) el campo debe omitirse: incluirlo produce
+        # reparo LBR-2 "Reparo en Calculo de [TpoDoc] debe ser [40, 43, 103]"
+        # que bloquea la declaración de avance en certificación.
+        # Tanto TpoDocRef como FolioDocRef se incluyen o se omiten juntos.
+        _TIPOS_REF_VALIDOS_VENTA = frozenset({40, 43, 103})
         if dte.tipo_dte in TIPOS_CON_REFERENCIA:
             tpo_ref, folio_ref = _extraer_referencia_desde_xml(dte.xml_firmado)
-            if tpo_ref is not None:
+            if tpo_ref is not None and tpo_ref in _TIPOS_REF_VALIDOS_VENTA:
                 entry["TpoDocRef"] = tpo_ref
-            if folio_ref is not None and folio_ref > 0:
-                entry["FolioDocRef"] = folio_ref
+                if folio_ref is not None and folio_ref > 0:
+                    entry["FolioDocRef"] = folio_ref
 
         entries.append(entry)
 

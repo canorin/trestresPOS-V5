@@ -38,6 +38,12 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+# ── Tipos válidos para TpoDocRef en Detalle del libro de VENTAS ──────────────
+# Solo liquidaciones: T40 (liquidación papel), T43 (liquidación electrónica),
+# T103 (liquidación electrónica DTE). Cualquier otro valor (ej: T33, T34, T52)
+# produce reparo LBR-2 y BLOQUEA la declaración de avance en certificación.
+_TIPOS_REF_VALIDOS_VENTA: frozenset[int] = frozenset({40, 43, 103})
+
 from crumbpos.api.services.emision_dte import ServicioEmisionDTE
 from crumbpos.core.libros.generador_iecv import (
     generar_libro_compras,
@@ -364,6 +370,54 @@ def _folios_guias_anuladas_por_instruccion(
 
 
 # ══════════════════════════════════════════════════════════════════
+# Guardia pre-firma: validación anti-LBR-2
+# ══════════════════════════════════════════════════════════════════
+
+
+def _validar_xml_libro_ventas_sin_lbr2(xml_str: str) -> None:
+    """Verifica que el XML del libro de ventas no contenga entradas que
+    producirían reparo LBR-2 en el SII.
+
+    Regla SII: en el Detalle del libro de ventas, el campo ``<TpoDocRef>``
+    SOLO es válido para liquidaciones (T40, T43, T103). Si aparece con
+    cualquier otro valor (T33, T34, T52…) el SII emite reparo LBR-2
+    "Reparo en Calculo de [TpoDoc] debe ser [40, 43, 103]", que BLOQUEA
+    la declaración de avance en certificación.
+
+    Esta función se llama **después de generar el XML y antes de firmarlo**:
+    actúa como circuito de corte para que cualquier regresión en el
+    generador o en código auxiliar sea detectada antes de desperdiciar
+    folios enviando al SII.
+
+    Raises:
+        ValueError: si encuentra algún ``<TpoDocRef>`` con valor inválido
+        dentro de un ``<Detalle>`` de TpoDoc 56 o 61.
+    """
+    # Buscar pares (TpoDoc, TpoDocRef) dentro de cada <Detalle>...</Detalle>.
+    # El XML del libro puede estar en una sola línea o multi-línea.
+    detalle_bloques = re.findall(
+        r"<Detalle>.*?</Detalle>", xml_str, re.DOTALL,
+    )
+    for bloque in detalle_bloques:
+        tpo_doc_m = re.search(r"<TpoDoc>(\d+)</TpoDoc>", bloque)
+        tpo_ref_m = re.search(r"<TpoDocRef>(\d+)</TpoDocRef>", bloque)
+        if tpo_ref_m is None:
+            continue  # sin TpoDocRef → OK
+        tpo_doc = int(tpo_doc_m.group(1)) if tpo_doc_m else None
+        tpo_ref = int(tpo_ref_m.group(1))
+        if tpo_ref not in _TIPOS_REF_VALIDOS_VENTA:
+            raise ValueError(
+                f"[ANTI-LBR-2] Libro de ventas contiene TpoDocRef={tpo_ref} "
+                f"en Detalle de TpoDoc={tpo_doc}. "
+                f"Solo se permiten {sorted(_TIPOS_REF_VALIDOS_VENTA)} "
+                f"(liquidaciones). Este XML produciría reparo LBR-2 en SII "
+                f"y bloquearía la declaración de avance. "
+                f"Verifica crumbpos/core/libros/generador_iecv.py — "
+                f"_TIPOS_REF_VALIDOS_VENTA."
+            )
+
+
+# ══════════════════════════════════════════════════════════════════
 # Funciones públicas
 # ══════════════════════════════════════════════════════════════════
 
@@ -406,17 +460,61 @@ def generar_libro(
     rut_envia = servicio.config.rut_firmante or servicio.config.rut
     periodo = _derivar_periodo(session, empresa)
 
-    # NOTA: en libros ESPECIALES de certificación SIEMPRE se emite
-    # ``TipoEnvio=TOTAL``. Un intento previo de auto-detectar re-envíos
-    # y emitir ``AJUSTE`` (2026-04-23) fue revertido tras observarse
-    # que el SII rechaza el AJUSTE antes de generar trackid —
-    # ``LibroGuia`` solo acepta TOTAL/PARCIAL en la práctica (ver
-    # ``sii_formato_libros.md``) y para IECV el AJUSTE requiere un N°
-    # de Atención nuevo. Si el SII ya cerró el FolioNotificacion con un
-    # TOTAL previo, la única ruta legítima es pedir un set nuevo al SII
-    # y reiniciar la certificación preservando CAFs.
-    # El parámetro ``tipo_envio`` queda disponible en los generadores
-    # para uso en producción (libros MENSUAL, donde AJUSTE sí aplica).
+    # TipoEnvio para IECV (ventas y compras):
+    #   - TOTAL  → primer envío del período (primer_envio_sii_at es None).
+    #   - AJUSTE → re-envío correctivo después de un TOTAL ya aceptado
+    #              por el SII (primer_envio_sii_at está seteado y se
+    #              preserva en ``reiniciar_envio_libro``).
+    #
+    # El SII devuelve LNC ("Tipo de Envio de Libro No Corresponde") si se
+    # envía TOTAL cuando ya existe un libro para ese FolioNotificacion/
+    # período — exige AJUSTE.  Para IECV el AJUSTE usa el mismo
+    # FolioNotificacion; no requiere un N° de Atención nuevo.
+    #
+    # ── SEMÁNTICA DELTA DEL AJUSTE IECV ──────────────────────────────────
+    # El SII procesa el AJUSTE como REEMPLAZO PARCIAL del libro existente:
+    # solo las entradas presentes en el Detalle del AJUSTE se "actualizan".
+    # Enviar el libro completo (T33 + T56 + T61) como AJUSTE causa LBR-3
+    # ("No Hay Resumen Para Informacion de Detalle") en los tipos no
+    # cambiados, porque el SII detecta que T33/T56 en el Detalle son
+    # idénticos al TOTAL y no tienen justificación en el ResumenPeriodo.
+    #
+    # Para un AJUSTE correcto: incluir SOLO los documentos que cambiaron
+    # en el Detalle, y SOLO los tipos afectados en el ResumenPeriodo.
+    # TODO: implementar generación de Detalle delta para AJUSTE IECV.
+    #
+    # ── REPAROS LBR-2 — BLOQUEAN AVANCE EN CERTIFICACIÓN ────────────────
+    # "Reparo en Calculo de [TpoDoc] debe ser [40, 43, 103]" para NC (T61)
+    # que referencian T33/T34/T52.
+    #
+    # CAUSA RAÍZ (código antiguo, corregido 2026-05-27):
+    #   El generador ponía <TpoDocRef>33</TpoDocRef> en el Detalle del
+    #   LIBRO para entradas T61, campo válido SOLO para {40, 43, 103}.
+    #   Fix: _TIPOS_REF_VALIDOS_VENTA = frozenset({40, 43, 103}) en
+    #   generador_iecv.py — nuevos libros ya NO producen LBR-2.
+    #
+    # IMPACTO REAL (confirmado por evaluador SII 2026-05-27):
+    #   LBR-2 SÍ BLOQUEA la declaración de avance en el portal de
+    #   certificación — el portal NO permite avance si hay reparos.
+    #
+    # QUÉ NO HACER si el TOTAL ya está LOK+LBR-2:
+    #   • NO enviar AJUSTE: T61-solo → LBR-3 ("No Hay Resumen Para
+    #     Información de Detalle") + LBR-2 cascada → LRH.
+    #   • NO resetear primer_envio_sii_at y enviar nuevo TOTAL: SII
+    #     rechaza con LNC ("Tipo de Envio de Libro No Corresponde").
+    #   • Contactar al evaluador SII con el N° de atención para que
+    #     procese el avance manualmente.
+    #
+    # Con el fix aplicado (2026-05-27) los libros nuevos no tendrán
+    # LBR-2 y el avance procede normalmente.
+    #
+    # LibroGuia: SIEMPRE TOTAL. El esquema LibroGuia_v10.xsd solo acepta
+    # TOTAL/PARCIAL. Un re-envío de guías necesita N° de Atención nuevo.
+    es_reenvio_iecv = (
+        libro.tipo_libro in ("ventas", "compras")
+        and libro.primer_envio_sii_at is not None
+    )
+    tipo_envio_iecv = "AJUSTE" if es_reenvio_iecv else "TOTAL"
 
     servicio._cargar_firma()
     firma = servicio._firma
@@ -429,12 +527,36 @@ def generar_libro(
                 "No hay DTEs de venta emitidos para generar el libro. "
                 "Emite los sets básico y/o exenta primero."
             )
+        # ── AJUSTE delta: solo los tipos que cambiaron ────────────────────
+        # El SII procesa IECV AJUSTE como reemplazo parcial por TipoDoc:
+        # solo los TpoDoc presentes en el Detalle/ResumenPeriodo del AJUSTE
+        # se actualizan; los no incluidos se conservan del TOTAL original.
+        # Enviar tipos no modificados en un AJUSTE provoca LBR-3 ("No Hay
+        # Resumen Para Informacion de Detalle") — el SII detecta entradas
+        # idénticas al TOTAL sin justificación de corrección.
+        #
+        # En certificación, el único tipo que cambió es T61: se eliminó
+        # TpoDocRef del libro para NCs que referencian T33/T34/T52 (ese
+        # campo es válido solo para liquidaciones T40/T43/T103). T33 y T56
+        # son idénticos al TOTAL y NO deben aparecer en el AJUSTE.
+        #
+        # Fallback: si no hay T61 en el set (p.ej. producción con solo
+        # T33/T34), se envía la lista completa — todos los tipos cambiaron.
+        if es_reenvio_iecv:
+            dtes_delta = [d for d in dtes if d.tipo_dte == 61]
+            if dtes_delta:
+                logger.info(
+                    "AJUSTE delta ventas: %d DTEs totales → %d T61 solamente",
+                    len(dtes), len(dtes_delta),
+                )
+                dtes = dtes_delta
         xml_str, xml_libro_id = generar_libro_ventas(
             dtes=dtes,
             empresa=empresa,
             periodo=periodo,
             rut_envia=rut_envia,
             folio_notificacion=folio_notificacion,
+            tipo_envio=tipo_envio_iecv,
         )
 
     elif libro.tipo_libro == "guias":
@@ -473,10 +595,18 @@ def generar_libro(
             periodo=periodo,
             rut_envia=rut_envia,
             folio_notificacion=folio_notificacion,
+            tipo_envio=tipo_envio_iecv,
         )
 
     else:
         raise ValueError(f"tipo_libro desconocido: {libro.tipo_libro}")
+
+    # ── Guardia anti-LBR-2 (solo libro de ventas) ────────────────────────
+    # Valida que el XML generado no contenga TpoDocRef con valores fuera de
+    # {40, 43, 103}. Detecta regresiones en el generador ANTES de firmar y
+    # enviar, evitando desperdiciar el TOTAL del período con LBR-2.
+    if libro.tipo_libro == "ventas":
+        _validar_xml_libro_ventas_sin_lbr2(xml_str)
 
     # ── Firmar con type="libro" ──
     signed = firma.firmar(xml_str, xml_libro_id, type="libro")
@@ -824,6 +954,15 @@ def reiniciar_envio_libro(
             f"No se puede reiniciar el libro {libro.tipo_libro}: ya está "
             f"aprobado por el SII ({libro.aprobado_at}).",
         )
+    # ADVERTENCIA (no bloqueo): reiniciar un libro LOK para enviar como
+    # AJUSTE puede ser legítimo (corrección de datos).  Pero si el único
+    # problema es un reparo LBR-2, el AJUSTE volverá a fallar y bloqueará
+    # el avance.  El caller recibe la advertencia vía el campo
+    # ``advertencia`` del dict de retorno para que el wizard la muestre.
+    _advertencia_lok = (
+        libro.estado_sii == "LOK"
+        and libro.primer_envio_sii_at is not None
+    )
 
     trackid_previo = libro.trackid
     libro.trackid = None
@@ -833,12 +972,29 @@ def reiniciar_envio_libro(
     libro.enviado_at = None
     session.commit()
 
+    if _advertencia_lok:
+        logger.warning(
+            "Libro LOK reiniciado — el siguiente envío será AJUSTE "
+            "(primer_envio_sii_at conservado). Si el problema era solo "
+            "un reparo LBR-2, el AJUSTE volverá a fallar. "
+            "Libro=%s, trackid_previo=%s",
+            libro.tipo_libro, trackid_previo,
+        )
+
     logger.info(
         "Libro reiniciado: tipo=%s, libro_id=%s, trackid_previo=%s",
         libro.tipo_libro, libro_id, trackid_previo,
+    )
+
+    advertencia = (
+        "El libro estaba LOK — el siguiente envío será AJUSTE. "
+        "Si el único problema era un reparo LBR-2, el AJUSTE volverá "
+        "a fallar con LRH. Declare avance directamente en ese caso."
+        if _advertencia_lok else None
     )
     return {
         "ok": True,
         "libro_id": libro_id,
         "estado": libro.estado,
+        "advertencia": advertencia,
     }

@@ -33,6 +33,7 @@ from crumbpos.api.services.envio_libro_cert import (
     _parsear_estado_sii,
     _parsear_glosa_sii,
     _sha256_hex,
+    _validar_xml_libro_ventas_sin_lbr2,
     consultar_estado_libro,
     enriquecer_entradas_compras,
     enviar_libro,
@@ -1255,13 +1256,18 @@ class TestPrimerEnvioSiiAtAuditTrail:
         assert libro.estado == "pendiente"
 
 
-class TestLibrosEspecialesSiempreTotal:
-    """Cert SII: los 3 tipos de libro ESPECIAL siempre salen con
-    ``<TipoEnvio>TOTAL</TipoEnvio>``, incluso tras reiniciar envío.
+class TestTipoEnvioLibros:
+    """Verifica la lógica de TipoEnvio por tipo de libro:
 
-    Esto previene el rechazo "sin trackid + sin correo" observado el
-    2026-04-23 al intentar emitir AJUSTE con un N° de Atención ya
-    quemado por un TOTAL previo."""
+    IECV (ventas / compras):
+      - Primer envío (``primer_envio_sii_at`` es None)  → TOTAL
+      - Re-envío correctivo (``primer_envio_sii_at`` seteado) → AJUSTE
+        El SII devuelve LNC si se envía TOTAL cuando ya existe un libro
+        aceptado para ese FolioNotificacion/período.
+
+    LibroGuia:
+      - Siempre TOTAL (el esquema LibroGuia_v10.xsd solo acepta
+        TOTAL/PARCIAL; AJUSTE no es un valor válido en ese esquema)."""
 
     def test_ventas_primera_vez_usa_total(
         self, session, run, empresa, servicio_fake,
@@ -1276,12 +1282,12 @@ class TestLibrosEspecialesSiempreTotal:
         assert "<TipoEnvio>TOTAL</TipoEnvio>" in xml
         assert "<TipoEnvio>AJUSTE</TipoEnvio>" not in xml
 
-    def test_ventas_reenvio_sigue_usando_total(
+    def test_ventas_reenvio_usa_ajuste(
         self, session, run, empresa, servicio_fake,
     ):
-        """Aunque el libro tenga ``primer_envio_sii_at`` seteado (ya
-        hubo un TOTAL previo), el re-envío sigue siendo TOTAL. En
-        certificación NO emitimos AJUSTE automáticamente."""
+        """Cuando ``primer_envio_sii_at`` está seteado (ya hubo un TOTAL
+        aceptado), el re-envío correctivo debe generar AJUSTE.
+        Enviar TOTAL en este caso provoca rechazo LNC del SII."""
         _make_dtes(session, empresa, [(33, 100)])
         libro = _make_libro(session, run, "ventas", numero_atencion=4788484)
         libro.primer_envio_sii_at = datetime.now(timezone.utc)
@@ -1291,8 +1297,81 @@ class TestLibrosEspecialesSiempreTotal:
 
         session.refresh(libro)
         xml = base64.b64decode(libro.xml_libro).decode("ISO-8859-1")
-        assert "<TipoEnvio>TOTAL</TipoEnvio>" in xml
-        assert "<TipoEnvio>AJUSTE</TipoEnvio>" not in xml
+        assert "<TipoEnvio>AJUSTE</TipoEnvio>" in xml
+        assert "<TipoEnvio>TOTAL</TipoEnvio>" not in xml
+
+    def test_ventas_ajuste_delta_solo_t61(
+        self, session, run, empresa, servicio_fake,
+    ):
+        """AJUSTE delta ventas: cuando hay T33+T56+T61 en el set pero ya se
+        envió el TOTAL, el AJUSTE debe contener SOLO los T61.
+
+        Raíz (cert 77051056-2, 2026-05): enviar T33+T56+T61 como AJUSTE
+        producía LBR-3 ("No Hay Resumen Para Informacion de Detalle") porque
+        el SII procesa AJUSTE como reemplazo parcial por TipoDoc — los tipos
+        idénticos al TOTAL original no tienen justificación de corrección.
+
+        El único tipo que cambió en ese set era T61 (se eliminó TpoDocRef
+        para NCs que referencian T33/T34/T52; ese campo es válido solo para
+        liquidaciones T40/T43/T103). T33 y T56 son idénticos al TOTAL.
+        """
+        _make_dtes(session, empresa, [
+            (33, 100), (33, 101),  # idénticos al TOTAL — NO deben ir en AJUSTE
+            (56, 10),               # idéntico al TOTAL — NO debe ir en AJUSTE
+            (61, 50), (61, 51),    # cambiaron (sin TpoDocRef) — SÍ deben ir
+        ])
+        libro = _make_libro(session, run, "ventas", numero_atencion=4840936)
+        libro.primer_envio_sii_at = datetime.now(timezone.utc)
+        session.commit()
+
+        generar_libro(session, run, libro.id, servicio_fake, empresa)
+
+        session.refresh(libro)
+        xml = base64.b64decode(libro.xml_libro).decode("ISO-8859-1")
+
+        assert "<TipoEnvio>AJUSTE</TipoEnvio>" in xml
+
+        # Solo 2 Detalle: los 2 T61 (folios 50 y 51)
+        assert xml.count("<Detalle>") == 2, (
+            "AJUSTE delta debe incluir SOLO los 2 T61; T33 y T56 son "
+            "idénticos al TOTAL y causan LBR-3 si se incluyen en AJUSTE"
+        )
+
+        # T61 sí deben aparecer
+        assert "<TpoDoc>61</TpoDoc>" in xml
+        assert "<NroDoc>50</NroDoc>" in xml
+        assert "<NroDoc>51</NroDoc>" in xml
+
+        # T33 y T56 NO deben aparecer en Detalle ni en ResumenPeriodo
+        assert "<NroDoc>100</NroDoc>" not in xml
+        assert "<NroDoc>101</NroDoc>" not in xml
+        assert "<NroDoc>10</NroDoc>" not in xml
+
+        # Solo 1 TotalesPeriodo en ResumenPeriodo (solo T61)
+        assert xml.count("<TotalesPeriodo>") == 1, (
+            "ResumenPeriodo del AJUSTE debe tener solo 1 TotalesPeriodo "
+            "(T61); T33 y T56 se conservan del TOTAL original en el SII"
+        )
+
+    def test_ventas_ajuste_fallback_sin_t61(
+        self, session, run, empresa, servicio_fake,
+    ):
+        """AJUSTE fallback: si no hay T61 en el set, se usa la lista
+        completa (todos los tipos cambiaron en ese envío)."""
+        _make_dtes(session, empresa, [(33, 100), (33, 101)])
+        libro = _make_libro(session, run, "ventas", numero_atencion=4840936)
+        libro.primer_envio_sii_at = datetime.now(timezone.utc)
+        session.commit()
+
+        generar_libro(session, run, libro.id, servicio_fake, empresa)
+
+        session.refresh(libro)
+        xml = base64.b64decode(libro.xml_libro).decode("ISO-8859-1")
+
+        assert "<TipoEnvio>AJUSTE</TipoEnvio>" in xml
+        # Fallback: sin T61, se incluyen todos los DTEs disponibles
+        assert xml.count("<Detalle>") == 2
+        assert "<TpoDoc>33</TpoDoc>" in xml
 
     def test_guias_reenvio_sigue_usando_total(
         self, session, run, empresa, servicio_fake,
@@ -1311,9 +1390,10 @@ class TestLibrosEspecialesSiempreTotal:
         assert "<TipoEnvio>TOTAL</TipoEnvio>" in xml
         assert "<TipoEnvio>AJUSTE</TipoEnvio>" not in xml
 
-    def test_compras_reenvio_sigue_usando_total(
+    def test_compras_reenvio_usa_ajuste(
         self, session, run, empresa, servicio_fake,
     ):
+        """Mismo comportamiento que ventas: AJUSTE en re-envío correctivo."""
         datos = {"entradas": [{
             "tipo_doc": 33,
             "folio": 500,
@@ -1333,5 +1413,110 @@ class TestLibrosEspecialesSiempreTotal:
 
         session.refresh(libro)
         xml = base64.b64decode(libro.xml_libro).decode("ISO-8859-1")
-        assert "<TipoEnvio>TOTAL</TipoEnvio>" in xml
-        assert "<TipoEnvio>AJUSTE</TipoEnvio>" not in xml
+        assert "<TipoEnvio>AJUSTE</TipoEnvio>" in xml
+        assert "<TipoEnvio>TOTAL</TipoEnvio>" not in xml
+
+
+# ══════════════════════════════════════════════════════════════════
+# Guardia anti-LBR-2: _validar_xml_libro_ventas_sin_lbr2
+# ══════════════════════════════════════════════════════════════════
+
+
+class TestValidarXmlLibroVentasSinLbr2:
+    """Circuito de corte anti-LBR-2 en el pipeline de libro de ventas.
+
+    El SII emite reparo LBR-2 "Reparo en Calculo de [TpoDoc] debe ser
+    [40, 43, 103]" cuando el XML del libro incluye TpoDocRef con un valor
+    que no corresponde a una liquidación.  Esta guardia se llama ANTES de
+    firmar el XML, de modo que cualquier regresión en el generador sea
+    detectada antes de desperdiciar el TOTAL del período.
+    """
+
+    def _xml_con_detalle(
+        self,
+        tpo_doc: int,
+        tpo_doc_ref: int | None = None,
+        folio_doc_ref: int | None = None,
+    ) -> str:
+        """XML mínimo con un <Detalle> para TpoDoc dado."""
+        ref_xml = ""
+        if tpo_doc_ref is not None:
+            ref_xml += f"<TpoDocRef>{tpo_doc_ref}</TpoDocRef>"
+        if folio_doc_ref is not None:
+            ref_xml += f"<FolioDocRef>{folio_doc_ref}</FolioDocRef>"
+        return (
+            f"<LibroCompraVenta>"
+            f"<Detalle>"
+            f"<TpoDoc>{tpo_doc}</TpoDoc>"
+            f"<NroDoc>141</NroDoc>"
+            f"{ref_xml}"
+            f"<MntTotal>-100000</MntTotal>"
+            f"</Detalle>"
+            f"</LibroCompraVenta>"
+        )
+
+    def test_t61_sin_tpo_doc_ref_ok(self):
+        """NC sin TpoDocRef — sin LBR-2, OK."""
+        xml = self._xml_con_detalle(tpo_doc=61)
+        _validar_xml_libro_ventas_sin_lbr2(xml)  # no debe lanzar
+
+    def test_t61_tpo_doc_ref_40_ok(self):
+        """NC T61 con TpoDocRef=40 (liquidación papel) — válido, OK."""
+        xml = self._xml_con_detalle(tpo_doc=61, tpo_doc_ref=40, folio_doc_ref=5)
+        _validar_xml_libro_ventas_sin_lbr2(xml)  # no debe lanzar
+
+    def test_t61_tpo_doc_ref_43_ok(self):
+        """NC T61 con TpoDocRef=43 (liquidación electrónica) — válido, OK."""
+        xml = self._xml_con_detalle(tpo_doc=61, tpo_doc_ref=43, folio_doc_ref=7)
+        _validar_xml_libro_ventas_sin_lbr2(xml)  # no debe lanzar
+
+    def test_t61_tpo_doc_ref_103_ok(self):
+        """NC T61 con TpoDocRef=103 (liquidación electrónica DTE) — válido, OK."""
+        xml = self._xml_con_detalle(tpo_doc=61, tpo_doc_ref=103, folio_doc_ref=9)
+        _validar_xml_libro_ventas_sin_lbr2(xml)  # no debe lanzar
+
+    def test_t61_tpo_doc_ref_33_lanza_error(self):
+        """NC T61 con TpoDocRef=33 — debe lanzar ValueError con mensaje LBR-2.
+
+        Este es el caso exacto que causó la certificación bloqueada de
+        77051056-2 en 2026-05. La guardia debe cortar ANTES de firmar.
+        """
+        xml = self._xml_con_detalle(tpo_doc=61, tpo_doc_ref=33, folio_doc_ref=140)
+        with pytest.raises(ValueError, match="ANTI-LBR-2"):
+            _validar_xml_libro_ventas_sin_lbr2(xml)
+
+    def test_t61_tpo_doc_ref_34_lanza_error(self):
+        """NC T61 con TpoDocRef=34 (factura exenta) — también inválido."""
+        xml = self._xml_con_detalle(tpo_doc=61, tpo_doc_ref=34, folio_doc_ref=10)
+        with pytest.raises(ValueError, match="ANTI-LBR-2"):
+            _validar_xml_libro_ventas_sin_lbr2(xml)
+
+    def test_t56_tpo_doc_ref_33_lanza_error(self):
+        """ND T56 con TpoDocRef=33 — también inválido."""
+        xml = self._xml_con_detalle(tpo_doc=56, tpo_doc_ref=33, folio_doc_ref=50)
+        with pytest.raises(ValueError, match="ANTI-LBR-2"):
+            _validar_xml_libro_ventas_sin_lbr2(xml)
+
+    def test_t33_sin_tpo_doc_ref_ok(self):
+        """Factura T33 normal sin TpoDocRef — sin error."""
+        xml = self._xml_con_detalle(tpo_doc=33)
+        _validar_xml_libro_ventas_sin_lbr2(xml)  # no debe lanzar
+
+    def test_multiples_detalles_uno_invalido_lanza(self):
+        """Libro con múltiples detalles — uno inválido dispara el error."""
+        xml = (
+            "<LibroCompraVenta>"
+            "<Detalle><TpoDoc>33</TpoDoc><NroDoc>1</NroDoc><MntTotal>100000</MntTotal></Detalle>"
+            "<Detalle><TpoDoc>33</TpoDoc><NroDoc>2</NroDoc><MntTotal>200000</MntTotal></Detalle>"
+            # Esta NC con TpoDocRef=33 es la que debe disparar el error:
+            "<Detalle><TpoDoc>61</TpoDoc><NroDoc>141</NroDoc>"
+            "<TpoDocRef>33</TpoDocRef><FolioDocRef>1</FolioDocRef>"
+            "<MntTotal>-50000</MntTotal></Detalle>"
+            "</LibroCompraVenta>"
+        )
+        with pytest.raises(ValueError, match="ANTI-LBR-2"):
+            _validar_xml_libro_ventas_sin_lbr2(xml)
+
+    def test_xml_vacio_ok(self):
+        """XML sin ningún <Detalle> — no hay nada que verificar, OK."""
+        _validar_xml_libro_ventas_sin_lbr2("<LibroCompraVenta></LibroCompraVenta>")
