@@ -32,26 +32,27 @@ logger = logging.getLogger(__name__)
 import os
 import secrets
 
-# JWT_SECRET: 32+ bytes random (high entropy). En producción debe venir
-# de un secret manager. Generar con: secrets.token_urlsafe(64).
-_JWT_DEFAULT = "dev-secret-change-in-production"
-SECRET_KEY = os.getenv("JWT_SECRET", _JWT_DEFAULT)
-
-# Fail-fast: si estamos en producción con el default inseguro, el proceso
-# NO debe arrancar. Esto evita despliegues con secret comprometido.
-if SECRET_KEY == _JWT_DEFAULT and os.getenv("CRUMBPOS_ENV", "").lower() == "production":
+# FIX 2026-05-28 — CN-004: valor default conocido ("dev-secret-change-in-production")
+# en el código fuente permitía forjar tokens JWT válidos para cualquier usuario.
+# Historial: fallback hardcodeado para facilitar el arranque sin configuración.
+# Causa raíz: string predecible y público → firma de tokens comprometida.
+# Solución: en desarrollo se genera una clave aleatoria por arranque (segura, desconocida);
+# en producción se exige JWT_SECRET via variable de entorno o el proceso no arranca.
+# Nota: la clave aleatoria por arranque implica que las sesiones expiran al reiniciar
+# el servidor en dev. Para persistencia entre reinicios definir JWT_SECRET en .env.
+_jwt_env = os.getenv("JWT_SECRET")
+if _jwt_env:
+    SECRET_KEY = _jwt_env
+elif os.getenv("CRUMBPOS_ENV", "").lower() == "production":
     raise RuntimeError(
-        "JWT_SECRET no configurado en producción. "
-        "Configurar variable de entorno con un valor de alta entropía "
-        "(ej: `export JWT_SECRET=$(python -c 'import secrets; print(secrets.token_urlsafe(64))')`)."
+        "JWT_SECRET es obligatoria en producción. "
+        "Generar con: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
     )
-
-# Aviso adicional para no-producción si dejan el default
-if SECRET_KEY == _JWT_DEFAULT:
-    import logging as _logging
-    _logging.getLogger(__name__).warning(
-        "⚠️  JWT_SECRET tiene valor por defecto. NO USAR EN PRODUCCIÓN. "
-        "Configurar CRUMBPOS_ENV=production junto con JWT_SECRET seguro."
+else:
+    SECRET_KEY = secrets.token_urlsafe(64)
+    logger.warning(
+        "⚠️  JWT_SECRET no definida. Clave aleatoria temporal en uso — las sesiones "
+        "expiran al reiniciar el servidor. Definir JWT_SECRET en .env para persistencia."
     )
 
 ALGORITHM = "HS256"

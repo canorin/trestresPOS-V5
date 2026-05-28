@@ -31,11 +31,10 @@
 ## Modo de desarrollo
 
 Si `CRUMBPOS_MASTER_KEY` no está definida y `CRUMBPOS_ENV != "production"`,
-se usa una clave derivada determinística (banner WARNING). Esto facilita
-tests locales sin exigir setup. **NUNCA usar en producción.**
+se usa la clave persistida en `data/.dev_master_key` (generada aleatoriamente
+en el primer arranque). Si ese archivo no puede crearse (FS no escribible),
+el proceso falla con error explícito — no existe fallback inseguro.
 """
-import base64
-import hashlib
 import logging
 import os
 
@@ -120,13 +119,19 @@ def _obtener_master_key() -> bytes:
         )
         return new_key
     except Exception as exc:
-        # Fallback: clave derivada determinística (menos segura, solo si el FS no es escribible)
-        logger.warning(
-            "⚠️  No se pudo leer/crear %s (%s). Usando clave determinística "
-            "de último recurso. NO USAR EN PRODUCCIÓN.", dev_key_path, exc
-        )
-        digest = hashlib.sha256(b"crumbpos-dev-key-NEVER-USE-IN-PRODUCTION").digest()
-        return base64.urlsafe_b64encode(digest)
+        # FIX 2026-05-28 — CN-006: el fallback SHA256 con seed público en código
+        # fuente permitía derivar la misma clave Fernet a cualquiera con acceso
+        # al repositorio, descifrando cert_password, cert_data y caf_xml_raw.
+        # Historial: era "último recurso" cuando el FS no era escribible en dev.
+        # Causa raíz: seed conocido → clave determinística → datos descifrados.
+        # Solución: error explícito en lugar de fallback inseguro.
+        raise SecretoCifradoError(
+            f"No se pudo leer ni crear la clave de desarrollo en {dev_key_path}: {exc}. "
+            f"Soluciones: (1) asegurar que el directorio data/ sea escribible, "
+            f"o (2) definir CRUMBPOS_MASTER_KEY con una Fernet key válida. "
+            f"Generar clave: python -c \"from cryptography.fernet import Fernet; "
+            f"print(Fernet.generate_key().decode())\""
+        ) from exc
 
 
 def _fernet() -> Fernet:

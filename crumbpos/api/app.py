@@ -72,29 +72,22 @@ class IPRateLimitMiddleware(BaseHTTPMiddleware):
             )
         return await call_next(request)
 
-# Super admin credentials (from env or defaults for dev).
-# En producción: SUPER_ADMIN_PASSWORD es obligatoria y NO puede ser el default.
+# FIX 2026-05-28 — CN-005: contraseña default "admin123" en código fuente
+# permitía acceder al panel de super admin sin contraseña real en cualquier
+# entorno donde SUPER_ADMIN_PASSWORD no estuviera definida.
+# Historial: fallback para no exigir configuración al arrancar en desarrollo.
+# Causa raíz: valor trivial y conocido universalmente expuesto como default.
+# Solución: fail-fast en CUALQUIER entorno si la variable no está definida.
+# SUPER_ADMIN_PASSWORD debe estar en .env para desarrollo y en el secret manager
+# para producción. No existe entorno válido donde "admin123" sea aceptable.
 SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "matias@trestres.cl")
-_SUPER_ADMIN_DEFAULT = "admin123"
-SUPER_ADMIN_PASSWORD = os.getenv("SUPER_ADMIN_PASSWORD", _SUPER_ADMIN_DEFAULT)
 SUPER_ADMIN_NOMBRE = os.getenv("SUPER_ADMIN_NOMBRE", "Matías Bañados")
-
-# Fail-fast: bloquear arranque en producción si la password del super admin
-# es el default conocido.
-if (
-    SUPER_ADMIN_PASSWORD == _SUPER_ADMIN_DEFAULT
-    and os.getenv("CRUMBPOS_ENV", "").lower() == "production"
-):
+SUPER_ADMIN_PASSWORD = os.environ.get("SUPER_ADMIN_PASSWORD")
+if not SUPER_ADMIN_PASSWORD:
     raise RuntimeError(
-        "SUPER_ADMIN_PASSWORD no configurada en producción. "
-        "Configurar con valor de alta entropía: "
-        "`export SUPER_ADMIN_PASSWORD=$(python -c 'import secrets; print(secrets.token_urlsafe(24))')`."
-    )
-
-if SUPER_ADMIN_PASSWORD == _SUPER_ADMIN_DEFAULT:
-    import logging as _logging
-    _logging.getLogger(__name__).warning(
-        "⚠️  SUPER_ADMIN_PASSWORD usa valor por defecto. NO USAR EN PRODUCCIÓN."
+        "SUPER_ADMIN_PASSWORD no está configurada. "
+        "Agregar al archivo .env: SUPER_ADMIN_PASSWORD=<contraseña-segura>. "
+        "Generar con: python -c 'import secrets; print(secrets.token_urlsafe(24))'"
     )
 
 
